@@ -20,6 +20,7 @@ import { BULK_TRASH_LABELS } from "@/lib/gmail-cleanup";
 import {
   GmailError,
   LABEL_QUERIES,
+  DEFAULT_MAILBOX_VIEW,
   MAILBOX_VIEWS,
   labelCounts,
   listMail,
@@ -187,7 +188,7 @@ export default async function EmailPage({ searchParams }: PageProps<"/email">) {
 
   const messageHref = (id: string) =>
     hrefWith(`${PATH}/${id}`, {}, {
-      view: view.id === "bills" ? null : view.id,
+      view: view.id === DEFAULT_MAILBOX_VIEW ? null : view.id,
       q: search || null,
       account: accounts.length > 1 ? account.id : null,
     });
@@ -220,7 +221,7 @@ export default async function EmailPage({ searchParams }: PageProps<"/email">) {
           placeholder="Gmail search — from:acme has:attachment…"
           defaultValue={search}
           keep={{
-            view: view.id === "bills" ? undefined : view.id,
+            view: view.id === DEFAULT_MAILBOX_VIEW ? undefined : view.id,
             account: accounts.length > 1 ? account.id : undefined,
           }}
           className="max-w-[360px] flex-1"
@@ -263,7 +264,7 @@ export default async function EmailPage({ searchParams }: PageProps<"/email">) {
         href={(label) => {
           const target = MAILBOX_VIEWS.find((v) => v.label === label)!;
           return hrefWith(PATH, params, {
-            view: target.id === "bills" ? null : target.id,
+            view: target.id === DEFAULT_MAILBOX_VIEW ? null : target.id,
             t: null,
           });
         }}

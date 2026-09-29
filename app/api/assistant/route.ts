@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth";
 import { askAssistant, getConversation, listConversations, setConversationArchived } from "@/lib/assistant";
 import { extractDocumentText } from "@/lib/document-extract";
+import { loadEmailAttachments } from "@/lib/email-context";
+import { readMail, type MailDetail } from "@/lib/gmail";
 
 /**
  * The floating assistant panel's data, fetched client-side so it works from
@@ -54,6 +56,9 @@ function decodeDataUrl(dataUrl: string): Buffer {
   return Buffer.from(base64, "base64");
 }
 
+// A turn can include slow tools (e.g. reading an emailed invoice with AI) on top of the chat itself.
+export const maxDuration = 300;
+
 export async function POST(request: Request) {
   const { org, person } = await requireSession();
   const body = (await request.json()) as {
@@ -61,6 +66,9 @@ export async function POST(request: Request) {
     question?: string;
     attachments?: Attachment[];
     pageContext?: string;
+    /** Set on an email page: the open message, read here server-side (never trusted from the client). */
+    email?: { id?: string; account?: string } | null;
+    timeZone?: string;
   };
   const question = body.question?.trim();
   if (!question) return NextResponse.json({ error: "Type a question first." }, { status: 400 });
@@ -82,6 +90,15 @@ export async function POST(request: Request) {
     extraContext = blocks.join("\n\n");
   }
 
+  // The email the user is viewing, fetched fresh through their own connector — if it can't be read,
+  // the chat still works, just without it.
+  let email: MailDetail | null = null;
+  if (body.email?.id && /^[A-Za-z0-9]+$/.test(body.email.id)) {
+    email = await readMail(body.email.id, org.id, body.email.account || undefined).catch(() => null);
+  }
+  const emailAttachments = email ? await loadEmailAttachments(email, org.id).catch(() => undefined) : undefined;
+  const timeZone = typeof body.timeZone === "string" && body.timeZone.length < 64 ? body.timeZone : "UTC";
+
   const events = askAssistant(
     org.id,
     person.id,
@@ -91,6 +108,7 @@ export async function POST(request: Request) {
     images,
     attachments,
     body.pageContext ?? null,
+    { email, emailAttachments, timeZone },
   );
 
   const encoder = new TextEncoder();

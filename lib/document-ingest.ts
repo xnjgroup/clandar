@@ -143,6 +143,91 @@ export async function markParsePending(fileId: string): Promise<void> {
   await setStatus(fileId, "pending");
 }
 
+/** A document to read: a file's bytes (images go to the model directly), or already-extracted text such as an email body. */
+export type InvoiceSource =
+  | { fileName: string; contentType: string; bytes: Buffer }
+  | { fileName: string; text: string };
+
+/** What the model read out of an invoice/receipt — vendor, dates, total, and the charges as line items. */
+export type ParsedInvoice = Extracted;
+
+/** Reads an invoice/receipt with the org's default AI provider. Throws a message fit to show a person. */
+export async function readInvoiceDocument(
+  orgId: string,
+  docType: "invoice" | "receipt",
+  source: InvoiceSource,
+): Promise<ParsedInvoice> {
+  const provider = await defaultLlmProvider(orgId);
+  if (!provider) throw new Error("No AI provider is set up — add one on Settings first.");
+
+  let content: ChatContentPart[];
+  if ("text" in source) {
+    if (!source.text.trim()) throw new Error("There's no readable text to parse.");
+    content = [{ type: "text", text: `${source.fileName}:\n\n${source.text.slice(0, 12_000)}` }];
+  } else if (source.contentType.startsWith("image/")) {
+    content = [
+      { type: "text", text: `The ${docType} is in this image (${source.fileName}).` },
+      { type: "image_url", image_url: { url: `data:${source.contentType};base64,${source.bytes.toString("base64")}` } },
+    ];
+  } else {
+    const extracted = await extractDocumentText(source.fileName, source.contentType, source.bytes);
+    if ("error" in extracted) throw new Error(extracted.error);
+    if (!extracted.text.trim()) throw new Error("The file has no readable text — if it's a scan, upload it as an image.");
+    content = [{ type: "text", text: `${source.fileName}:\n\n${extracted.text}` }];
+  }
+
+  const reply = await chatComplete(
+    provider.id,
+    [
+      { role: "system", content: instructions(docType) },
+      { role: "user", content },
+    ],
+    { temperature: 0, timeoutMs: 100_000 },
+  );
+  return parseReply(reply);
+}
+
+/**
+ * Writes a parsed invoice as a `pending_review` invoice (vendor and category
+ * created on first use) with its charges as line items, inside the caller's
+ * transaction. Returns the new invoice id.
+ */
+export async function insertInvoice(
+  client: PoolClient,
+  orgId: string,
+  data: ParsedInvoice,
+  options: { projectId: string | null; docType: "invoice" | "receipt"; submittedBy: string },
+): Promise<string> {
+  await client.query(`INSERT INTO categories (name) VALUES ($1) ON CONFLICT DO NOTHING`, [data.category]);
+  const vendorId = await findOrCreateVendor(client, orgId, data.vendorName, data.category);
+  const invoice = await client.query<{ id: string }>(
+    `INSERT INTO invoices (org_id, vendor_id, category, project_id, invoice_date, amount, status,
+                           account_number, due_date, payment_method, submitted_by)
+     VALUES ($1, $2, $3, $4, $5, $6, 'pending_review', $7, $8, $9, $10) RETURNING id`,
+    [
+      orgId,
+      vendorId,
+      data.category,
+      options.projectId,
+      data.invoiceDate,
+      data.total,
+      data.accountNumber,
+      data.dueDate,
+      data.paymentMethod ?? (options.docType === "receipt" ? "Paid (receipt)" : null),
+      options.submittedBy.slice(0, 200),
+    ],
+  );
+  const invoiceId = invoice.rows[0].id;
+  for (const [i, line] of data.lineItems.entries()) {
+    await client.query(
+      `INSERT INTO invoice_line_items (invoice_id, group_label, tag, description, amount, sort_order)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [invoiceId, data.vendorName, line.kind, line.description, line.amount, i],
+    );
+  }
+  return invoiceId;
+}
+
 /**
  * Reads an invoice/receipt file and records it as an invoice on the project.
  * Never throws — any failure is written to the file's `parse_error` instead.
@@ -155,61 +240,19 @@ export async function parseProjectDocument(fileId: string, projectId: string, or
     if (!doc || doc.doc_type === "general") return;
     const docType = doc.doc_type;
 
-    const provider = await defaultLlmProvider(orgId);
-    if (!provider) throw new Error("No AI provider is set up — add one on Settings first.");
-
     const bytes = await readProjectFileBytes(file);
-    let content: ChatContentPart[];
-    if (file.contentType.startsWith("image/")) {
-      content = [
-        { type: "text", text: `The ${docType} is in this image (${file.fileName}).` },
-        { type: "image_url", image_url: { url: `data:${file.contentType};base64,${bytes.toString("base64")}` } },
-      ];
-    } else {
-      const extracted = await extractDocumentText(file.fileName, file.contentType, bytes);
-      if ("error" in extracted) throw new Error(extracted.error);
-      if (!extracted.text.trim()) throw new Error("The file has no readable text — if it's a scan, upload it as an image.");
-      content = [{ type: "text", text: `${file.fileName}:\n\n${extracted.text}` }];
-    }
-
-    const reply = await chatComplete(
-      provider.id,
-      [
-        { role: "system", content: instructions(docType) },
-        { role: "user", content },
-      ],
-      { temperature: 0, timeoutMs: 100_000 },
-    );
-    const data = parseReply(reply);
+    const data = await readInvoiceDocument(orgId, docType, {
+      fileName: file.fileName,
+      contentType: file.contentType,
+      bytes,
+    });
 
     await transaction(async (client) => {
-      await client.query(`INSERT INTO categories (name) VALUES ($1) ON CONFLICT DO NOTHING`, [data.category]);
-      const vendorId = await findOrCreateVendor(client, orgId, data.vendorName, data.category);
-      const invoice = await client.query<{ id: string }>(
-        `INSERT INTO invoices (org_id, vendor_id, category, project_id, invoice_date, amount, status,
-                               account_number, due_date, payment_method, submitted_by)
-         VALUES ($1, $2, $3, $4, $5, $6, 'pending_review', $7, $8, $9, $10) RETURNING id`,
-        [
-          orgId,
-          vendorId,
-          data.category,
-          projectId,
-          data.invoiceDate,
-          data.total,
-          data.accountNumber,
-          data.dueDate,
-          data.paymentMethod ?? (docType === "receipt" ? "Paid (receipt)" : null),
-          `Parsed from ${docType} ${file.fileName}`.slice(0, 200),
-        ],
-      );
-      const invoiceId = invoice.rows[0].id;
-      for (const [i, line] of data.lineItems.entries()) {
-        await client.query(
-          `INSERT INTO invoice_line_items (invoice_id, group_label, tag, description, amount, sort_order)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-          [invoiceId, data.vendorName, line.kind, line.description, line.amount, i],
-        );
-      }
+      const invoiceId = await insertInvoice(client, orgId, data, {
+        projectId,
+        docType,
+        submittedBy: `Parsed from ${docType} ${file.fileName}`,
+      });
       await client.query(
         `UPDATE project_files SET invoice_id = $2, parse_status = 'done', parse_error = NULL WHERE id = $1`,
         [fileId, invoiceId],

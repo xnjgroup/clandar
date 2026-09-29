@@ -8,6 +8,7 @@ import { Worker, type Job } from "bullmq";
 import { createRedisConnection } from "@/lib/redis";
 import { SCHEDULED_TASKS_QUEUE, scheduledTasksQueue, type SchedulerJob } from "@/lib/scheduled-tasks-queue";
 import { dueScheduledTasks, executeScheduledTask } from "@/lib/scheduled-tasks";
+import { fireDueReminders } from "@/lib/reminders";
 
 const globalForWorker = globalThis as typeof globalThis & { clandarScheduledTasksWorker?: Worker };
 
@@ -18,6 +19,10 @@ export function startScheduledTasksWorker() {
     SCHEDULED_TASKS_QUEUE,
     async (job: Job<SchedulerJob>) => {
       if (job.data.kind === "tick") {
+        // Due reminders ride the same 5-minute tick (lib/reminders.ts); a failure there mustn't stop scheduled tasks.
+        await fireDueReminders().catch((error: unknown) =>
+          console.error("[reminders] failed:", error instanceof Error ? error.message : error),
+        );
         const due = await dueScheduledTasks();
         for (const task of due) {
           await scheduledTasksQueue().add("run", { kind: "run", taskId: task.id, orgId: task.orgId });

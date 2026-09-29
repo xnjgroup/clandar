@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
+import { usePathname, useSearchParams } from "next/navigation";
 import { Icon } from "@/components/icons";
 import type { AgentAttachment, AgentTurn, ConversationSummary } from "@/lib/assistant";
 
@@ -59,6 +60,30 @@ const DOCUMENT_ACCEPT =
  * what page the user is on (`pageContext`) and can carry multiple switchable
  * conversations, so it replaces the old single-conversation /messages route.
  */
+/** One-tap asks offered while viewing an email — each is just a prompt about "this email". */
+const EMAIL_QUICK_ACTIONS: { label: string; prompt: string }[] = [
+  {
+    label: "Read & summarize",
+    prompt:
+      "Summarize this email: the gist, what they're asking for, any dates or amounts, and what I need to do. If it's an invoice, bill or receipt, show the parsed details and ask if I want it added to my invoice records.",
+  },
+  {
+    label: "Draft replies",
+    prompt:
+      "Suggest 3 short, different replies to this email (for example: yes / need more info / polite no), labelled. Don't save or send anything yet — I'll pick one.",
+  },
+  {
+    label: "Follow up",
+    prompt:
+      "Create a reminder task to follow up on this email in 3 days (unless the email implies a better date), with a note of what to follow up on.",
+  },
+  {
+    label: "Confirm schedule",
+    prompt:
+      "Find the date/time being proposed or asked about in this email. Tell me what you found and which project it belongs to, and ask me to confirm before adding it to the schedule and saving a confirmation reply as a Gmail draft.",
+  },
+];
+
 export function ExecutiveAssistantWidget({
   open,
   onOpenChange,
@@ -80,6 +105,13 @@ export function ExecutiveAssistantWidget({
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const switcherRef = useRef<HTMLDivElement>(null);
+
+  // On a message page (/email/<gmail id>), the chat is about that email: the server reads it
+  // and hands it to the model, and quick actions below offer the common asks.
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const emailMatch = pathname.match(/^\/email\/([A-Za-z0-9]+)$/);
+  const emailRef = emailMatch ? { id: emailMatch[1], account: searchParams.get("account") ?? undefined } : null;
 
   // Click-outside and Escape both close the switcher, same as any other popover.
   useEffect(() => {
@@ -188,8 +220,8 @@ export function ExecutiveAssistantWidget({
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
-  async function send() {
-    const q = question.trim();
+  async function send(text?: string) {
+    const q = (text ?? question).trim();
     if (!q || pending) return;
     setPending(true);
     setError(null);
@@ -226,7 +258,14 @@ export function ExecutiveAssistantWidget({
       const res = await fetch("/api/assistant", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ conversationId, question: q, attachments: sentAttachments, pageContext }),
+        body: JSON.stringify({
+          conversationId,
+          question: q,
+          attachments: sentAttachments,
+          pageContext,
+          email: emailRef,
+          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        }),
       });
       if (!res.ok || !res.body) {
         const data = (await res.json().catch(() => ({}))) as { error?: string };
@@ -386,8 +425,9 @@ export function ExecutiveAssistantWidget({
           <p className="m-0 text-[12px] text-faint">Loading…</p>
         ) : turns.length === 0 ? (
           <p className="m-0 text-[12px] leading-[1.5] text-muted">
-            Ask about a vendor, category, budget, or fraud flag, or ask me to create customers, projects, project
-            types, or tasks — I can act on your data, not just describe it. Currently viewing: {pageContext}.
+            {emailRef
+              ? "I can read the email you're viewing — summarize it, draft replies, set a follow-up, or confirm a schedule. Use the buttons below or just ask."
+              : `Ask about a vendor, category, budget, or fraud flag, or ask me to create customers, projects, project types, or tasks — I can act on your data, not just describe it. Currently viewing: ${pageContext}.`}
           </p>
         ) : (
           turns.map((turn) => {
@@ -505,6 +545,21 @@ export function ExecutiveAssistantWidget({
             )}
           </div>
         ) : null}
+        {emailRef ? (
+          <div className="flex flex-wrap gap-[6px]">
+            {EMAIL_QUICK_ACTIONS.map((a) => (
+              <button
+                key={a.label}
+                type="button"
+                disabled={pending}
+                onClick={() => send(a.prompt)}
+                className="cursor-pointer rounded-full border border-line bg-bg px-[10px] py-[5px] text-[11px] font-medium text-body hover:bg-line-soft disabled:opacity-40"
+              >
+                {a.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
         <div className="flex items-center gap-[8px]">
           <input
             ref={fileInputRef}
@@ -537,7 +592,7 @@ export function ExecutiveAssistantWidget({
           />
           <button
             type="button"
-            onClick={send}
+            onClick={() => send()}
             disabled={pending || !question.trim()}
             className="shrink-0 cursor-pointer rounded-full bg-ink px-[14px] py-[9px] text-[11.5px] font-semibold text-lime enabled:cursor-pointer disabled:opacity-40"
           >

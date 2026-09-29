@@ -41,15 +41,18 @@ export type MailboxView = {
 };
 
 export const MAILBOX_VIEWS: MailboxView[] = [
-  { id: "bills", label: "Bills & receipts", query: "invoice OR receipt OR statement OR bill" },
   { id: "inbox", label: "Inbox", query: "in:inbox" },
+  { id: "bills", label: "Bills & receipts", query: "invoice OR receipt OR statement OR bill" },
   { id: "unread", label: "Unread", query: "is:unread" },
   { id: "attachments", label: "With attachments", query: "has:attachment" },
   { id: "all", label: "All mail", query: "" },
 ];
 
+/** The view /email opens on (and the one left out of the URL as `?view=`). */
+export const DEFAULT_MAILBOX_VIEW = "inbox";
+
 export function mailboxView(id: string): MailboxView {
-  return MAILBOX_VIEWS.find((v) => v.id === id) ?? MAILBOX_VIEWS[0];
+  return MAILBOX_VIEWS.find((v) => v.id === (id || DEFAULT_MAILBOX_VIEW)) ?? MAILBOX_VIEWS[0];
 }
 
 export type MailDetail = MailSummary & {
@@ -59,6 +62,10 @@ export type MailDetail = MailSummary & {
   html: string | null;
   text: string | null;
   attachments: MailAttachment[];
+  /** RFC 822 headers a reply needs to thread correctly. */
+  rfcMessageId: string;
+  references: string;
+  replyTo: string;
 };
 
 /** Raised when the account cannot be read, with a message fit for the screen. */
@@ -237,6 +244,9 @@ export async function readMail(id: string, orgId: string, connectorId?: string):
     html,
     text,
     attachments,
+    rfcMessageId: header(message, "Message-ID") || header(message, "Message-Id"),
+    references: header(message, "References"),
+    replyTo: header(message, "Reply-To"),
   };
 }
 
@@ -254,6 +264,14 @@ export async function readAttachment(
   );
   if (!attachment.data) throw new GmailError("That attachment is empty");
   return Buffer.from(attachment.data.replace(/-/g, "+").replace(/_/g, "/"), "base64");
+}
+
+/** The whole original message as RFC 822 bytes — what a mail app saves as an `.eml` file. */
+export async function readRawMail(messageId: string, orgId: string, connectorId?: string): Promise<Buffer> {
+  const connector = await resolveConnector(orgId, connectorId);
+  const message = await call<{ raw?: string }>(connector, `/messages/${messageId}?format=raw`);
+  if (!message.raw) throw new GmailError("Gmail returned an empty message");
+  return Buffer.from(message.raw.replace(/-/g, "+").replace(/_/g, "/"), "base64");
 }
 
 /* ── Cleanup worker ───────────────────────────────────────── */
@@ -359,12 +377,124 @@ function toBase64Url(value: string): string {
  * `trashMail`); a connector still on the older read-only grant gets a 403
  * here until it reconnects.
  */
+export type OutgoingAttachment = { fileName: string; contentType: string; bytes: Buffer };
+
+/** The org's first enabled Gmail connector that's allowed to send, or null — for mail the app sends on its own (invites, reminders). */
+export async function sendableGmailConnectorId(orgId: string): Promise<string | null> {
+  for (const c of await listGmailConnectors(orgId)) {
+    if (hasGmailModifyScope(c) && (await getGmailConnector(c.id))) return c.id;
+  }
+  return null;
+}
+
+/** What a reply needs to land in the original's thread. */
+export type ReplyContext = { threadId: string; inReplyTo: string; references: string };
+
+/** Threading for a reply to `message`: its thread, and References = its References + its Message-ID. */
+export function replyContext(message: MailDetail): ReplyContext {
+  return {
+    threadId: message.threadId,
+    inReplyTo: message.rfcMessageId,
+    references: [message.references, message.rfcMessageId].filter(Boolean).join(" ").trim(),
+  };
+}
+
+/** Base64 wrapped at 76 characters, as MIME requires for encoded bodies. */
+function mimeBase64(bytes: Buffer): string {
+  return bytes.toString("base64").replace(/.{76}/g, "$&\r\n");
+}
+
+/** A filename safe inside a quoted MIME parameter, with the real (possibly non-ASCII) name RFC 2047-encoded. */
+function mimeFileName(name: string): string {
+  const clean = name.replace(/[\r\n"\\]/g, "_");
+  return /^[\x20-\x7e]*$/.test(clean) ? clean : encodeHeaderWord(clean);
+}
+
+/** The full RFC 822 message: text (+ optional HTML alternative), then any attachments. */
+function buildMime(input: {
+  from: string;
+  to: string;
+  subject: string;
+  inReplyTo?: string;
+  references?: string;
+  body: string;
+  html?: string;
+  attachments: OutgoingAttachment[];
+}): string {
+  const boundary = (tag: string) => `----clandar-${tag}-${crypto.randomUUID()}`;
+  const part = (contentType: string, content: string) =>
+    [`Content-Type: ${contentType}; charset="UTF-8"`, `Content-Transfer-Encoding: base64`, ``, mimeBase64(Buffer.from(content, "utf8"))].join(
+      "\r\n",
+    );
+
+  let bodyPart: string;
+  if (input.html) {
+    const alt = boundary("alt");
+    bodyPart = [
+      `Content-Type: multipart/alternative; boundary="${alt}"`,
+      ``,
+      `--${alt}`,
+      part("text/plain", input.body),
+      `--${alt}`,
+      part("text/html", input.html),
+      `--${alt}--`,
+    ].join("\r\n");
+  } else {
+    bodyPart = part("text/plain", input.body);
+  }
+
+  const headers = [
+    `From: ${input.from}`,
+    `To: ${input.to}`,
+    `Subject: ${encodeHeaderWord(input.subject)}`,
+    ...(input.inReplyTo ? [`In-Reply-To: ${input.inReplyTo}`] : []),
+    ...(input.references ? [`References: ${input.references}`] : []),
+    `MIME-Version: 1.0`,
+  ];
+  if (input.attachments.length === 0) return [...headers, bodyPart].join("\r\n");
+
+  const mixed = boundary("mixed");
+  return [
+    ...headers,
+    `Content-Type: multipart/mixed; boundary="${mixed}"`,
+    ``,
+    `--${mixed}`,
+    bodyPart,
+    ...input.attachments.flatMap((a) => [
+      `--${mixed}`,
+      [
+        `Content-Type: ${a.contentType || "application/octet-stream"}; name="${mimeFileName(a.fileName)}"`,
+        `Content-Disposition: attachment; filename="${mimeFileName(a.fileName)}"`,
+        `Content-Transfer-Encoding: base64`,
+        ``,
+        mimeBase64(a.bytes),
+      ].join("\r\n"),
+    ]),
+    `--${mixed}--`,
+  ].join("\r\n");
+}
+
+/**
+ * Sends one email from the org's Gmail connector — used by the project page's
+ * flow to send an estimate, and by the customer-support draft/reply tools.
+ * Requires the `gmail.modify` scope (covers `messages.send`, same as
+ * `trashMail`); a connector still on the older read-only grant gets a 403
+ * here until it reconnects.
+ *
+ * `html` adds a rich alternative to the plain-text `body`. With attachments
+ * the message goes through Gmail's media-upload endpoint (up to 35MB) rather
+ * than the JSON `raw` field, which is only meant for small messages.
+ */
 export async function sendMail(input: {
   orgId: string;
   connectorId?: string;
   to: string;
   subject: string;
   body: string;
+  html?: string;
+  attachments?: OutgoingAttachment[];
+  /** Reply threading: Gmail thread id plus the RFC headers so every mail app groups it. */
+  reply?: ReplyContext;
 }): Promise<void> {
   const connector = await resolveConnector(input.orgId, input.connectorId);
   if (!hasGmailModifyScope(connector)) {
@@ -374,20 +504,84 @@ export async function sendMail(input: {
     );
   }
 
-  const raw = toBase64Url(
-    [
-      `From: ${connector.accountLabel ?? ""}`,
-      `To: ${input.to}`,
-      `Subject: ${encodeHeaderWord(input.subject)}`,
-      `MIME-Version: 1.0`,
-      `Content-Type: text/plain; charset="UTF-8"`,
-      `Content-Transfer-Encoding: base64`,
-      ``,
-      Buffer.from(input.body, "utf8").toString("base64"),
-    ].join("\r\n"),
-  );
+  const mime = buildMime({
+    from: connector.accountLabel ?? "",
+    to: input.to,
+    subject: input.subject,
+    body: input.body,
+    html: input.html,
+    attachments: input.attachments ?? [],
+    inReplyTo: input.reply?.inReplyTo,
+    references: input.reply?.references,
+  });
 
-  await call(connector, `/messages/send`, "POST", { raw });
+  if (!input.attachments?.length) {
+    await call(connector, `/messages/send`, "POST", {
+      raw: toBase64Url(mime),
+      ...(input.reply?.threadId ? { threadId: input.reply.threadId } : {}),
+    });
+    return;
+  }
+
+  let token: string;
+  try {
+    token = await googleAccessToken(connector.id);
+  } catch (error) {
+    throw new GmailError(error instanceof Error ? error.message : "No access token", true);
+  }
+  const response = await fetch(`${API.replace("/gmail/v1/", "/upload/gmail/v1/")}/messages/send?uploadType=media`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "message/rfc822" },
+    body: mime,
+    cache: "no-store",
+    signal: AbortSignal.timeout(60_000),
+  }).catch((error: unknown) => {
+    throw new GmailError(
+      error instanceof Error && error.name === "TimeoutError" ? "Gmail did not respond in time" : "Could not reach the Gmail API",
+    );
+  });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    const message = (() => {
+      try {
+        return (JSON.parse(detail) as { error?: { message?: string } }).error?.message;
+      } catch {
+        return undefined;
+      }
+    })();
+    throw new GmailError(message ?? `Gmail rejected the message (${response.status})`, response.status === 401 || response.status === 403);
+  }
+}
+
+/**
+ * Saves a message to the account's Gmail Drafts (threaded as a reply when
+ * `reply` is given) instead of sending — for a person to finish in Gmail.
+ * Same `gmail.modify` scope as sending.
+ */
+export async function createDraft(input: {
+  orgId: string;
+  connectorId?: string;
+  to: string;
+  subject: string;
+  body: string;
+  reply?: ReplyContext;
+}): Promise<void> {
+  const connector = await resolveConnector(input.orgId, input.connectorId);
+  if (!hasGmailModifyScope(connector)) {
+    throw new GmailError(`${connector.name} only has read access — reconnect it on /connectors to save drafts.`, true);
+  }
+  const mime = buildMime({
+    from: connector.accountLabel ?? "",
+    to: input.to,
+    subject: input.subject,
+    body: input.body,
+    attachments: [],
+    inReplyTo: input.reply?.inReplyTo,
+    references: input.reply?.references,
+  });
+  await call(connector, `/drafts`, "POST", {
+    message: { raw: toBase64Url(mime), ...(input.reply?.threadId ? { threadId: input.reply.threadId } : {}) },
+  });
 }
 
 /* ── Label dashboard ──────────────────────────────────────── */

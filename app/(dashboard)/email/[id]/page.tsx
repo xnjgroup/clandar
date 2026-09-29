@@ -88,6 +88,9 @@ export default async function EmailDetailPage({ params, searchParams }: PageProp
   ];
 
   const showText = asText || message.html === null;
+  const attachmentHref = (partId: string) =>
+    hrefWith(`/api/email/${id}/attachments/${encodeURIComponent(partId)}`, {}, { account: account || null });
+  const imageAttachments = message.attachments.filter((a) => a.mimeType.startsWith("image/"));
 
   return (
     <PageBody>
@@ -108,7 +111,67 @@ export default async function EmailDetailPage({ params, searchParams }: PageProp
         </span>
       </div>
 
-      <div className="grid min-w-0 grid-cols-1 items-start gap-3 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] lg:gap-[14px]">
+      {/* Message details and attachments sit above the body, compactly, so the email itself gets the full width. */}
+      <section className="flex min-w-0 flex-col gap-[8px] rounded-[16px] border border-line bg-surface px-[14px] py-[9px]">
+        <dl className="m-0 flex min-w-0 items-baseline gap-x-[18px] overflow-hidden text-[12.5px] whitespace-nowrap">
+          {fields.map((field) => (
+            <div
+              key={field.label}
+              // From/To can be long; they shrink first. Received stays whole.
+              className={`flex min-w-0 items-baseline gap-[5px] ${field.label === "Received" ? "shrink-0" : "shrink"}`}
+              title={`${field.label}: ${field.value}`}
+            >
+              <dt className="shrink-0 text-[11px] text-muted">{field.label}</dt>
+              <dd className="m-0 min-w-0 truncate font-medium">{field.value}</dd>
+            </div>
+          ))}
+        </dl>
+        {message.attachments.length > 0 ? (
+          <div className="flex min-w-0 flex-wrap items-center gap-[6px] border-t border-line-faint pt-[8px]">
+            <span className="text-[11px] text-muted">
+              {message.attachments.length} attachment{message.attachments.length === 1 ? "" : "s"}
+            </span>
+            {message.attachments.map((attachment) => (
+              <a
+                key={attachment.partId}
+                href={attachmentHref(attachment.partId)}
+                target="_blank"
+                rel="noreferrer"
+                title={`${attachment.mimeType} · ${fileSize(attachment.size)}`}
+                className="flex max-w-[260px] min-w-0 items-center gap-[6px] rounded-full border border-line-soft px-[10px] py-[5px] hover:bg-[#fafbf9]"
+              >
+                <Icon name={attachment.mimeType.startsWith("image/") ? "camera" : "doc"} size={13} className="shrink-0 text-body-soft" />
+                <span className="truncate text-[12px] font-medium">{attachment.filename}</span>
+                <span className="shrink-0 font-mono text-[10.5px] text-faint">{fileSize(attachment.size)}</span>
+              </a>
+            ))}
+            {/* Image attachments preview right here — often they ARE the message (a photo, a scanned receipt). */}
+            {imageAttachments.length > 0 ? (
+              <div className="flex w-full flex-wrap gap-[8px] pt-[4px]">
+                {imageAttachments.map((attachment) => (
+                  <a
+                    key={attachment.partId}
+                    href={attachmentHref(attachment.partId)}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={attachment.filename}
+                    className="overflow-hidden rounded-[12px] border border-line-soft bg-[#fafbf9]"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element -- auth-gated API route, not a static asset */}
+                    <img
+                      src={attachmentHref(attachment.partId)}
+                      alt={attachment.filename}
+                      loading="lazy"
+                      className="block max-h-[220px] w-auto max-w-[min(100%,360px)] object-contain"
+                    />
+                  </a>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </section>
+
         <TableCard>
           <div className="flex flex-wrap items-center gap-[10px] border-b border-line-soft px-4 py-3">
             {message.unread ? (
@@ -152,60 +215,6 @@ export default async function EmailDetailPage({ params, searchParams }: PageProp
             <HtmlBody html={message.html!} />
           )}
         </TableCard>
-
-        <div className="flex min-w-0 flex-col gap-3">
-          <section className="flex min-w-0 flex-col gap-[11px] rounded-[20px] border border-line bg-surface p-[17px]">
-            <h2 className="m-0 text-[14.5px] font-bold tracking-[-0.02em]">Message</h2>
-            <dl className="m-0 flex flex-col">
-              {fields.map((field) => (
-                <div
-                  key={field.label}
-                  className="flex min-w-0 flex-col gap-[2px] border-b border-line-faint py-[9px]"
-                >
-                  <dt className="text-[11px] text-muted">{field.label}</dt>
-                  <dd className="m-0 text-[12.5px] font-medium break-words">{field.value}</dd>
-                </div>
-              ))}
-            </dl>
-          </section>
-
-          <section className="flex min-w-0 flex-col gap-[11px] rounded-[20px] border border-line bg-surface p-[17px]">
-            <div className="flex flex-wrap items-center gap-[9px]">
-              <h2 className="m-0 text-[14.5px] font-bold tracking-[-0.02em]">Attachments</h2>
-              <span className="font-mono text-[10.5px] text-faint">
-                {message.attachments.length}
-              </span>
-            </div>
-
-            {message.attachments.length === 0 ? (
-              <span className="text-[12px] text-muted">Nothing attached to this message.</span>
-            ) : (
-              message.attachments.map((attachment) => (
-                <a
-                  key={attachment.attachmentId}
-                  href={hrefWith(
-                    `/api/email/${id}/attachments/${attachment.attachmentId}`,
-                    {},
-                    { account: account || null },
-                  )}
-                  className="flex min-w-0 items-center gap-[10px] rounded-[14px] border border-line-soft px-[12px] py-[10px] hover:bg-[#fafbf9]"
-                >
-                  <Icon name="doc" size={16} className="shrink-0 text-body-soft" />
-                  <span className="flex min-w-0 flex-1 flex-col leading-[1.35]">
-                    <span className="truncate text-[12.5px] font-medium">
-                      {attachment.filename}
-                    </span>
-                    <span className="truncate text-[11px] text-muted">
-                      {attachment.mimeType} · {fileSize(attachment.size)}
-                    </span>
-                  </span>
-                  <span className="shrink-0 text-[11.5px] font-medium underline">Open</span>
-                </a>
-              ))
-            )}
-          </section>
-        </div>
-      </div>
     </PageBody>
   );
 }

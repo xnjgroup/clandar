@@ -30,6 +30,10 @@ export type Task = {
   repeat: Repeat;
   itemCount: number;
   itemsDone: number;
+  /** Sum of quantity × price over priced shopping items; null when none are priced. */
+  itemsTotal: number | null;
+  /** The accepted estimate this task was built from (lib/quoting.ts syncTasksFromEstimate), if any. */
+  estimateId: string | null;
   createdAt: Date;
 };
 
@@ -40,6 +44,8 @@ export type TaskItem = {
   unit: string;
   /** An http(s) reference link, or null. */
   url: string | null;
+  /** Price per unit (shopping items), or null when not entered. */
+  unitPrice: number | null;
   isDone: boolean;
 };
 
@@ -59,6 +65,8 @@ type TaskRow = {
   repeat: Repeat;
   item_count: number;
   items_done: number;
+  items_total: string | null;
+  estimate_id: string | null;
   created_at: Date;
 };
 
@@ -79,6 +87,8 @@ function toTask(row: TaskRow): Task {
     repeat: row.repeat,
     itemCount: row.item_count,
     itemsDone: row.items_done,
+    itemsTotal: row.items_total === null ? null : Number(row.items_total),
+    estimateId: row.estimate_id,
     createdAt: row.created_at,
   };
 }
@@ -88,7 +98,9 @@ const SELECT = `SELECT t.id, t.kind, t.title, t.notes, t.due_date::text AS due_d
        t.store, to_char(t.remind_time, 'HH24:MI') AS remind_time, t.repeat,
        (SELECT count(*)::int FROM task_items i WHERE i.task_id = t.id) AS item_count,
        (SELECT count(*)::int FROM task_items i WHERE i.task_id = t.id AND i.is_done) AS items_done,
-       t.created_at
+       (SELECT sum(coalesce(i.quantity, 1) * i.unit_price)::text FROM task_items i
+         WHERE i.task_id = t.id AND i.unit_price IS NOT NULL) AS items_total,
+       t.estimate_id, t.created_at
   FROM tasks t
   LEFT JOIN projects j ON j.id = t.project_id
   LEFT JOIN people p ON p.id = t.assigned_to`;
@@ -121,6 +133,17 @@ export async function getTask(id: string, orgId: string): Promise<Task | null> {
   return row ? toTask(row) : null;
 }
 
+/** The IANA zone if the runtime knows it (so Postgres' AT TIME ZONE will too), else UTC. */
+export function validTimeZone(value: unknown): string {
+  if (typeof value !== "string" || !value || value.length > 64) return "UTC";
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value });
+    return value;
+  } catch {
+    return "UTC";
+  }
+}
+
 export async function createTask(input: {
   orgId: string;
   projectId: string | null;
@@ -132,10 +155,12 @@ export async function createTask(input: {
   createdBy: string | null;
   /** Checklist steps or shopping items to start the task with. */
   items?: string[];
+  /** The creator's IANA time zone — a reminder fires at its date/time there. */
+  timeZone?: string;
 }): Promise<string> {
   const row = await queryOne<{ id: string }>(
-    `INSERT INTO tasks (org_id, project_id, kind, title, notes, due_date, assigned_to, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+    `INSERT INTO tasks (org_id, project_id, kind, title, notes, due_date, assigned_to, created_by, time_zone)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
     [
       input.orgId,
       input.projectId,
@@ -145,6 +170,7 @@ export async function createTask(input: {
       input.dueDate,
       input.assignedTo,
       input.createdBy,
+      validTimeZone(input.timeZone),
     ],
   );
   const id = row!.id;
@@ -165,13 +191,28 @@ export async function updateTask(
     store: string;
     remindTime: string | null;
     repeat: Repeat;
+    timeZone: string;
   },
 ): Promise<void> {
+  // A new date/time is a new occurrence: clear reminded_at so it fires again.
   await query(
-    `UPDATE tasks SET title = $3, notes = $4, due_date = $5, assigned_to = $6, store = $7,
-            remind_time = $8, repeat = $9
+    `UPDATE tasks SET title = $3, notes = $4, assigned_to = $6, store = $7, repeat = $9, time_zone = $10,
+            reminded_at = CASE WHEN due_date IS DISTINCT FROM $5::date OR remind_time IS DISTINCT FROM $8::time
+                               OR time_zone IS DISTINCT FROM $10 THEN NULL ELSE reminded_at END,
+            due_date = $5, remind_time = $8
       WHERE id = $1 AND org_id = $2`,
-    [id, orgId, input.title, input.notes, input.dueDate, input.assignedTo, input.store, input.remindTime, input.repeat],
+    [
+      id,
+      orgId,
+      input.title,
+      input.notes,
+      input.dueDate,
+      input.assignedTo,
+      input.store,
+      input.remindTime,
+      input.repeat,
+      validTimeZone(input.timeZone),
+    ],
   );
 }
 
@@ -194,7 +235,7 @@ export async function setTaskDone(id: string, orgId: string, done: boolean): Pro
   if (!task) return;
   if (done && task.kind === "reminder" && task.repeat !== "none") {
     await query(
-      `UPDATE tasks SET due_date = (coalesce(due_date, current_date) + $3::interval)::date
+      `UPDATE tasks SET due_date = (coalesce(due_date, current_date) + $3::interval)::date, reminded_at = NULL
         WHERE id = $1 AND org_id = $2`,
       [id, orgId, REPEAT_INTERVAL[task.repeat]],
     );
@@ -222,9 +263,10 @@ export async function listTaskItems(taskId: string, orgId: string): Promise<Task
     quantity: string | null;
     unit: string;
     url: string | null;
+    unit_price: string | null;
     is_done: boolean;
   }>(
-    `SELECT i.id, i.label, i.quantity::text, i.unit, i.url, i.is_done
+    `SELECT i.id, i.label, i.quantity::text, i.unit, i.url, i.unit_price::text, i.is_done
        FROM task_items i JOIN tasks t ON t.id = i.task_id
       WHERE i.task_id = $1 AND t.org_id = $2
       ORDER BY i.created_at`,
@@ -236,6 +278,7 @@ export async function listTaskItems(taskId: string, orgId: string): Promise<Task
     quantity: r.quantity === null ? null : Number(r.quantity),
     unit: r.unit,
     url: r.url,
+    unitPrice: r.unit_price === null ? null : Number(r.unit_price),
     isDone: r.is_done,
   }));
 }
@@ -243,12 +286,12 @@ export async function listTaskItems(taskId: string, orgId: string): Promise<Task
 export async function addTaskItem(
   taskId: string,
   orgId: string,
-  input: { label: string; quantity: number | null; unit: string; url: string | null },
+  input: { label: string; quantity: number | null; unit: string; url: string | null; unitPrice?: number | null },
 ): Promise<void> {
   await query(
-    `INSERT INTO task_items (task_id, label, quantity, unit, url)
-     SELECT id, $3, $4, $5, $6 FROM tasks WHERE id = $1 AND org_id = $2`,
-    [taskId, orgId, input.label, input.quantity, input.unit, input.url],
+    `INSERT INTO task_items (task_id, label, quantity, unit, url, unit_price)
+     SELECT id, $3, $4, $5, $6, $7 FROM tasks WHERE id = $1 AND org_id = $2`,
+    [taskId, orgId, input.label, input.quantity, input.unit, input.url, input.unitPrice ?? null],
   );
 }
 

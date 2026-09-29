@@ -1,5 +1,6 @@
 "use client";
 
+import { TimeZoneField } from "@/components/time-zone-field";
 import { useActionState } from "react";
 import { REPEATS } from "@/lib/task-kinds";
 import type { Task } from "@/lib/tasks";
@@ -22,8 +23,16 @@ export function TaskDetailsForm({ task, members }: { task: Task; members: { id: 
   const [state, action, pending] = useActionState<FormState, FormData>(saveTask, {});
 
   return (
-    <form action={action} className="grid grid-cols-1 gap-[10px] lg:grid-cols-2">
+    // Keyed by the saved values: React resets an action form after it submits, and a <select>
+    // resets to the option it was first rendered with — without a remount on new values, a saved
+    // assignee/repeat would snap back to the old one on screen.
+    <form
+      key={[task.title, task.notes, task.dueDate, task.remindTime, task.repeat, task.store, task.assignedTo].join("|")}
+      action={action}
+      className="grid grid-cols-1 gap-[10px] lg:grid-cols-2"
+    >
       <input type="hidden" name="id" value={task.id} />
+      <TimeZoneField />
       <Field label="Title" wide>
         <input name="title" defaultValue={task.title} required className={inputClass} />
       </Field>

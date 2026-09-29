@@ -3,10 +3,16 @@ import { notFound } from "next/navigation";
 import { Icon } from "@/components/icons";
 import { Card, CardTitle, EmptyRow, PageBody, Pill, TableCard, TableHeader, TableTitle } from "@/components/ui";
 import { listTeam, requireSession } from "@/lib/auth";
+import { money } from "@/lib/data";
 import { TASK_KINDS, getTask, listTaskItems } from "@/lib/tasks";
 import { removeItem, removeTask, toggleItem, toggleTask } from "../actions";
 import { AddItemForm } from "./add-item-form";
 import { TaskDetailsForm } from "./task-details-form";
+
+/** quantity × price for a shopping item (quantity defaults to 1). */
+function lineTotal(item: { quantity: number | null; unitPrice: number | null }): number {
+  return (item.quantity ?? 1) * (item.unitPrice ?? 0);
+}
 
 /** One task's own page — the shared details plus whatever structure its kind has (checklist, shopping items, reminder timing). */
 export default async function TaskDetailPage({ params }: PageProps<"/tasks/[id]">) {
@@ -17,6 +23,9 @@ export default async function TaskDetailPage({ params }: PageProps<"/tasks/[id]"
 
   const [team, items] = await Promise.all([listTeam(org.id), listTaskItems(task.id, org.id)]);
   const hasItems = task.kind === "todo" || task.kind === "shopping";
+  const priced = items.filter((i) => i.unitPrice !== null);
+  const listTotal = priced.reduce((sum, i) => sum + lineTotal(i), 0);
+  const boughtTotal = priced.filter((i) => i.isDone).reduce((sum, i) => sum + lineTotal(i), 0);
   const backPath = task.projectId ? `/projects/${task.projectId}` : "/tasks";
 
   return (
@@ -121,6 +130,21 @@ export default async function TaskDetailPage({ params }: PageProps<"/tasks/[id]"
                     {item.quantity ?? ""} {item.unit}
                   </span>
                 ) : null}
+                {task.kind === "shopping" ? (
+                  // Price column: "× $12.50" per unit, then the line total — blank when no price was entered.
+                  <span className="flex w-[110px] shrink-0 flex-col items-end leading-[1.3]">
+                    {item.unitPrice !== null ? (
+                      <>
+                        <span className={`font-mono text-[12px] font-semibold ${item.isDone ? "text-faint" : ""}`}>
+                          {money(lineTotal(item))}
+                        </span>
+                        {(item.quantity ?? 1) !== 1 ? (
+                          <span className="font-mono text-[10.5px] text-faint">{money(item.unitPrice)} each</span>
+                        ) : null}
+                      </>
+                    ) : null}
+                  </span>
+                ) : null}
                 <form action={removeItem}>
                   <input type="hidden" name="id" value={item.id} />
                   <input type="hidden" name="taskId" value={task.id} />
@@ -131,6 +155,19 @@ export default async function TaskDetailPage({ params }: PageProps<"/tasks/[id]"
               </div>
             ))
           )}
+          {task.kind === "shopping" && priced.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-x-[18px] gap-y-[4px] border-t border-line-soft bg-[#fafbf9] px-[18px] py-[11px] text-[12px]">
+              <span className="text-muted">
+                {priced.length < items.length ? `${items.length - priced.length} item(s) without a price` : "All items priced"}
+              </span>
+              <span className="ml-auto text-muted">
+                Bought <span className="font-mono font-semibold text-ink">{money(boughtTotal)}</span>
+              </span>
+              <span className="text-muted">
+                Total <span className="font-mono text-[13px] font-bold text-ink">{money(listTotal)}</span>
+              </span>
+            </div>
+          ) : null}
         </TableCard>
       ) : null}
     </PageBody>

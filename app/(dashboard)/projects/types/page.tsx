@@ -43,7 +43,7 @@ export default async function ProjectTypesPage() {
               <input type="hidden" name="id" value={t.id} />
               <IconTile icon={iconName(t.icon)} bg="#f2f4ef" fg="#4c4f47" size={34} iconSize={16} />
               <input name="name" defaultValue={t.name} required className={`${inputClass} min-w-[160px] flex-1`} />
-              <select name="icon" defaultValue={t.icon} className={iconSelectClass}>
+              <select key={t.icon} name="icon" defaultValue={t.icon} className={iconSelectClass}>
                 {ICON_OPTIONS.map((o) => (
                   <option key={o} value={o}>
                     {o}

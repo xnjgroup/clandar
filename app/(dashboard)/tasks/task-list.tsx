@@ -1,22 +1,40 @@
 import Link from "next/link";
 import { Icon } from "@/components/icons";
 import { EmptyRow } from "@/components/ui";
-import { relativeTime } from "@/lib/data";
+import { money, shortDate } from "@/lib/data";
 import { REPEATS } from "@/lib/task-kinds";
 import type { Task } from "@/lib/tasks";
 import { removeTask, toggleTask } from "./actions";
 
 const KIND_ICON = { todo: "check2", shopping: "briefcase", reminder: "clipboard" } as const;
 
-/** The one-line summary of whatever the task's kind adds — checklist progress, store, reminder timing. */
+/** "today" / "tomorrow" / "in 5 days" / "overdue 2 days" for a YYYY-MM-DD due date, by calendar day. */
+function describeTaskDue(dueDate: string, isDone: boolean): { label: string; tone: "overdue" | "soon" | "later" | "done" } {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const days = Math.round((new Date(`${dueDate}T00:00:00`).getTime() - today.getTime()) / 86_400_000);
+  if (isDone) return { label: "done", tone: "done" };
+  if (days < 0) return { label: `overdue ${-days} day${days === -1 ? "" : "s"}`, tone: "overdue" };
+  if (days === 0) return { label: "today", tone: "soon" };
+  if (days === 1) return { label: "tomorrow", tone: "soon" };
+  return { label: `in ${days} days`, tone: days <= 3 ? "soon" : "later" };
+}
+
+/** "14:30" → "2:30 PM". */
+function clockTime(hhmm: string): string {
+  const [h, m] = hhmm.split(":").map(Number);
+  return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
+}
+
+/** The one-line summary of whatever the task's kind adds — checklist progress, store, a reminder's repeat. (Its time is in the due column.) */
 function kindSummary(task: Task): string {
   const parts: string[] = [];
   if (task.itemCount > 0) {
     parts.push(`${task.itemsDone}/${task.itemCount} ${task.kind === "shopping" ? "items" : "steps"}`);
   }
+  if (task.kind === "shopping" && task.itemsTotal !== null) parts.push(money(task.itemsTotal));
   if (task.kind === "shopping" && task.store) parts.push(task.store);
   if (task.kind === "reminder") {
-    if (task.remindTime) parts.push(`at ${task.remindTime}`);
     if (task.repeat !== "none") parts.push(REPEATS.find((r) => r.id === task.repeat)?.label.toLowerCase() ?? "");
   }
   if (task.notes) parts.push(task.notes);
@@ -40,7 +58,7 @@ export function TaskList({
   return (
     <>
       {tasks.map((task) => {
-        const overdue = task.dueDate && !task.isDone && new Date(task.dueDate) < new Date();
+        const due = task.dueDate ? describeTaskDue(task.dueDate, task.isDone) : null;
         const summary = kindSummary(task);
         return (
           <div
@@ -82,11 +100,24 @@ export function TaskList({
                 {task.assignedName}
               </span>
             ) : null}
-            {task.dueDate ? (
-              <span className={`shrink-0 font-mono text-[11px] ${overdue ? "text-bad-fg" : "text-faint"}`}>
-                {relativeTime(new Date(task.dueDate))}
-              </span>
-            ) : null}
+            {/* Due column — fixed width (empty when there's no due date) so rows line up. */}
+            <span className="flex w-[118px] shrink-0 flex-col items-end leading-[1.3]">
+              {task.dueDate && due ? (
+                <>
+                  <span className={`font-mono text-[11.5px] ${due.tone === "overdue" ? "font-semibold text-bad-fg" : "text-ink"}`}>
+                    {shortDate(task.dueDate)}
+                    {task.kind === "reminder" && task.remindTime ? ` · ${clockTime(task.remindTime)}` : ""}
+                  </span>
+                  <span
+                    className={`text-[10.5px] ${
+                      due.tone === "overdue" ? "text-bad-fg" : due.tone === "soon" ? "font-medium text-warn-fg" : "text-faint"
+                    }`}
+                  >
+                    {due.label}
+                  </span>
+                </>
+              ) : null}
+            </span>
             <form action={removeTask}>
               <input type="hidden" name="id" value={task.id} />
               <input type="hidden" name="redirectPath" value={redirectPath} />

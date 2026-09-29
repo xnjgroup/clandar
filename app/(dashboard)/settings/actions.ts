@@ -1,7 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { encryptionConfigured } from "@/lib/crypto";
+import { sendMail, sendableGmailConnectorId } from "@/lib/gmail";
+import { query, queryOne } from "@/lib/db";
+import { originFromHeaders } from "@/lib/request-origin";
 import {
   createLlmProvider,
   deleteLlmProvider,
@@ -150,6 +154,7 @@ const ROLES = ["owner", "approver", "member", "crew"];
 
 export async function inviteMember(_prev: FormState, form: FormData): Promise<FormState> {
   const session = await requireSession();
+  if (session.person.role !== "owner") return { error: "Only an owner can invite people." };
   const email = field(form, "email");
   const role = field(form, "role") || "crew";
   if (!email || !email.includes("@")) return { error: "Enter a valid email address." };
@@ -157,7 +162,72 @@ export async function inviteMember(_prev: FormState, form: FormData): Promise<Fo
 
   await inviteTeammate(session.org.id, session.person.id, email, role);
   revalidatePath(PATH);
-  return { ok: `Invited ${email} — tell them to sign in with that Google account.` };
+  const sent = await emailInvite(session, email, role);
+  return sent.ok ? { ok: `Invited ${email} — an invitation email is on its way.` } : { ok: `Invited ${email}. ${sent.why}` };
+}
+
+const ROLE_NAMES: Record<string, string> = { owner: "an owner", approver: "an approver", member: "a member", crew: "crew" };
+
+/**
+ * Emails an invite from the org's first Gmail connector that's allowed to
+ * send. Joining needs nothing but signing in with the invited Google account
+ * (the pending invite is matched by email), so the email is just that link.
+ * Never throws — a missing connector or a Gmail error comes back as `why`,
+ * phrased for the person who sent the invite, with the link to share by hand.
+ */
+async function emailInvite(
+  session: Awaited<ReturnType<typeof requireSession>>,
+  email: string,
+  role: string,
+): Promise<{ ok: true } | { ok: false; why: string }> {
+  const signInUrl = `${originFromHeaders(await headers())}/login`;
+  const manual = `Share this sign-in link with them: ${signInUrl}`;
+
+  const connectorId = await sendableGmailConnectorId(session.org.id);
+  if (!connectorId) return { ok: false, why: `No email was sent — connect a Gmail account with send access on /connectors to email invites. ${manual}` };
+
+  const inviter = session.person.name || session.person.email;
+  const orgName = session.org.name;
+  try {
+    await sendMail({
+      orgId: session.org.id,
+      connectorId,
+      to: email,
+      subject: `${inviter} invited you to join ${orgName}`,
+      body: [
+        `Hi,`,
+        ``,
+        `${inviter} has invited you to join ${orgName} on Clandar as ${ROLE_NAMES[role] ?? role}.`,
+        ``,
+        `To accept, sign in with your Google account for ${email}:`,
+        signInUrl,
+        ``,
+        `You'll be added to ${orgName} automatically the first time you sign in. If you weren't expecting this, you can ignore this email.`,
+      ].join("\n"),
+    });
+    return { ok: true };
+  } catch (error) {
+    return {
+      ok: false,
+      why: `The invitation email couldn't be sent (${error instanceof Error ? error.message : "unknown error"}). ${manual}`,
+    };
+  }
+}
+
+/** Re-sends the invitation email for a pending invite. */
+export async function resendInvite(_prev: FormState, form: FormData): Promise<FormState> {
+  const session = await requireSession();
+  if (session.person.role !== "owner") return { error: "Only an owner can resend invites." };
+  const invite = await queryOne<{ email: string; role: string }>(
+    `SELECT email, role FROM org_invites WHERE id = $1 AND org_id = $2 AND accepted_at IS NULL`,
+    [field(form, "id"), session.org.id],
+  );
+  if (!invite) return { error: "That invite no longer exists." };
+  const sent = await emailInvite(session, invite.email, invite.role);
+  if (!sent.ok) return { error: sent.why };
+  await query(`UPDATE org_invites SET created_at = now() WHERE id = $1`, [field(form, "id")]);
+  revalidatePath(PATH);
+  return { ok: `Sent again to ${invite.email}.` };
 }
 
 export async function cancelInvite(form: FormData) {

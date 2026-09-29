@@ -6,13 +6,16 @@ import { DOC_TYPES, type DocType } from "@/lib/doc-types";
 import { markParsePending, parseProjectDocument } from "@/lib/document-ingest";
 import { requireSession } from "@/lib/auth";
 import { getConnectorForOrg, hasGmailModifyScope } from "@/lib/connectors";
-import { getProject } from "@/lib/projects";
+import { getProject, setProjectStatus } from "@/lib/projects";
 import {
   deleteProjectFile,
   deleteProjectFolder,
   ensureProjectFolder,
   getProjectFile,
   getProjectFolder,
+  getProjectPhoto,
+  readProjectFileBytes,
+  readProjectPhotoBytes,
   moveProjectFile,
   parseTags,
   renameProjectFolder,
@@ -25,12 +28,17 @@ import {
   analyzeProjectPhotos,
   createEstimate,
   deleteEstimate,
-  formatEstimateEmail,
   getEstimate,
   markEstimateSent,
+  setEstimateStatus,
+  syncTasksFromEstimate,
+  updateEstimate,
   type LineItemKind,
 } from "@/lib/quoting";
-import { sendMail } from "@/lib/gmail";
+import { renderEstimateEmail } from "@/lib/estimate-email";
+import { sendMail, type OutgoingAttachment } from "@/lib/gmail";
+import { cleanLetterhead, saveLetterhead } from "@/lib/letterhead";
+import { validTimeZone } from "@/lib/tasks";
 
 export type FormState = { error?: string; ok?: string };
 export type AnalyzeState = { error?: string; proposal?: Awaited<ReturnType<typeof analyzeProjectPhotos>> };
@@ -79,26 +87,57 @@ export async function analyzePhotos(_prev: AnalyzeState, form: FormData): Promis
 
 /* ── Estimates ────────────────────────────────────────────── */
 
-export async function saveEstimate(form: FormData) {
+/**
+ * Saves the line editor: creates an estimate, or with `estimateId` updates that
+ * draft. Returns an error instead of throwing so the editor stays on screen to fix.
+ */
+export async function saveEstimate(form: FormData): Promise<FormState> {
   const projectId = field(form, "projectId");
   const { session } = await requireProject(projectId);
   const summary = field(form, "summary");
-  const raw = field(form, "lineItems");
-  let lineItems: { description: string; quantity: number; unitPrice: number; kind: LineItemKind }[];
+  let parsed: unknown;
   try {
-    lineItems = JSON.parse(raw);
+    parsed = JSON.parse(field(form, "lineItems"));
   } catch {
-    return;
+    return { error: "Couldn't read the line items." };
   }
-  await createEstimate({
-    orgId: session.org.id,
-    projectId,
-    summary,
-    lineItems,
-    aiGenerated: field(form, "aiGenerated") === "true",
-    createdBy: session.person.id,
-  });
+  if (!Array.isArray(parsed)) return { error: "Couldn't read the line items." };
+  const kinds: LineItemKind[] = ["labor", "material", "other"];
+  const lineItems = parsed
+    .map((l: { description?: unknown; quantity?: unknown; unitPrice?: unknown; kind?: unknown }) => ({
+      description: typeof l.description === "string" ? l.description.trim() : "",
+      quantity: Number(l.quantity),
+      unitPrice: Number(l.unitPrice),
+      kind: kinds.includes(l.kind as LineItemKind) ? (l.kind as LineItemKind) : "other",
+    }))
+    .filter((l) => l.description);
+  if (lineItems.length === 0) return { error: "Add at least one line with a description." };
+  if (lineItems.some((l) => !Number.isFinite(l.quantity) || !Number.isFinite(l.unitPrice) || l.quantity < 0 || l.unitPrice < 0)) {
+    return { error: "Quantities and prices must be zero or more." };
+  }
+
+  const estimateId = field(form, "estimateId");
+  try {
+    if (estimateId) {
+      // Scoped to this project as well as the org, so an id from another project can't be edited through this one.
+      if (!(await getEstimate(estimateId, projectId))) return { error: "Estimate not found." };
+      const updated = await updateEstimate(estimateId, session.org.id, { summary, lineItems });
+      if (!updated) return { error: "Only a draft can be edited — this one has already been sent." };
+    } else {
+      await createEstimate({
+        orgId: session.org.id,
+        projectId,
+        summary,
+        lineItems,
+        aiGenerated: field(form, "aiGenerated") === "true",
+        createdBy: session.person.id,
+      });
+    }
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Couldn't save the estimate." };
+  }
   revalidatePath(`/projects/${projectId}`);
+  return { ok: estimateId ? "Estimate updated." : "Estimate saved." };
 }
 
 export async function removeEstimate(form: FormData) {
@@ -108,10 +147,57 @@ export async function removeEstimate(form: FormData) {
   revalidatePath(`/projects/${projectId}`);
 }
 
+/**
+ * Records the customer's answer on a sent estimate (or undoes it back to "sent").
+ * Accepting also moves a project that's still a lead/quoted on to "scheduled".
+ */
+export async function answerEstimate(form: FormData) {
+  const projectId = field(form, "projectId");
+  const { session, project } = await requireProject(projectId);
+  const estimate = await getEstimate(field(form, "estimateId"), projectId);
+  const answer = field(form, "answer");
+  if (!estimate || estimate.status === "draft" || !["accepted", "declined", "sent"].includes(answer)) return;
+  await setEstimateStatus(estimate.id, session.org.id, answer as "accepted" | "declined" | "sent");
+  if (answer === "accepted" && (project.status === "lead" || project.status === "quoted")) {
+    await setProjectStatus(projectId, session.org.id, "scheduled");
+  }
+  revalidatePath(`/projects/${projectId}`);
+  revalidatePath("/projects");
+}
+
+/** "Create tasks from quote" / "Regenerate tasks" on an accepted estimate — see syncTasksFromEstimate. */
+export async function convertEstimateToTasks(form: FormData) {
+  const projectId = field(form, "projectId");
+  const { session } = await requireProject(projectId);
+  await syncTasksFromEstimate({
+    estimateId: field(form, "estimateId"),
+    projectId,
+    orgId: session.org.id,
+    createdBy: session.person.id,
+    timeZone: validTimeZone(field(form, "timeZone")),
+  });
+  revalidatePath(`/projects/${projectId}`);
+  revalidatePath("/projects");
+  revalidatePath("/tasks");
+}
+
+/** Combined attachment cap — Gmail allows 25MB per message after base64 grows it by about a third. */
+const MAX_ATTACHMENT_BYTES = 18 * 1024 * 1024;
+
+/**
+ * Sends an estimate from the review dialog. The email is re-rendered here
+ * from the saved estimate (renderEstimateEmail) — only the editable parts
+ * (to, subject, message, company header) and the chosen attachment ids come
+ * from the form, and every attachment id is checked against this project.
+ */
 export async function sendEstimate(_prev: FormState, form: FormData): Promise<FormState> {
   const projectId = field(form, "projectId");
   const { session, project } = await requireProject(projectId);
-  if (!project.customerEmail) return { error: "This customer has no email address on file." };
+
+  const to = field(form, "to");
+  if (!/^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(to)) return { error: "Enter one valid email address to send to." };
+  const subject = field(form, "subject");
+  if (!subject) return { error: "Add a subject." };
 
   const estimate = await getEstimate(field(form, "estimateId"), projectId);
   if (!estimate) return { error: "Estimate not found." };
@@ -123,15 +209,53 @@ export async function sendEstimate(_prev: FormState, form: FormData): Promise<Fo
     return { error: `${connector.name} needs to reconnect on /connectors to grant permission to send mail.` };
   }
 
-  const { subject, body } = formatEstimateEmail(project, estimate);
+  const letterhead = cleanLetterhead({
+    companyName: form.get("companyName"),
+    address: form.get("address"),
+    phone: form.get("phone"),
+    email: form.get("email"),
+    website: form.get("website"),
+    license: form.get("license"),
+  } as Record<string, unknown>);
+
+  const attachments: OutgoingAttachment[] = [];
+  for (const id of form.getAll("fileId")) {
+    const file = typeof id === "string" ? await getProjectFile(id, projectId) : null;
+    if (!file) return { error: "One of the chosen files is no longer on this project." };
+    attachments.push({ fileName: file.fileName, contentType: file.contentType, bytes: await readProjectFileBytes(file) });
+  }
+  let photoNumber = 0;
+  for (const id of form.getAll("photoId")) {
+    const photo = typeof id === "string" ? await getProjectPhoto(id, projectId) : null;
+    if (!photo) return { error: "One of the chosen photos is no longer on this project." };
+    const ext = photo.contentType.split("/")[1]?.replace("jpeg", "jpg").replace(/[^a-z0-9]/g, "") || "jpg";
+    attachments.push({
+      fileName: `photo-${++photoNumber}.${ext}`,
+      contentType: photo.contentType,
+      bytes: await readProjectPhotoBytes(photo),
+    });
+  }
+  if (attachments.reduce((sum, a) => sum + a.bytes.byteLength, 0) > MAX_ATTACHMENT_BYTES) {
+    return { error: "Attachments add up to more than 18 MB — Gmail would reject the message. Remove some." };
+  }
+
+  const { html, text } = renderEstimateEmail({
+    letterhead,
+    message: field(form, "message"),
+    projectTitle: project.title,
+    estimate,
+    attachmentNames: attachments.map((a) => a.fileName),
+  });
   try {
-    await sendMail({ orgId: session.org.id, connectorId, to: project.customerEmail, subject, body });
+    await sendMail({ orgId: session.org.id, connectorId, to, subject, body: text, html, attachments });
   } catch (error) {
     return { error: error instanceof Error ? error.message : "Could not send the email." };
   }
+
+  if (field(form, "saveLetterhead") === "true") await saveLetterhead(session.org.id, letterhead);
   await markEstimateSent(estimate.id, session.org.id);
   revalidatePath(`/projects/${projectId}`);
-  return { ok: `Sent to ${project.customerEmail}.` };
+  return { ok: `Sent to ${to}.` };
 }
 
 /* ── Files ────────────────────────────────────────────────── */

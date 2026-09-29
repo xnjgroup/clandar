@@ -4,7 +4,9 @@ import { Card, CardTitle, EmptyRow, PageBody, TableCard, TableHeader, TableTitle
 import { firstParam, hrefWith } from "@/lib/data";
 import { listTeam, requireSession } from "@/lib/auth";
 import { listProjects } from "@/lib/projects";
+import { listUpcomingReminders } from "@/lib/reminders";
 import { listSchedule } from "@/lib/schedule";
+import { REPEATS } from "@/lib/task-kinds";
 import { removeScheduleEntry } from "./actions";
 import { ScheduleForm } from "./schedule-form";
 
@@ -18,10 +20,11 @@ export default async function SchedulePage({ searchParams }: PageProps<"/schedul
   const to = new Date(from);
   to.setDate(to.getDate() + 30);
 
-  const [team, projects, entries] = await Promise.all([
+  const [team, projects, entries, reminders] = await Promise.all([
     listTeam(org.id),
     listProjects(org.id),
     listSchedule(org.id, { from, to }, assignedTo ? { assignedTo } : {}),
+    listUpcomingReminders(org.id, to, assignedTo ? { assignedTo } : {}),
   ]);
 
   const days = new Map<string, typeof entries>();
@@ -62,6 +65,55 @@ export default async function SchedulePage({ searchParams }: PageProps<"/schedul
           </Link>
         ))}
       </div>
+
+      <TableCard>
+        <TableHeader>
+          <TableTitle>Upcoming reminders</TableTitle>
+          <Link href="/tasks?kind=reminder" className="ml-auto text-[11.5px] font-medium underline">
+            All reminders
+          </Link>
+        </TableHeader>
+        {reminders.length === 0 ? (
+          <EmptyRow>No reminders due in the next 30 days.</EmptyRow>
+        ) : (
+          reminders.map((r) => (
+            <div key={r.id} className="flex min-h-[52px] flex-wrap items-center gap-3 border-t border-line-soft px-[18px] py-[10px]">
+              <Icon name="clock" size={15} className={`shrink-0 ${r.overdue ? "text-bad-fg" : "text-body-soft"}`} />
+              {/* Shown in the reminder's own zone — the one it fires in. */}
+              <span className={`w-[150px] shrink-0 font-mono text-[11.5px] ${r.overdue ? "font-semibold text-bad-fg" : "text-muted"}`}>
+                {r.dueAt.toLocaleString("en-US", {
+                  timeZone: r.timeZone,
+                  weekday: "short",
+                  month: "short",
+                  day: "numeric",
+                  hour: "numeric",
+                  minute: "2-digit",
+                })}
+              </span>
+              <div className="flex min-w-0 flex-1 flex-col leading-[1.35]">
+                <Link href={`/tasks/${r.id}`} className="truncate text-[13px] font-semibold hover:underline">
+                  {r.title}
+                </Link>
+                <span className="truncate text-[11px] text-muted">
+                  {[
+                    r.overdue ? "Overdue" : null,
+                    r.repeat !== "none" ? REPEATS.find((x) => x.id === r.repeat)?.label : null,
+                    r.projectTitle,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </span>
+              </div>
+              {r.assignedName ? (
+                <span className="flex shrink-0 items-center gap-[5px] rounded-full border border-line px-[9px] py-[4px] text-[11px] text-body-soft">
+                  <Icon name="user" size={12} />
+                  {r.assignedName}
+                </span>
+              ) : null}
+            </div>
+          ))
+        )}
+      </TableCard>
 
       <TableCard>
         <TableHeader>

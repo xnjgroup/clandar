@@ -1,28 +1,32 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Icon } from "@/components/icons";
+import { TimeZoneField } from "@/components/time-zone-field";
 import { Card, CardTitle, EmptyRow, PageBody, Pill, TableCard, TableHeader, TableTitle } from "@/components/ui";
 import { count, money, relativeTime, type Tone } from "@/lib/data";
 import { listTeam, requireSession } from "@/lib/auth";
 import { getConnector, listGmailConnectors, hasGmailModifyScope } from "@/lib/connectors";
 import { PROJECT_STATUSES, describeDue, getProject, type ProjectStatus } from "@/lib/projects";
 import { listProjectTypes } from "@/lib/project-types";
-import { listProjectPhotos } from "@/lib/project-photos";
-import { listEstimates } from "@/lib/quoting";
+import { listAllProjectFiles, listProjectPhotos } from "@/lib/project-photos";
+import { getLetterhead } from "@/lib/letterhead";
+import { listEstimates, type Estimate } from "@/lib/quoting";
 import { listSchedule } from "@/lib/schedule";
 import { listTasks } from "@/lib/tasks";
 import { AddTaskForm } from "../../tasks/add-task-form";
 import { TaskList } from "../../tasks/task-list";
 import { ScheduleForm } from "../../schedule/schedule-form";
 import { removeScheduleEntry } from "../../schedule/actions";
-import { changeProjectAssignee, changeProjectStatus, removeProject, saveProject } from "../actions";
+import { changeProjectAssignee, changeProjectStatus, saveProject } from "../actions";
+import { DeleteProjectDialog } from "./delete-project-dialog";
+import { EditableEstimate } from "./editable-estimate";
 import { EstimateBuilder } from "./estimate-builder";
 import { PhotoLightbox } from "./photo-lightbox";
 import { FilesSection } from "./files-section";
 import { UploadForm } from "./upload-form";
-import { removeEstimate, removePhoto } from "./actions";
+import { answerEstimate, convertEstimateToTasks, removeEstimate, removePhoto } from "./actions";
 import { AutoSubmitSelect } from "./auto-submit-select";
-import { SendEstimateForm } from "./send-estimate-form";
+import { SendEstimateDialog } from "./send-estimate-dialog";
 
 // Server actions here can parse an invoice/receipt after responding (`after`) — give that room.
 export const maxDuration = 120;
@@ -35,6 +39,92 @@ const STATUS_TONE: Record<ProjectStatus, Tone> = {
   completed: "ok",
   cancelled: "bad",
 };
+
+/**
+ * The customer's answer on a sent estimate — mark it accepted/declined (or undo) —
+ * and, once accepted, turning its lines into the project's work tasks.
+ */
+function EstimateOutcome({
+  projectId,
+  estimate,
+  hasQuoteTasks,
+}: {
+  projectId: string;
+  estimate: Estimate;
+  /** The project already has Work/Materials tasks built from some estimate (this one or an earlier one). */
+  hasQuoteTasks: boolean;
+}) {
+  if (estimate.status === "draft") return null;
+  const work = estimate.lineItems.filter((l) => l.kind !== "material").length;
+  const materials = estimate.lineItems.length - work;
+  const answer = (value: "accepted" | "declined" | "sent", label: string, className: string) => (
+    <form action={answerEstimate}>
+      <input type="hidden" name="projectId" value={projectId} />
+      <input type="hidden" name="estimateId" value={estimate.id} />
+      <input type="hidden" name="answer" value={value} />
+      <button type="submit" className={`cursor-pointer rounded-full px-3 py-[6px] text-[11.5px] font-medium ${className}`}>
+        {label}
+      </button>
+    </form>
+  );
+
+  return (
+    <div className="flex flex-wrap items-center gap-[8px] rounded-[12px] bg-[#fafbf9] px-[10px] py-[8px]">
+      {estimate.status === "sent" ? (
+        <>
+          <span className="text-[11.5px] text-muted">Customer&rsquo;s answer:</span>
+          {answer("accepted", "Mark accepted", "bg-ok-bg text-ok-fg")}
+          {answer("declined", "Mark declined", "border border-line text-bad-fg")}
+        </>
+      ) : (
+        <>
+          <span className={`text-[11.5px] font-semibold ${estimate.status === "accepted" ? "text-ok-fg" : "text-bad-fg"}`}>
+            {estimate.status === "accepted" ? "Accepted by the customer" : "Declined by the customer"}
+          </span>
+          {estimate.tasksCreatedAt ? null : answer("sent", "Undo", "text-muted underline")}
+        </>
+      )}
+
+      {estimate.status === "accepted" && estimate.lineItems.length > 0 ? (
+        <form action={convertEstimateToTasks} className="ml-auto flex flex-wrap items-center justify-end gap-[8px]">
+          <input type="hidden" name="projectId" value={projectId} />
+          <input type="hidden" name="estimateId" value={estimate.id} />
+          <TimeZoneField />
+          <span className="text-[11px] text-muted">
+            {estimate.tasksCreatedAt ? (
+              <>
+                Tasks updated {relativeTime(estimate.tasksCreatedAt)} ·{" "}
+                <a href="#tasks" className="font-medium text-ink underline">
+                  see Tasks below
+                </a>
+              </>
+            ) : (
+              [
+                work ? `1 to-do (${work} step${work === 1 ? "" : "s"})` : null,
+                materials ? `shopping list (${materials} item${materials === 1 ? "" : "s"})` : null,
+              ]
+                .filter(Boolean)
+                .join(" + ")
+            )}
+          </span>
+          <button
+            type="submit"
+            title="Rebuilds the quote's items in the project's Work and Materials tasks. Ticked items stay ticked; items you added yourself are kept."
+            className={`cursor-pointer rounded-full px-3 py-[6px] text-[11.5px] font-semibold ${
+              estimate.tasksCreatedAt ? "border border-line text-ink" : "bg-ink text-bg"
+            }`}
+          >
+            {estimate.tasksCreatedAt
+              ? "Regenerate tasks"
+              : hasQuoteTasks
+                ? "Update tasks from this quote"
+                : "Create tasks from quote"}
+          </button>
+        </form>
+      ) : null}
+    </div>
+  );
+}
 
 const inputClass =
   "w-full rounded-[12px] border border-line bg-surface px-3 py-[10px] text-[12.5px] text-ink outline-none placeholder:text-faint focus:border-[#9aa78a]";
@@ -52,7 +142,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
   const yearAhead = new Date();
   yearAhead.setFullYear(yearAhead.getFullYear() + 1);
 
-  const [team, projectTypes, photos, estimates, schedule, tasks, gmailConnectors] = await Promise.all([
+  const [team, projectTypes, photos, estimates, schedule, tasks, gmailConnectors, letterhead, allFiles] = await Promise.all([
     listTeam(org.id),
     listProjectTypes(org.id),
     listProjectPhotos(project.id),
@@ -60,6 +150,8 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
     listSchedule(org.id, { from: yearAgo, to: yearAhead }, { projectId: project.id }),
     listTasks(org.id, { projectId: project.id, includeDone: true }),
     listGmailConnectors(org.id),
+    getLetterhead(org.id),
+    listAllProjectFiles(project.id),
   ]);
 
   const sendableConnectors = (
@@ -126,7 +218,12 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
           </form>
         </div>
 
-        <form action={saveProject} className="grid grid-cols-1 gap-[10px] lg:grid-cols-2">
+        {/* Keyed by the saved values so the project type <select> doesn't snap back after saving (see AutoSubmitSelect). */}
+        <form
+          key={[project.title, project.projectTypeId, project.address, project.notes, project.dueDate].join("|")}
+          action={saveProject}
+          className="grid grid-cols-1 gap-[10px] lg:grid-cols-2"
+        >
           <input type="hidden" name="id" value={project.id} />
           <label className="flex flex-col gap-[5px]">
             <span className="text-[11px] text-muted">Title</span>
@@ -160,13 +257,19 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
               Save
             </button>
             <span className="text-[11px] text-faint">Updated {relativeTime(project.updatedAt)}</span>
-            <button
-              type="submit"
-              formAction={removeProject}
-              className="ml-auto cursor-pointer text-[11.5px] font-medium text-bad-fg underline"
-            >
-              Delete project
-            </button>
+            <div className="ml-auto">
+              <DeleteProjectDialog
+                projectId={project.id}
+                projectTitle={project.title}
+                counts={[
+                  { label: photos.length === 1 ? "photo" : "photos", count: photos.length },
+                  { label: allFiles.length === 1 ? "file" : "files", count: allFiles.length },
+                  { label: estimates.length === 1 ? "estimate" : "estimates", count: estimates.length },
+                  { label: schedule.length === 1 ? "schedule entry" : "schedule entries", count: schedule.length },
+                  { label: tasks.length === 1 ? "task" : "tasks", count: tasks.length },
+                ]}
+              />
+            </div>
           </div>
         </form>
       </Card>
@@ -215,24 +318,67 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
                   </button>
                 </form>
               </div>
-              <p className="m-0 text-[12px] leading-[1.5] text-body-soft">{estimate.summary}</p>
-              <ul className="m-0 flex flex-col gap-[2px] pl-[18px] text-[11.5px] text-muted">
-                {estimate.lineItems.map((li) => (
-                  <li key={li.id}>
-                    {li.description} — {li.quantity} × {money(li.unitPrice)}
-                  </li>
-                ))}
-              </ul>
-              {estimate.status === "draft" ? (
-                <SendEstimateForm
+              <EditableEstimate
+                projectId={project.id}
+                estimateId={estimate.id}
+                isDraft={estimate.status === "draft"}
+                summary={estimate.summary}
+                lines={estimate.lineItems.map((li) => ({
+                  description: li.description,
+                  quantity: li.quantity,
+                  unitPrice: li.unitPrice,
+                  kind: li.kind,
+                }))}
+              >
+                <p className="m-0 text-[12px] leading-[1.5] text-body-soft">{estimate.summary}</p>
+                <ul className="m-0 flex flex-col gap-[2px] pl-[18px] text-[11.5px] text-muted">
+                  {estimate.lineItems.map((li) => (
+                    <li key={li.id}>
+                      {li.description} — {li.quantity} × {money(li.unitPrice)}
+                    </li>
+                  ))}
+                </ul>
+              </EditableEstimate>
+              {/* Drafts get "Review & send"; a sent estimate can go out again (same version) — "Revise" makes a new one. */}
+              <div className="flex flex-wrap items-center gap-[10px]">
+                <SendEstimateDialog
+                  resend={estimate.status !== "draft"}
                   projectId={project.id}
+                  projectTitle={project.title}
                   estimateId={estimate.id}
-                  connectors={sendableConnectors}
+                  estimate={{
+                    summary: estimate.summary,
+                    subtotal: estimate.subtotal,
+                    tax: estimate.tax,
+                    total: estimate.total,
+                    lineItems: estimate.lineItems.map((li) => ({
+                      description: li.description,
+                      quantity: li.quantity,
+                      unitPrice: li.unitPrice,
+                      kind: li.kind,
+                    })),
+                  }}
+                  customerName={project.customerName}
                   customerEmail={project.customerEmail}
+                  connectors={sendableConnectors}
+                  letterhead={letterhead}
+                  files={allFiles.map((f) => ({ id: f.id, name: f.fileName, sizeBytes: f.sizeBytes }))}
+                  photos={photos.map((p, i) => ({
+                    id: p.id,
+                    name: `photo-${i + 1}`,
+                    sizeBytes: p.sizeBytes,
+                    url: `/api/projects/${project.id}/photos/${p.id}`,
+                  }))}
                 />
-              ) : estimate.sentAt ? (
-                <span className="text-[11px] text-faint">Sent {relativeTime(estimate.sentAt)}</span>
-              ) : null}
+                {estimate.sentAt ? (
+                  <span className="text-[11px] text-faint">Sent {relativeTime(estimate.sentAt)}</span>
+                ) : null}
+              </div>
+              <EstimateOutcome
+                projectId={project.id}
+                estimate={estimate}
+                hasQuoteTasks={tasks.some((t) => t.estimateId !== null)}
+              />
             </div>
           ))
         )}
@@ -278,6 +424,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
       </TableCard>
 
       {/* Tasks */}
+      <div id="tasks" className="scroll-mt-4" />
       <TableCard>
         <TableHeader>
           <TableTitle>Tasks</TableTitle>

@@ -187,6 +187,15 @@ export async function listProjectFiles(projectId: string, folderId: string | nul
   return rows.map(toFile);
 }
 
+/** Every file in the project regardless of folder — for picking email attachments. */
+export async function listAllProjectFiles(projectId: string): Promise<ProjectFile[]> {
+  const rows = await query<FileRow>(
+    `SELECT ${FILE_COLUMNS} FROM ${FILE_FROM} WHERE project_id = $1 ORDER BY created_at DESC`,
+    [projectId],
+  );
+  return rows.map(toFile);
+}
+
 /** Every file in the project carrying `tag`, whatever folder it's in. */
 export async function listProjectFilesByTag(projectId: string, tag: string): Promise<ProjectFile[]> {
   const rows = await query<FileRow>(

@@ -1,5 +1,6 @@
 "use client";
 
+import { TimeZoneField } from "@/components/time-zone-field";
 import { useActionState, useState } from "react";
 import { TASK_KINDS, type TaskKind } from "@/lib/task-kinds";
 import { addTask, type FormState } from "./actions";
@@ -33,6 +34,7 @@ export function AddTaskForm({
     <form key={resetKey} action={action} className="flex flex-wrap items-center gap-[8px]">
       {projectId ? <input type="hidden" name="projectId" value={projectId} /> : null}
       <input type="hidden" name="redirectPath" value={redirectPath} />
+      <TimeZoneField />
       <select name="kind" defaultValue={defaultKind} className={inputClass}>
         {TASK_KINDS.map((k) => (
           <option key={k.id} value={k.id}>

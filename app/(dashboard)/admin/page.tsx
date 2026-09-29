@@ -139,6 +139,7 @@ export default async function AdminPage() {
                   <span className="text-[11px] text-muted">Model</span>
                   <select
                     name="model"
+                    key={p.model ?? p.availableModels[0]}
                     defaultValue={p.model ?? p.availableModels[0]}
                     className="rounded-[10px] border border-line bg-surface px-2 py-[5px] font-mono text-[11.5px] text-ink"
                   >

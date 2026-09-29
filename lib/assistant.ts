@@ -19,11 +19,25 @@
 import { query, queryOne } from "@/lib/db";
 import { chatCompleteStream, chatLlmProvider, type ChatContentPart, type ChatMessage } from "@/lib/llm-providers";
 import { createCustomer, listCustomers } from "@/lib/customers";
-import { createProject, listProjects, type ProjectStatus } from "@/lib/projects";
+import { createProject, getProject, listProjects, type ProjectStatus } from "@/lib/projects";
+import { analyzeProjectPhotos, createEstimate, type LineItemKind } from "@/lib/quoting";
 import { createProjectType, listProjectTypes } from "@/lib/project-types";
 import { createTask, listTasks, type TaskKind } from "@/lib/tasks";
-import { addProjectFile, addProjectPhoto } from "@/lib/project-photos";
+import { addProjectFile, addProjectPhoto, listProjectPhotos } from "@/lib/project-photos";
 import { readUpload, saveUpload } from "@/lib/storage";
+import { listTeam } from "@/lib/auth";
+import { emailContextBlock, zonedTimeToUtc, type EmailAttachmentContent } from "@/lib/email-context";
+import { createDraft, readAttachment, readMail, replyContext, sendMail, type MailDetail } from "@/lib/gmail";
+import { recordInvoiceFromEmail } from "@/lib/email-invoice";
+import { createScheduleEntry } from "@/lib/schedule";
+
+/** What the user is looking at, beyond the page title: the open email (if any) and their time zone for dates. */
+export type AssistantContext = {
+  email: MailDetail | null;
+  /** What was loaded from the email's attachments for the model to see/read (lib/email-context.ts). */
+  emailAttachments?: EmailAttachmentContent;
+  timeZone: string;
+};
 
 export type AgentAttachment = { id: string; fileName: string; contentType: string };
 
@@ -144,7 +158,8 @@ async function createConversation(orgId: string, personId: string | null): Promi
 
 type ToolResult = { summary: string; data?: unknown };
 
-const TOOLS: { name: string; description: string; parameters: string }[] = [
+/** `emailOnly` tools act on the email the user has open, so they're only offered on an email page. */
+const TOOLS: { name: string; description: string; parameters: string; emailOnly?: boolean }[] = [
   {
     name: "list_project_types",
     description: "List this org's project types (the kinds of work it does).",
@@ -167,7 +182,9 @@ const TOOLS: { name: string; description: string; parameters: string }[] = [
   { name: "list_customers", description: "List this org's customers.", parameters: "{}" },
   {
     name: "create_customer",
-    description: "Create a new customer.",
+    description:
+      "Create a customer — or, if one with the same email (or name) already exists, reuse it and fill in any missing " +
+      "contact details. create_project also does this on its own; call this first only to save extra details like an address.",
     parameters: '{"name": "string, required", "email": "optional", "phone": "optional", "address": "optional"}',
   },
   {
@@ -183,8 +200,9 @@ const TOOLS: { name: string; description: string; parameters: string }[] = [
       "org's existing project types (case-insensitive) — call list_project_types or create_project_type first " +
       "if the type doesn't exist yet.",
     parameters:
-      '{"customerName": "string, required", "title": "string, required", "projectTypeName": "optional", ' +
-      '"address": "optional", "notes": "optional"}',
+      '{"customerName": "string, required", "title": "string, required", "customerEmail": "optional — set it when known ' +
+      '(e.g. the sender of an email), so a quote can be sent", "customerPhone": "optional", "projectTypeName": "optional", ' +
+      '"address": "optional", "notes": "optional", "dueDate": "optional YYYY-MM-DD"}',
   },
   { name: "list_tasks", description: "List this org's open tasks.", parameters: "{}" },
   {
@@ -204,6 +222,67 @@ const TOOLS: { name: string; description: string; parameters: string }[] = [
       "attached in the CURRENT message; there's nothing to attach if the user didn't upload anything this turn.",
     parameters: '{"projectTitle": "string, required — matched case-insensitively"}',
   },
+  {
+    name: "draft_estimate_from_photos",
+    description:
+      "Have the AI draft a quote (estimate) for a project from its photos, saved as a DRAFT on the project for the user to " +
+      "review, edit and send. The project needs at least one photo (e.g. copied from an email first). Nothing is sent to the customer.",
+    parameters: '{"projectTitle": "string, required — matched case-insensitively"}',
+  },
+  {
+    name: "create_estimate",
+    description:
+      "Save a quote (estimate) you've worked out — from the user's instructions or an email's details — as a DRAFT on a " +
+      "project, for the user to review, edit and send. Nothing is sent to the customer.",
+    parameters:
+      '{"projectTitle": "string, required", "summary": "string — scope of work the customer will read", ' +
+      '"lineItems": "array, required, of {\\"description\\": string, \\"quantity\\": number, \\"unitPrice\\": number, ' +
+      '\\"kind\\": \\"labor\\" | \\"material\\" | \\"other\\"}"}',
+  },
+  {
+    name: "create_schedule_entry",
+    description:
+      "Put a project on the calendar: a date and time window, optionally assigned to a team member. Times are the user's local time.",
+    parameters:
+      '{"projectTitle": "string, required — matched case-insensitively", "date": "YYYY-MM-DD, required", ' +
+      '"startTime": "HH:MM 24h, required", "endTime": "HH:MM 24h, required", "assigneeName": "optional team member name", ' +
+      '"notes": "optional"}',
+  },
+  {
+    name: "draft_email_reply",
+    description:
+      "Save a reply to the email the user is viewing into their Gmail Drafts (threaded, addressed to the sender). Nothing is sent.",
+    parameters: '{"body": "string, required — the full reply text, signed off naturally"}',
+    emailOnly: true,
+  },
+  {
+    name: "attach_email_files_to_project",
+    description:
+      "Copy the attachments of the email the user is viewing onto a project's record — images go to its photos, everything " +
+      "else to its Files. Use after creating a project from an email, or whenever the user asks to save the email's files to a project.",
+    parameters:
+      '{"projectTitle": "string, required — matched case-insensitively", ' +
+      '"attachmentNames": "optional array of attachment filenames; omit to copy all of them"}',
+    emailOnly: true,
+  },
+  {
+    name: "record_email_invoice",
+    description:
+      "Add the invoice/bill/receipt in the email the user is viewing to their invoice records: parses the attached PDF/image " +
+      "(or the email text if nothing is attached), creates the invoice for review, and keeps the attachment and the original " +
+      "email as its documents. ONLY after the user has said yes to recording it.",
+    parameters:
+      '{"docType": "invoice | receipt, required", "projectTitle": "optional — link it to this project (matched case-insensitively)", ' +
+      '"attachmentName": "optional — which attachment to read, if there are several"}',
+    emailOnly: true,
+  },
+  {
+    name: "send_email_reply",
+    description:
+      "Send a reply to the email the user is viewing, to its sender, in the same thread. ONLY when the user has explicitly told you to send it in this chat — otherwise use draft_email_reply.",
+    parameters: '{"body": "string, required — the full reply text"}',
+    emailOnly: true,
+  },
 ];
 
 async function findProjectTypeIdByName(orgId: string, name: string | undefined): Promise<string | null> {
@@ -212,11 +291,31 @@ async function findProjectTypeIdByName(orgId: string, name: string | undefined):
   return types.find((t) => t.name.toLowerCase() === name.trim().toLowerCase())?.id ?? null;
 }
 
-async function findOrCreateCustomerId(orgId: string, name: string): Promise<string> {
-  const existing = await listCustomers(orgId, name);
-  const exact = existing.find((c) => c.name.toLowerCase() === name.trim().toLowerCase());
-  if (exact) return exact.id;
-  return createCustomer({ orgId, name: name.trim(), email: null, phone: null, address: null, notes: "" });
+/**
+ * The customer to put a project under: matched by email first (when given), then
+ * by name, else created. A match with no email/phone on file gets them filled in —
+ * so a project made from an email is ready to have its quote sent.
+ */
+async function findOrCreateCustomerId(
+  orgId: string,
+  name: string,
+  contact: { email?: string; phone?: string } = {},
+): Promise<string> {
+  const email = contact.email?.trim().toLowerCase() || null;
+  const phone = contact.phone?.trim() || null;
+  const byEmail = email
+    ? await queryOne<{ id: string }>(`SELECT id FROM customers WHERE org_id = $1 AND lower(email) = $2 LIMIT 1`, [orgId, email])
+    : null;
+  const existing = byEmail ?? (await listCustomers(orgId, name)).find((c) => c.name.toLowerCase() === name.trim().toLowerCase());
+  if (existing) {
+    await query(
+      `UPDATE customers SET email = coalesce(nullif(email, ''), $3), phone = coalesce(nullif(phone, ''), $4)
+        WHERE id = $1 AND org_id = $2`,
+      [existing.id, orgId, email, phone],
+    );
+    return existing.id;
+  }
+  return createCustomer({ orgId, name: name.trim(), email, phone, address: null, notes: "" });
 }
 
 async function findProjectIdByTitle(orgId: string, title: string | undefined): Promise<string | null> {
@@ -240,9 +339,10 @@ async function runTool(
   name: string,
   args: Record<string, unknown>,
   currentAttachments: SavedAttachment[],
+  context: AssistantContext,
 ): Promise<ToolResult> {
   try {
-    return await runToolUnsafe(orgId, personId, name, args, currentAttachments);
+    return await runToolUnsafe(orgId, personId, name, args, currentAttachments, context);
   } catch (error) {
     return { summary: `${name} failed: ${error instanceof Error ? error.message : "unknown error"}` };
   }
@@ -254,10 +354,170 @@ async function runToolUnsafe(
   name: string,
   args: Record<string, unknown>,
   currentAttachments: SavedAttachment[],
+  context: AssistantContext,
 ): Promise<ToolResult> {
   const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 
   switch (name) {
+    case "draft_estimate_from_photos": {
+      const projectTitle = str(args.projectTitle);
+      const projectId = await findProjectIdByTitle(orgId, projectTitle);
+      if (!projectId) return { summary: `draft_estimate_from_photos failed: no project found named "${projectTitle}".` };
+      const project = await getProject(projectId, orgId);
+      const photos = await listProjectPhotos(projectId);
+      if (!project || photos.length === 0) {
+        return { summary: `draft_estimate_from_photos failed: "${projectTitle}" has no photos to work from yet.` };
+      }
+      const proposal = await analyzeProjectPhotos(
+        orgId,
+        { title: project.title, projectType: project.projectTypeName ?? "general", address: project.address, notes: project.notes },
+        photos,
+      );
+      const id = await createEstimate({
+        orgId,
+        projectId,
+        summary: proposal.summary,
+        lineItems: proposal.lineItems,
+        aiGenerated: true,
+        createdBy: personId,
+      });
+      const total = proposal.lineItems.reduce((sum, l) => sum + l.quantity * l.unitPrice, 0);
+      return {
+        summary: `Drafted an estimate for "${project.title}" from ${photos.length} photo(s): ${proposal.lineItems.length} line(s), $${total.toFixed(2)}.`,
+        data: { id, total, lineItems: proposal.lineItems, link: `/projects/${projectId}` },
+      };
+    }
+    case "create_estimate": {
+      const projectTitle = str(args.projectTitle);
+      const projectId = await findProjectIdByTitle(orgId, projectTitle);
+      if (!projectId) return { summary: `create_estimate failed: no project found named "${projectTitle}".` };
+      const kinds: LineItemKind[] = ["labor", "material", "other"];
+      const lineItems = (Array.isArray(args.lineItems) ? args.lineItems : [])
+        .map((raw) => {
+          const l = (raw ?? {}) as Record<string, unknown>;
+          return {
+            description: str(l.description),
+            quantity: Number(l.quantity ?? 1),
+            unitPrice: Number(l.unitPrice ?? 0),
+            kind: kinds.includes(l.kind as LineItemKind) ? (l.kind as LineItemKind) : "other",
+          };
+        })
+        .filter((l) => l.description && Number.isFinite(l.quantity) && Number.isFinite(l.unitPrice) && l.quantity >= 0 && l.unitPrice >= 0);
+      if (lineItems.length === 0) return { summary: "create_estimate failed: give at least one line item with a description, quantity and unit price." };
+      const id = await createEstimate({
+        orgId,
+        projectId,
+        summary: str(args.summary),
+        lineItems,
+        aiGenerated: true,
+        createdBy: personId,
+      });
+      const total = lineItems.reduce((sum, l) => sum + l.quantity * l.unitPrice, 0);
+      return {
+        summary: `Saved a draft estimate on "${projectTitle}": ${lineItems.length} line(s), $${total.toFixed(2)}.`,
+        data: { id, total, link: `/projects/${projectId}` },
+      };
+    }
+    case "create_schedule_entry": {
+      const projectId = await findProjectIdByTitle(orgId, str(args.projectTitle) || undefined);
+      if (!projectId) return { summary: `create_schedule_entry failed: no project matches "${str(args.projectTitle)}".` };
+      const startsAt = zonedTimeToUtc(str(args.date), str(args.startTime), context.timeZone);
+      const endsAt = zonedTimeToUtc(str(args.date), str(args.endTime), context.timeZone);
+      if (!startsAt || !endsAt) return { summary: "create_schedule_entry failed: date must be YYYY-MM-DD and times HH:MM." };
+      if (endsAt <= startsAt) return { summary: "create_schedule_entry failed: endTime must be after startTime." };
+      let assignedTo: string | null = null;
+      const assigneeName = str(args.assigneeName);
+      if (assigneeName) {
+        const member = (await listTeam(orgId)).find((m) => m.name.toLowerCase() === assigneeName.toLowerCase());
+        if (!member) return { summary: `create_schedule_entry failed: no team member named "${assigneeName}".` };
+        assignedTo = member.id;
+      }
+      const id = await createScheduleEntry({ orgId, projectId, assignedTo, startsAt, endsAt, notes: str(args.notes) });
+      return {
+        summary: `Scheduled ${str(args.projectTitle)} on ${str(args.date)} ${str(args.startTime)}–${str(args.endTime)}.`,
+        data: { id, link: "/schedule" },
+      };
+    }
+    case "attach_email_files_to_project": {
+      if (!context.email) return { summary: "attach_email_files_to_project failed: the user isn't viewing an email." };
+      const projectTitle = str(args.projectTitle);
+      const projectId = await findProjectIdByTitle(orgId, projectTitle);
+      if (!projectId) return { summary: `attach_email_files_to_project failed: no project found named "${projectTitle}".` };
+      // Re-read the message: Gmail issues fresh attachment ids per read, so use ones from right now.
+      const email = await readMail(context.email.id, orgId, context.email.connectorId);
+      const wanted = Array.isArray(args.attachmentNames)
+        ? args.attachmentNames.filter((n): n is string => typeof n === "string").map((n) => n.toLowerCase())
+        : [];
+      const chosen = wanted.length
+        ? email.attachments.filter((a) => wanted.includes(a.filename.toLowerCase()))
+        : email.attachments;
+      if (chosen.length === 0) {
+        return {
+          summary: `attach_email_files_to_project: nothing to copy — the email's attachments are: ${
+            email.attachments.map((a) => a.filename).join(", ") || "none"
+          }.`,
+        };
+      }
+      const photos: string[] = [];
+      const files: string[] = [];
+      for (const a of chosen) {
+        const bytes = await readAttachment(email.id, a.attachmentId, orgId, email.connectorId);
+        if (a.mimeType.startsWith("image/")) {
+          await addProjectPhoto({ projectId, fileName: a.filename, contentType: a.mimeType, bytes, uploadedBy: personId });
+          photos.push(a.filename);
+        } else {
+          await addProjectFile({
+            projectId,
+            folderId: null,
+            fileName: a.filename,
+            contentType: a.mimeType || "application/octet-stream",
+            bytes,
+            uploadedBy: personId,
+          });
+          files.push(a.filename);
+        }
+      }
+      return {
+        summary: `Copied ${photos.length} photo(s) and ${files.length} file(s) from the email to "${projectTitle}".`,
+        data: { photos, files, link: `/projects/${projectId}` },
+      };
+    }
+    case "record_email_invoice": {
+      const email = context.email;
+      if (!email) return { summary: "record_email_invoice failed: the user isn't viewing an email." };
+      const docType = str(args.docType) === "receipt" ? "receipt" : "invoice";
+      const projectTitle = str(args.projectTitle);
+      const projectId = projectTitle ? await findProjectIdByTitle(orgId, projectTitle) : null;
+      if (projectTitle && !projectId) return { summary: `record_email_invoice failed: no project matches "${projectTitle}".` };
+      const recorded = await recordInvoiceFromEmail({
+        orgId,
+        message: email,
+        docType,
+        projectId,
+        attachmentName: str(args.attachmentName) || undefined,
+      });
+      return {
+        summary: `Recorded a ${docType} from ${recorded.vendorName} for $${recorded.total.toFixed(2)} (read from ${recorded.source}).`,
+        data: { ...recorded, link: `/invoices/${recorded.vendorSlug}?id=${recorded.invoiceId}` },
+      };
+    }
+    case "draft_email_reply":
+    case "send_email_reply": {
+      const email = context.email;
+      if (!email) return { summary: `${name} failed: the user isn't viewing an email.` };
+      const body = str(args.body);
+      if (!body) return { summary: `${name} failed: body is required.` };
+      // Always back to the sender (or their Reply-To) — never an address taken from the email body.
+      const to = email.replyTo || `${email.from} <${email.fromEmail}>`;
+      const subject = /^re:/i.test(email.subject) ? email.subject : `Re: ${email.subject}`;
+      const reply = replyContext(email);
+      if (name === "draft_email_reply") {
+        await createDraft({ orgId, connectorId: email.connectorId, to, subject, body, reply });
+        return { summary: `Saved a reply to ${email.fromEmail} in Gmail Drafts.` };
+      }
+      await sendMail({ orgId, connectorId: email.connectorId, to, subject, body, reply });
+      return { summary: `Sent a reply to ${email.fromEmail}.` };
+    }
     case "list_project_types": {
       const types = await listProjectTypes(orgId);
       return { summary: `Listed ${types.length} project type(s).`, data: types };
@@ -303,15 +563,36 @@ async function runToolUnsafe(
     case "create_customer": {
       const name2 = str(args.name);
       if (!name2) return { summary: "create_customer failed: name is required." };
+      const email = str(args.email).toLowerCase();
+      // Reuse a customer already on file (same email, else same name) rather than duplicating them;
+      // any contact details they're missing get filled in.
+      const existing = email
+        ? await queryOne<{ id: string; name: string }>(
+            `SELECT id, name FROM customers WHERE org_id = $1 AND lower(email) = $2 LIMIT 1`,
+            [orgId, email],
+          )
+        : ((await listCustomers(orgId, name2)).find((c) => c.name.toLowerCase() === name2.toLowerCase()) ?? null);
+      if (existing) {
+        await query(
+          `UPDATE customers SET email = coalesce(nullif(email, ''), $3), phone = coalesce(nullif(phone, ''), $4),
+                  address = coalesce(nullif(address, ''), $5)
+            WHERE id = $1 AND org_id = $2`,
+          [existing.id, orgId, email || null, str(args.phone) || null, str(args.address) || null],
+        );
+        return {
+          summary: `"${existing.name}" is already a customer — used the existing record.`,
+          data: { id: existing.id, name: existing.name, link: `/customers/${existing.id}` },
+        };
+      }
       const id = await createCustomer({
         orgId,
         name: name2,
-        email: str(args.email) || null,
+        email: email || null,
         phone: str(args.phone) || null,
         address: str(args.address) || null,
         notes: "",
       });
-      return { summary: `Created customer "${name2}".`, data: { id, name: name2 } };
+      return { summary: `Created customer "${name2}".`, data: { id, name: name2, link: `/customers/${id}` } };
     }
     case "list_projects": {
       const status = str(args.status) as ProjectStatus | "";
@@ -324,8 +605,12 @@ async function runToolUnsafe(
       if (!customerName || !title) {
         return { summary: "create_project failed: customerName and title are required." };
       }
-      const customerId = await findOrCreateCustomerId(orgId, customerName);
+      const customerId = await findOrCreateCustomerId(orgId, customerName, {
+        email: str(args.customerEmail),
+        phone: str(args.customerPhone),
+      });
       const projectTypeId = await findProjectTypeIdByName(orgId, str(args.projectTypeName) || undefined);
+      const dueDate = /^\d{4}-\d{2}-\d{2}$/.test(str(args.dueDate)) ? str(args.dueDate) : null;
       const id = await createProject({
         orgId,
         customerId,
@@ -333,9 +618,10 @@ async function runToolUnsafe(
         projectTypeId,
         address: str(args.address),
         notes: str(args.notes),
+        dueDate,
         createdBy: personId,
       });
-      return { summary: `Created project "${title}" for ${customerName}.`, data: { id, title } };
+      return { summary: `Created project "${title}" for ${customerName}.`, data: { id, title, link: `/projects/${id}` } };
     }
     case "list_tasks": {
       const tasks = await listTasks(orgId);
@@ -356,6 +642,7 @@ async function runToolUnsafe(
         assignedTo: null,
         createdBy: personId,
         items: Array.isArray(args.items) ? args.items.filter((i): i is string => typeof i === "string") : [],
+        timeZone: context.timeZone,
       });
       return { summary: `Created ${kind} task "${title2}".`, data: { id, title: title2 } };
     }
@@ -495,13 +782,17 @@ function parseAction(raw: string): AgentAction {
 
 const MAX_STEPS = 50;
 
-function systemPrompt(pageContext: string | null): string {
-  const toolList = TOOLS.map((t) => `- ${t.name}(${t.parameters}): ${t.description}`).join("\n");
+function systemPrompt(pageContext: string | null, context: AssistantContext): string {
+  const toolList = TOOLS.filter((t) => !t.emailOnly || context.email)
+    .map((t) => `- ${t.name}(${t.parameters}): ${t.description}`)
+    .join("\n");
   return (
     "You are the Executive Assistant for a small business owner's operations app (Clandar). You can answer " +
-    "questions and take real actions — creating customers, projects, project types, and tasks — using the tools " +
+    "questions and take real actions — creating customers, projects, project types, tasks, and draft quotes — using the tools " +
     "below. Use a tool whenever the user asks you to look something up or create/change something; don't just " +
-    "describe what you would do.\n\n" +
+    "describe what you would do. A quote (estimate) always belongs to a project: if the job doesn't have a project " +
+    "yet, call create_project first (include the customer's email when you know it, so the quote can be sent), then " +
+    "draft the quote on it. Quotes are saved as drafts; the user reviews and sends them from the project page.\n\n" +
     "Available tools:\n" +
     toolList +
     "\n\n" +
@@ -519,7 +810,22 @@ function systemPrompt(pageContext: string | null): string {
     "link to a page in the app whenever it's relevant using markdown link syntax, e.g. " +
     '"[Project Types](/projects/types)" — the chat renders these as clickable links. Common pages: /projects, ' +
     "/projects/types, /projects/new, /customers, /schedule, /tasks, /settings." +
-    (pageContext ? `\n\nThe user is currently viewing: ${pageContext}.` : "")
+    (pageContext ? `\n\nThe user is currently viewing: ${pageContext}.` : "") +
+    `\n\nToday is ${new Date().toLocaleDateString("en-CA", { timeZone: context.timeZone })} in the user's time zone (${context.timeZone}).` +
+    (context.email
+      ? "\n\nWhen asked to draft replies, write them out in your reply for the user to choose from; only call " +
+        "draft_email_reply once they pick one (or ask you to save it), and send_email_reply only when they explicitly " +
+        "say to send. When asked to create a project from this email, create it (finding or creating the customer from the " +
+        "sender, passing their email as customerEmail), then call attach_email_files_to_project to copy the email's attachments onto it; if they also want a quote, " +
+        "call draft_estimate_from_photos when the project has photos, or create_estimate with line items you work out " +
+        "from the email. Quotes are only ever saved as drafts — tell the user to open the project to review and send it. " +
+        "For a follow-up, use create_task with kind \"reminder\" and a dueDate. To confirm a schedule, " +
+        "state the date/time and project you found and get the user's OK before calling create_schedule_entry. " +
+        "Whenever the email is (or carries) an invoice, bill, statement or receipt, say so and list what you can see — " +
+        "vendor, invoice/account number, date, due date, total — then ask whether to add it to their invoice records " +
+        "(and to which project, if any); call record_email_invoice only after they say yes, then share the link it returns.\n\n" +
+        emailContextBlock(context.email, context.emailAttachments)
+      : "")
   );
 }
 
@@ -605,6 +911,7 @@ export async function* askAssistant(
   images: string[],
   attachments: IncomingAttachment[],
   pageContext: string | null,
+  context: AssistantContext = { email: null, timeZone: "UTC" },
 ): AsyncGenerator<AssistantEvent> {
   const provider = await chatLlmProvider(orgId);
   if (!provider) {
@@ -644,16 +951,29 @@ export async function* askAssistant(
   }
 
   const questionForModel = extraContext ? `${question}\n\n${extraContext}` : question;
+  // The email's image attachments ride along with this turn (system prompts can't carry images).
+  const emailImages = context.emailAttachments?.images ?? [];
   const userContent: string | ChatContentPart[] =
-    images.length > 0
+    images.length > 0 || emailImages.length > 0
       ? [
           { type: "text", text: questionForModel },
           ...images.map((url): ChatContentPart => ({ type: "image_url", image_url: { url } })),
+          ...(emailImages.length
+            ? [
+                {
+                  type: "text",
+                  text: `Images attached to the email being viewed (untrusted content from its sender): ${emailImages
+                    .map((i) => i.name)
+                    .join(", ")}`,
+                } as ChatContentPart,
+                ...emailImages.map((i): ChatContentPart => ({ type: "image_url", image_url: { url: i.dataUrl } })),
+              ]
+            : []),
         ]
       : questionForModel;
 
   const messages: ChatMessage[] = [
-    { role: "system", content: systemPrompt(pageContext) },
+    { role: "system", content: systemPrompt(pageContext, context) },
     ...priorRows.map((r) => ({ role: r.role, content: r.body }) as const),
     { role: "user", content: userContent },
   ];
@@ -689,7 +1009,7 @@ export async function* askAssistant(
         break;
       }
       messages.push({ role: "assistant", content: raw });
-      const result = await runTool(orgId, personId, action.tool, action.args, savedAttachments);
+      const result = await runTool(orgId, personId, action.tool, action.args, savedAttachments, context);
       toolCalls.push({ tool: action.tool, detail: result.summary });
       yield { type: "tool_call", tool: action.tool, detail: result.summary };
       messages.push({

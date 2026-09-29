@@ -43,6 +43,7 @@ export async function addTask(_prev: FormState, form: FormData): Promise<FormSta
     dueDate,
     assignedTo: field(form, "assignedTo") || null,
     createdBy: session.person.id,
+    timeZone: field(form, "timeZone"),
   });
 
   revalidatePath(redirectPath);
@@ -65,6 +66,7 @@ export async function saveTask(_prev: FormState, form: FormData): Promise<FormSt
     store: field(form, "store"),
     remindTime: field(form, "remindTime") || null,
     repeat: REPEATS.some((r) => r.id === repeatField) ? (repeatField as Repeat) : "none",
+    timeZone: field(form, "timeZone"),
   });
 
   revalidatePath(`/tasks/${id}`);
@@ -121,8 +123,11 @@ export async function addItem(_prev: FormState, form: FormData): Promise<FormSta
   const quantityField = field(form, "quantity");
   const quantity = quantityField ? Number(quantityField) : null;
   if (quantity !== null && !Number.isFinite(quantity)) return { error: "Quantity must be a number." };
+  const priceField = field(form, "unitPrice").replace(/[$,\s]/g, "");
+  const unitPrice = priceField ? Number(priceField) : null;
+  if (unitPrice !== null && (!Number.isFinite(unitPrice) || unitPrice < 0)) return { error: "Price must be a number." };
 
-  await addTaskItem(taskId, org.id, { label, quantity, unit: field(form, "unit"), url: url?.href ?? null });
+  await addTaskItem(taskId, org.id, { label, quantity, unit: field(form, "unit"), url: url?.href ?? null, unitPrice });
   revalidatePath(`/tasks/${taskId}`);
   revalidatePath("/tasks");
   return { ok: "Added." };

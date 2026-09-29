@@ -40,7 +40,13 @@ export type MailSummary = {
 };
 
 export type MailAttachment = {
-  /** Gmail's handle for the bytes, used by the download route. */
+  /**
+   * The MIME part number ("1", "2.1") — stable for a message, so it's what
+   * links and the download route use. `attachmentId` is NOT stable: Gmail hands
+   * out a fresh one on every messages.get, so it's only good within one read.
+   */
+  partId: string;
+  /** Gmail's handle for the bytes — valid only with the read that returned it. */
   attachmentId: string;
   filename: string;
   mimeType: string;
@@ -112,6 +118,7 @@ export function extractBody(payload: GmailPart | undefined) {
 
     if (part.filename && part.body?.attachmentId) {
       attachments.push({
+        partId: part.partId ?? part.body.attachmentId,
         attachmentId: part.body.attachmentId,
         filename: part.filename,
         mimeType: mime || "application/octet-stream",

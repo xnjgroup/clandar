@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Icon, type IconName } from "@/components/icons";
 import { ExecutiveAssistantWidget } from "@/components/executive-assistant-widget";
+import { NotificationBell } from "@/components/notification-bell";
 import { MOBILE_TABS, NAV_FOOTER, NAV_GROUPS, NAV_TOP, PAGE_TITLES, USER_MENU, greeting } from "@/lib/data";
 
 const ASSISTANT_OPEN_KEY = "clandar:assistant-open";
@@ -313,6 +314,7 @@ export function AppShell({
               <span className="text-[12.5px] text-muted">{crumb}</span>
               <h1 className="m-0 truncate text-[22px] font-bold tracking-[-0.03em]">{title}</h1>
             </div>
+            <NotificationBell />
           </header>
 
           {children}

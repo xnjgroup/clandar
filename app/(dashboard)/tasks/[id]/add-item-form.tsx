@@ -30,6 +30,15 @@ export function AddItemForm({ taskId, shopping }: { taskId: string; shopping: bo
         <>
           <input name="quantity" type="number" step="any" min="0" placeholder="Qty" className={`${inputClass} w-[80px]`} />
           <input name="unit" placeholder="Unit" className={`${inputClass} w-[90px]`} />
+          <input
+            name="unitPrice"
+            type="number"
+            step="0.01"
+            min="0"
+            placeholder="$ each"
+            aria-label="Price per unit"
+            className={`${inputClass} w-[92px]`}
+          />
         </>
       ) : null}
       <input

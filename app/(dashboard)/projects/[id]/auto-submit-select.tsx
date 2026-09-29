@@ -16,6 +16,9 @@ export function AutoSubmitSelect({
 }) {
   return (
     <select
+      // Remount when the saved value changes: the form resets after its action submits, and a
+      // <select> resets to the option it was first rendered with — this keeps it on the new value.
+      key={defaultValue}
       name={name}
       defaultValue={defaultValue}
       onChange={(e) => e.currentTarget.form?.requestSubmit()}

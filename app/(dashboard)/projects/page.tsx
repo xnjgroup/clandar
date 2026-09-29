@@ -1,9 +1,16 @@
 import Link from "next/link";
 import { Icon, iconName } from "@/components/icons";
 import { EmptyRow, IconTile, PageBody, Pill, TableCard, TableHeader, TableTitle } from "@/components/ui";
-import { count, firstParam, hrefWith, relativeTime, type Tone } from "@/lib/data";
+import { count, firstParam, hrefWith, money, relativeTime, type Tone } from "@/lib/data";
 import { requireSession } from "@/lib/auth";
-import { PROJECT_STATUSES, describeDue, projectCountsByStatus, listProjects, type ProjectStatus } from "@/lib/projects";
+import {
+  PROJECT_STATUSES,
+  describeDue,
+  projectCountsByStatus,
+  listProjects,
+  type Project,
+  type ProjectStatus,
+} from "@/lib/projects";
 
 const STATUS_TONE: Record<ProjectStatus, Tone> = {
   lead: "idle",
@@ -15,6 +22,27 @@ const STATUS_TONE: Record<ProjectStatus, Tone> = {
 };
 
 const PATH = "/projects";
+
+const ESTIMATE_TONE: Record<"draft" | "sent" | "accepted" | "declined", string> = {
+  draft: "text-faint",
+  sent: "text-warn-fg",
+  accepted: "text-ok-fg",
+  declined: "text-bad-fg",
+};
+
+/** The latest quote's total and where it stands — an empty slot when there's no quote, so columns line up. */
+function EstimateAmount({ estimate }: { estimate: Project["latestEstimate"] }) {
+  return (
+    <span className="flex w-[104px] shrink-0 flex-col items-end leading-[1.3]" title={estimate ? `Latest estimate · ${estimate.status}` : undefined}>
+      {estimate ? (
+        <>
+          <span className="font-mono text-[12.5px] font-semibold">{money(estimate.total)}</span>
+          <span className={`text-[10.5px] font-medium capitalize ${ESTIMATE_TONE[estimate.status]}`}>{estimate.status}</span>
+        </>
+      ) : null}
+    </span>
+  );
+}
 
 function DueLine({ dueDate, status }: { dueDate: string | null; status: ProjectStatus }) {
   const due = describeDue(dueDate, status);
@@ -136,6 +164,7 @@ export default async function ProjectsPage({ searchParams }: PageProps<"/project
                   {project.assignedName}
                 </span>
               ) : null}
+              <EstimateAmount estimate={project.latestEstimate} />
               <TaskProgress done={project.tasksDone} total={project.taskCount} />
               <Pill tone={STATUS_TONE[project.status]}>
                 {PROJECT_STATUSES.find((s) => s.id === project.status)?.label ?? project.status}

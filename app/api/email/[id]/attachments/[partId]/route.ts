@@ -9,22 +9,24 @@ import { GmailError, readAttachment, readMail } from "@/lib/gmail";
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string; attachmentId: string }> },
+  { params }: { params: Promise<{ id: string; partId: string }> },
 ) {
-  const { id, attachmentId } = await params;
+  const { id, partId } = await params;
   // Which Gmail account this message belongs to — omitted when only one is
   // connected, in which case readMail/readAttachment default to it.
   const connectorId = request.nextUrl.searchParams.get("account") ?? undefined;
   const { org } = await requireSession();
 
   try {
+    // Looked up by MIME part number, then fetched with the attachmentId from this same read —
+    // Gmail issues a new attachmentId on every messages.get, so one from an earlier page load won't match.
     const message = await readMail(id, org.id, connectorId);
-    const attachment = message.attachments.find((a) => a.attachmentId === attachmentId);
+    const attachment = message.attachments.find((a) => a.partId === partId);
     if (!attachment) {
       return NextResponse.json({ error: "No such attachment on this message" }, { status: 404 });
     }
 
-    const bytes = await readAttachment(id, attachmentId, org.id, connectorId);
+    const bytes = await readAttachment(id, attachment.attachmentId, org.id, connectorId);
     // Quote-escape the filename so a comma or quote cannot break the header.
     const filename = attachment.filename.replace(/["\\]/g, "_");
 

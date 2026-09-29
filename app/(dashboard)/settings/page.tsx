@@ -15,6 +15,7 @@ import { listPendingInvites, listTeam, requireSession } from "@/lib/auth";
 import { AddLlmForm } from "./add-llm-form";
 import { DeleteCompanyForm } from "./delete-company-form";
 import { InviteForm } from "./invite-form";
+import { ResendInviteButton } from "./resend-invite-button";
 import { RenameOrgForm } from "./rename-org-form";
 import { FeatureProviderForm } from "./feature-provider-form";
 import {
@@ -179,6 +180,7 @@ export default async function SettingsPage() {
                   <span className="text-[11px] text-muted">Model</span>
                   <select
                     name="model"
+                    key={p.model ?? p.availableModels[0]}
                     defaultValue={p.model ?? p.availableModels[0]}
                     className="rounded-[10px] border border-line bg-surface px-2 py-[5px] font-mono text-[11.5px] text-ink"
                   >
@@ -243,7 +245,7 @@ export default async function SettingsPage() {
         <div className="flex flex-wrap items-center gap-[10px]">
           <CardTitle>Team</CardTitle>
           <span className="text-[11.5px] text-muted">
-            Invite crew or office staff by email; they join by signing in with that Google account.
+            Invite crew or office staff by email — they get an invitation from your connected Gmail and join by signing in with that Google account.
           </span>
         </div>
         {isOwner ? <InviteForm /> : null}
@@ -274,6 +276,7 @@ export default async function SettingsPage() {
                 <input type="hidden" name="id" value={m.id} />
                 <select
                   name="role"
+                  key={m.role}
                   defaultValue={m.role}
                   className="rounded-[10px] border border-line bg-surface px-2 py-[5px] text-[11.5px] text-ink"
                 >
@@ -318,6 +321,7 @@ export default async function SettingsPage() {
               </span>
             </div>
             <Pill tone="warn">pending</Pill>
+            {isOwner ? <ResendInviteButton id={invite.id} /> : null}
             {isOwner ? (
               <form action={cancelInvite}>
                 <input type="hidden" name="id" value={invite.id} />

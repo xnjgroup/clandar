@@ -30,6 +30,8 @@ export type Project = {
   assignedName: string | null;
   /** "YYYY-MM-DD", or null when no due date is set. */
   dueDate: string | null;
+  /** The most recent estimate (quote) on the project, if any. */
+  latestEstimate: { total: number; status: "draft" | "sent" | "accepted" | "declined" } | null;
   /** The project's tasks, and how many are marked done — its progress. */
   taskCount: number;
   tasksDone: number;
@@ -53,6 +55,8 @@ type ProjectRow = {
   assigned_to: string | null;
   assigned_name: string | null;
   due_date: string | null;
+  estimate_total: string | null;
+  estimate_status: "draft" | "sent" | "accepted" | "declined" | null;
   task_count: number;
   tasks_done: number;
   created_at: Date;
@@ -76,6 +80,8 @@ function toProject(row: ProjectRow): Project {
     assignedTo: row.assigned_to,
     assignedName: row.assigned_name,
     dueDate: row.due_date,
+    latestEstimate:
+      row.estimate_status !== null ? { total: Number(row.estimate_total), status: row.estimate_status } : null,
     taskCount: row.task_count,
     tasksDone: row.tasks_done,
     createdAt: row.created_at,
@@ -87,12 +93,16 @@ const SELECT = `SELECT j.id, j.title, j.project_type_id, pt.name AS project_type
        j.address, j.status, j.notes, j.due_date::text AS due_date, j.created_at, j.updated_at,
        c.id AS customer_id, c.name AS customer_name, c.email AS customer_email, c.phone AS customer_phone,
        p.id AS assigned_to, p.name AS assigned_name,
+       le.total::text AS estimate_total, le.status AS estimate_status,
        (SELECT count(*)::int FROM tasks t WHERE t.project_id = j.id) AS task_count,
        (SELECT count(*)::int FROM tasks t WHERE t.project_id = j.id AND t.is_done) AS tasks_done
   FROM projects j
   JOIN customers c ON c.id = j.customer_id
   LEFT JOIN people p ON p.id = j.assigned_to
-  LEFT JOIN project_types pt ON pt.id = j.project_type_id`;
+  LEFT JOIN project_types pt ON pt.id = j.project_type_id
+  LEFT JOIN LATERAL (
+    SELECT e.total, e.status FROM estimates e WHERE e.project_id = j.id ORDER BY e.created_at DESC LIMIT 1
+  ) le ON true`;
 
 export async function listProjects(
   orgId: string,

@@ -624,6 +624,20 @@ ALTER TABLE project_files ADD COLUMN IF NOT EXISTS invoice_id uuid REFERENCES in
 ALTER TABLE invoices ADD COLUMN IF NOT EXISTS project_id uuid REFERENCES projects (id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS invoices_job_idx ON invoices (project_id);
 
+-- The source documents behind an invoice record — the PDF/image it was read
+-- from and/or the original email (.eml) it arrived in. Bytes live in storage
+-- (lib/storage.ts), scoped through the invoice's org.
+CREATE TABLE IF NOT EXISTS invoice_documents (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  invoice_id   uuid NOT NULL REFERENCES invoices (id) ON DELETE CASCADE,
+  file_path    text NOT NULL,
+  file_name    text NOT NULL,
+  content_type text NOT NULL,
+  size_bytes   integer NOT NULL DEFAULT 0,
+  created_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS invoice_documents_invoice_idx ON invoice_documents (invoice_id, created_at);
+
 /* ── Quoting ──────────────────────────────────────────────────
    An AI-assisted estimate: photos in, a line-itemized quote out. See
    lib/quoting.ts.
@@ -658,6 +672,28 @@ CREATE TABLE IF NOT EXISTS estimate_line_items (
   sort_order  integer NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS estimate_line_items_estimate_idx ON estimate_line_items (estimate_id, sort_order);
+-- Set when an accepted estimate was turned into the project's work tasks (lib/quoting.ts), so it only happens once.
+ALTER TABLE estimates ADD COLUMN IF NOT EXISTS tasks_created_at timestamptz;
+
+-- Tasks built from an accepted estimate point back at it (the project's "Work" to-do and
+-- "Materials" shopping list), and their quote-made items are flagged — so re-syncing from a
+-- quote (lib/quoting.ts) rebuilds just those items and leaves hand-added ones alone.
+-- One-time backfill when the column first appears: link tasks made before it existed.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'tasks' AND column_name = 'estimate_id') THEN
+    ALTER TABLE tasks ADD COLUMN estimate_id uuid REFERENCES estimates (id) ON DELETE SET NULL;
+    ALTER TABLE task_items ADD COLUMN from_estimate boolean NOT NULL DEFAULT false;
+    UPDATE tasks t SET estimate_id = (
+        SELECT e.id FROM estimates e
+         WHERE e.project_id = t.project_id AND e.tasks_created_at IS NOT NULL
+         ORDER BY e.tasks_created_at DESC LIMIT 1)
+      FROM projects j
+     WHERE j.id = t.project_id AND t.notes = 'From the accepted estimate.'
+       AND t.title IN ('Work: ' || j.title, 'Materials: ' || j.title);
+    UPDATE task_items i SET from_estimate = true FROM tasks t WHERE t.id = i.task_id AND t.estimate_id IS NOT NULL;
+  END IF;
+END $$;
 
 /* ── Scheduling ───────────────────────────────────────────────
    One calendar entry: a project, a crew member, a time window. The daily
@@ -724,6 +760,51 @@ CREATE TABLE IF NOT EXISTS task_items (
 CREATE INDEX IF NOT EXISTS task_items_task_idx ON task_items (task_id, created_at);
 -- An optional reference link on a step/item (a product page, a how-to), http(s) only.
 ALTER TABLE task_items ADD COLUMN IF NOT EXISTS url text;
+-- Price per unit for a shopping item (line total = quantity × unit_price); null when unknown.
+ALTER TABLE task_items ADD COLUMN IF NOT EXISTS unit_price numeric(12, 2);
+
+-- Firing reminders (lib/reminders.ts). A reminder is due at due_date +
+-- remind_time (09:00 when unset) as wall-clock time in `time_zone` — the zone
+-- of whoever last saved it. `reminded_at` marks the current occurrence as
+-- sent; it's cleared when the date/time changes or a repeat rolls forward.
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS time_zone text NOT NULL DEFAULT 'UTC';
+-- Added with a one-time backfill: reminders already past due when firing was
+-- introduced count as sent, so switching it on doesn't flood everyone. Later
+-- runs of this file skip the block (the column exists), so a reminder that
+-- comes due while the server is down still fires when it's back.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'tasks' AND column_name = 'reminded_at') THEN
+    ALTER TABLE tasks ADD COLUMN reminded_at timestamptz;
+    UPDATE tasks SET reminded_at = now() WHERE kind = 'reminder' AND due_date < current_date;
+  END IF;
+END $$;
+CREATE INDEX IF NOT EXISTS tasks_due_reminders_idx ON tasks (due_date)
+  WHERE kind = 'reminder' AND NOT is_done AND reminded_at IS NULL;
+
+-- In-app notifications (the header bell): one row per recipient.
+CREATE TABLE IF NOT EXISTS notifications (
+  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id     uuid NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+  person_id  uuid NOT NULL REFERENCES people (id) ON DELETE CASCADE,
+  title      text NOT NULL,
+  body       text NOT NULL DEFAULT '',
+  link       text,
+  read_at    timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS notifications_person_idx ON notifications (person_id, created_at DESC);
+
+-- Browser push subscriptions (Web Push), one per browser/device a person enabled.
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  person_id  uuid NOT NULL REFERENCES people (id) ON DELETE CASCADE,
+  endpoint   text NOT NULL UNIQUE,
+  p256dh     text NOT NULL,
+  auth       text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS push_subscriptions_person_idx ON push_subscriptions (person_id);
 
 /* ── Org-scoping the legacy expense-tracking tables ──────────
    These predate multi-tenancy and were left global — every org shared the
@@ -901,6 +982,8 @@ CREATE TRIGGER trg_platform_llm_providers_updated_at BEFORE UPDATE ON platform_l
 -- above — this used to be a separate rename migration, folded in once every
 -- environment had run it.)
 ALTER TABLE organizations ADD COLUMN IF NOT EXISTS company_type text;
+-- The company header on emails sent to customers (lib/letterhead.ts): companyName, address, phone, email, website, license.
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS letterhead jsonb NOT NULL DEFAULT '{}';
 
 /* ── Executive Assistant chat attachments ─────────────────────
    An image or document a user attached in the assistant chat (see

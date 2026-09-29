@@ -4,6 +4,7 @@ import { Icon, iconName } from "@/components/icons";
 import { IconTile, PageBody, TableCard } from "@/components/ui";
 import { LINE_TAG_CLASS, firstParam, longDate, money, shortDate } from "@/lib/data";
 import { requireSession } from "@/lib/auth";
+import { listInvoiceDocuments } from "@/lib/email-invoice";
 import { invoiceDetail } from "@/lib/queries";
 
 /** `?id=` pins one document; without it the vendor's latest invoice is shown. */
@@ -16,6 +17,7 @@ export default async function InvoiceDetailPage({
   const { org } = await requireSession();
   const invoice = await invoiceDetail(org.id, slug, id || undefined);
   if (!invoice) notFound();
+  const documents = await listInvoiceDocuments(invoice.id, org.id);
 
   const flagged = invoice.status === "flagged";
   const overdue =
@@ -209,6 +211,33 @@ export default async function InvoiceDetailPage({
               </button>
             </div>
           </section>
+
+          {documents.length > 0 ? (
+            <section className="flex min-w-0 flex-col gap-[9px] rounded-[20px] border border-line bg-surface p-[17px]">
+              <h2 className="m-0 text-[14.5px] font-bold tracking-[-0.02em]">Source documents</h2>
+              {documents.map((doc) => (
+                <a
+                  key={doc.id}
+                  href={`/api/invoices/${invoice.id}/documents/${doc.id}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex min-w-0 items-center gap-[10px] rounded-[14px] border border-line-soft px-[12px] py-[9px] hover:bg-[#fafbf9]"
+                >
+                  <Icon name={doc.contentType === "message/rfc822" ? "mail" : "doc"} size={15} className="shrink-0 text-body-soft" />
+                  <span className="flex min-w-0 flex-1 flex-col leading-[1.35]">
+                    <span className="truncate text-[12.5px] font-medium">{doc.fileName}</span>
+                    <span className="truncate text-[11px] text-muted">
+                      {doc.contentType === "message/rfc822" ? "Original email" : doc.contentType} ·{" "}
+                      {doc.sizeBytes < 1024 * 1024
+                        ? `${Math.max(1, Math.round(doc.sizeBytes / 1024))} KB`
+                        : `${(doc.sizeBytes / (1024 * 1024)).toFixed(1)} MB`}
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-[11.5px] font-medium underline">Open</span>
+                </a>
+              ))}
+            </section>
+          ) : null}
 
           <section className="flex min-w-0 flex-col gap-[10px] rounded-[20px] bg-ink p-[17px]">
             <h2 className="m-0 text-[14.5px] font-bold tracking-[-0.02em] text-bg">Approval</h2>
