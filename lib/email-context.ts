@@ -1,8 +1,8 @@
 /**
  * Helpers for giving the chat assistant the email the user is looking at
  * (see lib/assistant.ts): a plain-text rendering of the message, fenced and
- * labelled as untrusted content, plus wall-clock → UTC conversion for
- * scheduling in the user's own time zone.
+ * labelled as untrusted content, plus its attachments. (Wall-clock → UTC
+ * conversion lives in lib/time-zone.ts; re-exported here for older callers.)
  */
 import { extractDocumentText } from "@/lib/document-extract";
 import { readAttachment, type MailDetail } from "@/lib/gmail";
@@ -115,40 +115,4 @@ export function emailContextBlock(message: MailDetail, attachments?: EmailAttach
     .join("\n");
 }
 
-/** Minutes that `timeZone` is ahead of UTC at `instant`. */
-function zoneOffsetMinutes(instant: Date, timeZone: string): number {
-  const parts = Object.fromEntries(
-    new Intl.DateTimeFormat("en-US", {
-      timeZone,
-      hourCycle: "h23",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    })
-      .formatToParts(instant)
-      .map((p) => [p.type, p.value]),
-  );
-  const asUtc = Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour, +parts.minute, +parts.second);
-  return Math.round((asUtc - instant.getTime()) / 60_000);
-}
-
-/** "2026-10-03" + "09:30" as wall-clock time in `timeZone` → the UTC instant. Null on malformed input. */
-export function zonedTimeToUtc(date: string, time: string, timeZone: string): Date | null {
-  const d = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
-  const t = /^(\d{1,2}):(\d{2})$/.exec(time);
-  if (!d || !t) return null;
-  const naive = Date.UTC(+d[1], +d[2] - 1, +d[3], +t[1], +t[2]);
-  let zone = timeZone;
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: zone });
-  } catch {
-    zone = "UTC";
-  }
-  // Two passes settle the offset across a DST boundary.
-  let guess = naive - zoneOffsetMinutes(new Date(naive), zone) * 60_000;
-  guess = naive - zoneOffsetMinutes(new Date(guess), zone) * 60_000;
-  return new Date(guess);
-}
+export { zonedTimeToUtc } from "@/lib/time-zone";

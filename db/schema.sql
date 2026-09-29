@@ -927,6 +927,8 @@ CREATE TABLE IF NOT EXISTS scheduled_tasks (
   created_by   uuid REFERENCES people (id) ON DELETE SET NULL,
   created_at   timestamptz NOT NULL DEFAULT now()
 );
+-- The zone run_time is wall-clock time in (the browser's, when it was last set) — see lib/time-zone.ts.
+ALTER TABLE scheduled_tasks ADD COLUMN IF NOT EXISTS time_zone text NOT NULL DEFAULT 'UTC';
 CREATE INDEX IF NOT EXISTS scheduled_tasks_org_idx ON scheduled_tasks (org_id, created_at DESC);
 -- What the scheduler tick (lib/scheduled-tasks-worker.ts) polls every few minutes.
 CREATE INDEX IF NOT EXISTS scheduled_tasks_due_idx ON scheduled_tasks (next_run_at) WHERE is_enabled;

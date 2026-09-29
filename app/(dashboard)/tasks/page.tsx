@@ -59,7 +59,7 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
           className="flex shrink-0 items-center gap-[6px] rounded-full border border-line bg-surface px-[14px] py-[8px] text-[12.5px] font-medium"
         >
           <Icon name="clock" size={14} />
-          Scheduled tasks
+          Automations
         </Link>
       </div>
 

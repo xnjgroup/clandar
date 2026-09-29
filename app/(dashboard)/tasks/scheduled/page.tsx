@@ -4,8 +4,9 @@ import { Card, EmptyRow, IconTile, PageBody, TableCard, TableHeader, TableTitle 
 import { relativeTime } from "@/lib/data";
 import { requireSession } from "@/lib/auth";
 import { formatSchedule, listScheduledTasks, TASK_PRESETS } from "@/lib/scheduled-tasks";
-import { addPresetTask, toggleScheduledTask } from "./actions";
+import { toggleScheduledTask } from "./actions";
 import { AddScheduledTaskButton } from "./add-scheduled-task-button";
+import { PresetAdder } from "./preset-adder";
 
 export default async function ScheduledTasksPage() {
   const { org } = await requireSession();
@@ -14,8 +15,11 @@ export default async function ScheduledTasksPage() {
   return (
     <PageBody>
       <div className="flex items-center gap-[10px]">
+        <Link href="/schedule" className="text-[11.5px] font-medium underline">
+          ← Schedule
+        </Link>
         <Link href="/tasks" className="text-[11.5px] font-medium underline">
-          ← To-do list
+          Tasks
         </Link>
       </div>
 
@@ -25,14 +29,14 @@ export default async function ScheduledTasksPage() {
 
       <TableCard>
         <TableHeader>
-          <TableTitle>Scheduled tasks</TableTitle>
+          <TableTitle>Your automations</TableTitle>
           <span className="ml-auto font-mono text-[10.5px] text-faint">
-            {tasks.length} task{tasks.length === 1 ? "" : "s"}
+            {tasks.length} automation{tasks.length === 1 ? "" : "s"}
           </span>
         </TableHeader>
 
         {tasks.length === 0 ? (
-          <EmptyRow>No scheduled tasks yet — add one of the presets below, or create a custom one.</EmptyRow>
+          <EmptyRow>No automations yet — add a ready-made one below, or create your own.</EmptyRow>
         ) : (
           tasks.map((task) => (
             <div
@@ -72,7 +76,7 @@ export default async function ScheduledTasksPage() {
 
       <TableCard>
         <TableHeader>
-          <TableTitle>Presets</TableTitle>
+          <TableTitle>Ready-made automations</TableTitle>
         </TableHeader>
         <div className="grid grid-cols-1 gap-[1px] border-t border-line-soft bg-line-soft sm:grid-cols-2">
           {TASK_PRESETS.map((preset, i) => (
@@ -86,14 +90,7 @@ export default async function ScheduledTasksPage() {
                 <Icon name="clock" size={11} />
                 {formatSchedule(preset.frequency, preset.runTime, preset.runWeekday)}
               </span>
-              <form action={addPresetTask.bind(null, i)}>
-                <button
-                  type="submit"
-                  className="cursor-pointer rounded-full border border-line px-[12px] py-[7px] text-[11.5px] font-medium"
-                >
-                  Add this task
-                </button>
-              </form>
+              <PresetAdder index={i} frequency={preset.frequency} runTime={preset.runTime} runWeekday={preset.runWeekday} />
             </div>
           ))}
         </div>

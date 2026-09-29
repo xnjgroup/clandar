@@ -6,6 +6,7 @@ import { listTeam, requireSession } from "@/lib/auth";
 import { listProjects } from "@/lib/projects";
 import { listUpcomingReminders } from "@/lib/reminders";
 import { listSchedule } from "@/lib/schedule";
+import { formatSchedule, listScheduledTasks } from "@/lib/scheduled-tasks";
 import { REPEATS } from "@/lib/task-kinds";
 import { removeScheduleEntry } from "./actions";
 import { ScheduleForm } from "./schedule-form";
@@ -20,12 +21,14 @@ export default async function SchedulePage({ searchParams }: PageProps<"/schedul
   const to = new Date(from);
   to.setDate(to.getDate() + 30);
 
-  const [team, projects, entries, reminders] = await Promise.all([
+  const [team, projects, entries, reminders, automations] = await Promise.all([
     listTeam(org.id),
     listProjects(org.id),
     listSchedule(org.id, { from, to }, assignedTo ? { assignedTo } : {}),
     listUpcomingReminders(org.id, to, assignedTo ? { assignedTo } : {}),
+    listScheduledTasks(org.id),
   ]);
+  const activeAutomations = automations.filter((a) => a.isEnabled);
 
   const days = new Map<string, typeof entries>();
   for (const entry of entries) {
@@ -35,6 +38,38 @@ export default async function SchedulePage({ searchParams }: PageProps<"/schedul
 
   return (
     <PageBody>
+      {/* Automations (AI jobs on a timer) live under /tasks/scheduled — surfaced here too, since "schedule" is where people look. */}
+      <Card className="flex flex-wrap items-center gap-[12px]">
+        <span className="flex size-[38px] shrink-0 items-center justify-center rounded-[12px] bg-lime">
+          <Icon name="bot" size={18} />
+        </span>
+        <div className="flex min-w-0 flex-1 flex-col gap-[3px]">
+          <span className="text-[13.5px] font-semibold">Automations</span>
+          {activeAutomations.length > 0 ? (
+            <span className="flex flex-wrap gap-x-[14px] gap-y-[2px] text-[12px] text-muted">
+              {activeAutomations.slice(0, 3).map((a) => (
+                <span key={a.id} className="flex items-center gap-[5px]">
+                  <Icon name="clock" size={11} />
+                  <span className="font-medium text-ink">{a.name}</span>
+                  · {formatSchedule(a.frequency, a.runTime, a.runWeekday)}
+                </span>
+              ))}
+              {activeAutomations.length > 3 ? <span>+{activeAutomations.length - 3} more</span> : null}
+            </span>
+          ) : (
+            <span className="text-[12px] text-muted">
+              Let AI handle recurring work — a daily briefing every morning, a weekly review on Friday, inbox triage.
+            </span>
+          )}
+        </div>
+        <Link
+          href="/tasks/scheduled"
+          className="shrink-0 rounded-full bg-ink px-4 py-[9px] text-[12.5px] font-semibold text-bg"
+        >
+          {activeAutomations.length > 0 ? "Manage automations" : "Set up automations"}
+        </Link>
+      </Card>
+
       <Card className="flex flex-col gap-[13px]">
         <CardTitle>Schedule a project</CardTitle>
         <ScheduleForm

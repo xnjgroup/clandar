@@ -319,6 +319,7 @@ export function ExecutiveAssistantWidget({
         type="button"
         onClick={() => onOpenChange(true)}
         aria-label="Open Executive Assistant chat"
+        title="Open Executive Assistant chat"
         className="fixed right-4 bottom-[86px] z-40 flex size-[52px] shrink-0 cursor-pointer items-center justify-center rounded-full bg-ink text-lime shadow-[0_6px_20px_rgba(16,18,17,0.28)] lg:right-6 lg:bottom-6"
       >
         <Icon name="bot" size={22} />
@@ -355,6 +356,7 @@ export function ExecutiveAssistantWidget({
           type="button"
           onClick={() => onOpenChange(false)}
           aria-label="Close chat"
+          title="Close chat"
           className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-[9px] text-faint hover:text-body"
         >
           <Icon name="close" size={16} />
@@ -520,6 +522,7 @@ export function ExecutiveAssistantWidget({
                     type="button"
                     onClick={() => setAttachments((prev) => prev.filter((_, idx) => idx !== i))}
                     aria-label={`Remove ${a.name}`}
+                    title={`Remove ${a.name}`}
                     className="absolute top-[1px] right-[1px] flex size-[15px] cursor-pointer items-center justify-center rounded-full bg-black/60 text-white"
                   >
                     <Icon name="close" size={9} />
@@ -536,6 +539,7 @@ export function ExecutiveAssistantWidget({
                     type="button"
                     onClick={() => setAttachments((prev) => prev.filter((_, idx) => idx !== i))}
                     aria-label={`Remove ${a.name}`}
+                    title={`Remove ${a.name}`}
                     className="shrink-0 cursor-pointer text-faint hover:text-bad-fg"
                   >
                     <Icon name="close" size={11} />

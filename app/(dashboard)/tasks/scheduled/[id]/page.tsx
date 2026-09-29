@@ -5,6 +5,7 @@ import { Card, CardTitle, EmptyRow, IconTile, PageBody, Pill, TableCard, TableHe
 import { relativeTime, type Tone } from "@/lib/data";
 import { requireSession } from "@/lib/auth";
 import { formatSchedule, getScheduledTask, listRuns } from "@/lib/scheduled-tasks";
+import { ChangeSchedule } from "./change-schedule";
 import { removeScheduledTask, runScheduledTaskNow, toggleScheduledTask } from "../actions";
 
 const STATUS_TONE: Record<string, Tone> = { running: "warn", completed: "ok", failed: "bad" };
@@ -20,7 +21,7 @@ export default async function ScheduledTaskDetailPage({ params }: PageProps<"/ta
   return (
     <PageBody>
       <Link href="/tasks/scheduled" className="text-[11.5px] font-medium underline">
-        ← Scheduled tasks
+        ← Automations
       </Link>
 
       <Card className="flex flex-col gap-[13px]">
@@ -42,7 +43,18 @@ export default async function ScheduledTaskDetailPage({ params }: PageProps<"/ta
             <Icon name="clock" size={13} />
             {formatSchedule(task.frequency, task.runTime, task.runWeekday)}
           </span>
-          <span>Next run {relativeTime(task.nextRunAt)}</span>
+          <span>
+            Next run{" "}
+            {task.nextRunAt.toLocaleString("en-US", {
+              timeZone: task.timeZone,
+              weekday: "short",
+              month: "short",
+              day: "numeric",
+              hour: "numeric",
+              minute: "2-digit",
+            })}
+          </span>
+          <ChangeSchedule id={task.id} frequency={task.frequency} runTime={task.runTime} runWeekday={task.runWeekday} />
           {task.lastRunAt ? <span>Last ran {relativeTime(task.lastRunAt)}</span> : null}
         </div>
 

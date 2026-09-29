@@ -9,6 +9,7 @@
  * of day and a repeat.
  */
 import { query, queryOne } from "@/lib/db";
+import { validTimeZone } from "@/lib/time-zone";
 import { REPEATS, TASK_KINDS, type Repeat, type TaskKind } from "@/lib/task-kinds";
 
 export { REPEATS, TASK_KINDS, type Repeat, type TaskKind };
@@ -133,16 +134,7 @@ export async function getTask(id: string, orgId: string): Promise<Task | null> {
   return row ? toTask(row) : null;
 }
 
-/** The IANA zone if the runtime knows it (so Postgres' AT TIME ZONE will too), else UTC. */
-export function validTimeZone(value: unknown): string {
-  if (typeof value !== "string" || !value || value.length > 64) return "UTC";
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: value });
-    return value;
-  } catch {
-    return "UTC";
-  }
-}
+export { validTimeZone } from "@/lib/time-zone";
 
 export async function createTask(input: {
   orgId: string;

@@ -1,5 +1,6 @@
 "use client";
 
+import { TimeZoneField } from "@/components/time-zone-field";
 import { useActionState, useState } from "react";
 import { WEEKDAYS, type Frequency } from "@/lib/data";
 import { addScheduledTask, type FormState } from "./actions";
@@ -60,6 +61,7 @@ export function NewScheduledTaskForm({ onCancel }: { onCancel: () => void }) {
         <label className="flex flex-col gap-[5px]">
           <span className="text-[11px] text-muted">Time (UTC)</span>
           <input type="time" name="runTime" defaultValue="08:00" className={inputClass} />
+          <TimeZoneField />
         </label>
       </div>
 

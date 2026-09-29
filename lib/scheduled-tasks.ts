@@ -10,6 +10,7 @@ import { chatComplete, defaultLlmProvider } from "@/lib/llm-providers";
 import { listGmailConnectors } from "@/lib/connectors";
 import { listMail } from "@/lib/gmail";
 import { WEEKDAYS, type Frequency } from "@/lib/data";
+import { dateInZone, validTimeZone, zonedTimeToUtc } from "@/lib/time-zone";
 
 // Re-exported so existing `from "@/lib/scheduled-tasks"` imports keep working
 // — the data lives in lib/data.ts because a client component (the new-task
@@ -25,6 +26,8 @@ export type ScheduledTask = {
   frequency: Frequency;
   runTime: string; // "HH:MM"
   runWeekday: number | null;
+  /** IANA zone `runTime` is in. */
+  timeZone: string;
   isEnabled: boolean;
   lastRunAt: Date | null;
   nextRunAt: Date;
@@ -40,6 +43,7 @@ type Row = {
   frequency: Frequency;
   run_time: string;
   run_weekday: number | null;
+  time_zone: string;
   is_enabled: boolean;
   last_run_at: Date | null;
   next_run_at: Date;
@@ -56,6 +60,7 @@ function toTask(r: Row): ScheduledTask {
     frequency: r.frequency,
     runTime: r.run_time.slice(0, 5),
     runWeekday: r.run_weekday,
+    timeZone: r.time_zone,
     isEnabled: r.is_enabled,
     lastRunAt: r.last_run_at,
     nextRunAt: r.next_run_at,
@@ -63,21 +68,31 @@ function toTask(r: Row): ScheduledTask {
   };
 }
 
-const SELECT = `SELECT id, name, description, icon, prompt, frequency, run_time::text, run_weekday,
+const SELECT = `SELECT id, name, description, icon, prompt, frequency, run_time::text, run_weekday, time_zone,
        is_enabled, last_run_at, next_run_at, created_at FROM scheduled_tasks`;
 
-/** The next moment on/after `from` that satisfies `frequency`/`runTime`/`runWeekday` — looks up to 8 days ahead, which safely covers weekly. */
+/**
+ * The next moment after `from` that satisfies `frequency`/`runTime`/`runWeekday`,
+ * with `runTime` as wall-clock time in `timeZone` (so "8:00" means 8 AM for the
+ * person who set it, whatever zone the server runs in). Looks up to 8 days
+ * ahead, which safely covers weekly.
+ */
 export function computeNextRun(
   frequency: Frequency,
   runTime: string,
   runWeekday: number | null,
   from: Date,
+  timeZone = "UTC",
 ): Date {
-  const [h, m] = runTime.split(":").map(Number);
+  const zone = validTimeZone(timeZone);
+  const startDay = dateInZone(from, zone);
   for (let addDays = 0; addDays < 8; addDays++) {
-    const candidate = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate() + addDays, h, m, 0, 0));
-    if (candidate <= from) continue;
-    const dow = candidate.getUTCDay();
+    const d = new Date(`${startDay}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + addDays);
+    const day = d.toISOString().slice(0, 10);
+    const candidate = zonedTimeToUtc(day, runTime.slice(0, 5), zone);
+    if (!candidate || candidate <= from) continue;
+    const dow = d.getUTCDay(); // weekday of that local calendar date
     const allowed =
       frequency === "daily" ? true : frequency === "weekdays" ? dow >= 1 && dow <= 5 : dow === runWeekday;
     if (allowed) return candidate;
@@ -105,13 +120,15 @@ export async function createScheduledTask(input: {
   frequency: Frequency;
   runTime: string;
   runWeekday: number | null;
+  timeZone?: string;
   createdBy: string | null;
 }): Promise<string> {
-  const nextRunAt = computeNextRun(input.frequency, input.runTime, input.runWeekday, new Date());
+  const timeZone = validTimeZone(input.timeZone);
+  const nextRunAt = computeNextRun(input.frequency, input.runTime, input.runWeekday, new Date(), timeZone);
   const row = await queryOne<{ id: string }>(
     `INSERT INTO scheduled_tasks
-       (org_id, name, description, icon, prompt, frequency, run_time, run_weekday, next_run_at, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+       (org_id, name, description, icon, prompt, frequency, run_time, run_weekday, next_run_at, created_by, time_zone)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
     [
       input.orgId,
       input.name,
@@ -123,9 +140,25 @@ export async function createScheduledTask(input: {
       input.runWeekday,
       nextRunAt,
       input.createdBy,
+      timeZone,
     ],
   );
   return row!.id;
+}
+
+/** Changes when an automation runs, and recomputes its next run from now. */
+export async function updateScheduledTaskSchedule(
+  id: string,
+  orgId: string,
+  schedule: { frequency: Frequency; runTime: string; runWeekday: number | null; timeZone: string },
+): Promise<void> {
+  const timeZone = validTimeZone(schedule.timeZone);
+  const nextRunAt = computeNextRun(schedule.frequency, schedule.runTime, schedule.runWeekday, new Date(), timeZone);
+  await query(
+    `UPDATE scheduled_tasks SET frequency = $3, run_time = $4, run_weekday = $5, time_zone = $6, next_run_at = $7
+      WHERE id = $1 AND org_id = $2`,
+    [id, orgId, schedule.frequency, schedule.runTime, schedule.runWeekday, timeZone, nextRunAt],
+  );
 }
 
 export async function setScheduledTaskEnabled(id: string, orgId: string, enabled: boolean): Promise<void> {
@@ -311,7 +344,7 @@ export async function executeScheduledTask(taskId: string, orgId: string): Promi
     );
   }
 
-  const nextRunAt = computeNextRun(task.frequency, task.runTime, task.runWeekday, new Date());
+  const nextRunAt = computeNextRun(task.frequency, task.runTime, task.runWeekday, new Date(), task.timeZone);
   await query(`UPDATE scheduled_tasks SET last_run_at = now(), next_run_at = $2 WHERE id = $1`, [
     taskId,
     nextRunAt,
