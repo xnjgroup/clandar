@@ -7,17 +7,17 @@ import { removeTask, toggleTask } from "./actions";
 
 const KIND_ICON = { todo: "check2", shopping: "briefcase", permit: "clipboard" } as const;
 
-/** Shared between /tasks (every task in the org) and a job hub page (one job's tasks). */
+/** Shared between /tasks (every task in the org) and a project hub page (one project's tasks). */
 export function TaskList({
   tasks,
   redirectPath,
   emptyLabel,
-  showJob = false,
+  showProject = false,
 }: {
   tasks: Task[];
   redirectPath: string;
   emptyLabel: string;
-  showJob?: boolean;
+  showProject?: boolean;
 }) {
   if (tasks.length === 0) return <EmptyRow>{emptyLabel}</EmptyRow>;
 
@@ -49,9 +49,9 @@ export function TaskList({
               <span className={`truncate text-[13px] ${task.isDone ? "text-faint line-through" : "font-medium"}`}>
                 {task.title}
               </span>
-              {showJob && task.jobTitle ? (
-                <Link href={`/jobs/${task.jobId}`} className="truncate text-[11px] text-muted underline">
-                  {task.jobTitle}
+              {showProject && task.projectTitle ? (
+                <Link href={`/projects/${task.projectId}`} className="truncate text-[11px] text-muted underline">
+                  {task.projectTitle}
                 </Link>
               ) : null}
             </div>

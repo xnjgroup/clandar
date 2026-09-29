@@ -1,6 +1,6 @@
 /**
- * Customers: the contact a job is done for. Every read/write here is scoped
- * to one org — see lib/auth.ts.
+ * Customers: the contact a project is done for. Every read/write here is
+ * scoped to one org — see lib/auth.ts.
  */
 import { query, queryOne } from "@/lib/db";
 
@@ -11,7 +11,7 @@ export type Customer = {
   phone: string | null;
   address: string | null;
   notes: string;
-  jobCount: number;
+  projectCount: number;
   createdAt: Date;
 };
 
@@ -22,7 +22,7 @@ type CustomerRow = {
   phone: string | null;
   address: string | null;
   notes: string;
-  job_count: string;
+  project_count: string;
   created_at: Date;
 };
 
@@ -34,13 +34,13 @@ function toCustomer(row: CustomerRow): Customer {
     phone: row.phone,
     address: row.address,
     notes: row.notes,
-    jobCount: Number(row.job_count),
+    projectCount: Number(row.project_count),
     createdAt: row.created_at,
   };
 }
 
 const SELECT = `SELECT c.id, c.name, c.email, c.phone, c.address, c.notes, c.created_at,
-       (SELECT count(*) FROM jobs j WHERE j.customer_id = c.id)::text AS job_count
+       (SELECT count(*) FROM projects j WHERE j.customer_id = c.id)::text AS project_count
   FROM customers c`;
 
 export async function listCustomers(orgId: string, search?: string): Promise<Customer[]> {

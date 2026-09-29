@@ -7,16 +7,19 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "db:setup": "node --env-file-if-exists=.env.local db/setup.mts",
-    "db:seed": "node --env-file-if-exists=.env.local db/seed.mts",
-    "db:reset": "npm run db:setup && npm run db:seed"
+    "db:setup": "node --env-file-if-exists=.env.local db/setup.mts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1142.0",
     "apexcharts": "^3.54.1",
     "bullmq": "^6.3.9",
+    "exceljs": "^4.4.0",
     "ioredis": "^6.0.0",
     "jose": "^6.2.12",
+    "jszip": "^3.10.2",
+    "mammoth": "^1.13.0",
     "next": "16.3.6",
+    "pdf-parse": "^2.4.5",
     "pg": "^8.23.0",
     "react": "19.2.8",
     "react-dom": "19.2.8"

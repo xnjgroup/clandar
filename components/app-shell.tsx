@@ -4,12 +4,15 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Icon, type IconName } from "@/components/icons";
+import { ExecutiveAssistantWidget } from "@/components/executive-assistant-widget";
 import { MOBILE_TABS, NAV_FOOTER, NAV_GROUPS, NAV_TOP, PAGE_TITLES, USER_MENU, greeting } from "@/lib/data";
+
+const ASSISTANT_OPEN_KEY = "clandar:assistant-open";
 
 function useHeading(pathname: string, userName: string | null): [string, string] {
   const [, segment = "", child] = pathname.split("/");
   if (segment === "invoices" && child) return ["Invoices", "Invoice detail"];
-  if (segment === "jobs" && child && child !== "new") return ["Jobs", "Job detail"];
+  if (segment === "projects" && child && child !== "new" && child !== "types") return ["Projects", "Project detail"];
   if (segment === "customers" && child) return ["Customers", "Customer detail"];
   const [crumb, title] = PAGE_TITLES[segment] ?? PAGE_TITLES.overview;
   return [segment === "overview" ? greeting(userName) : crumb, title];
@@ -88,10 +91,12 @@ function NavRow({
 function NavContent({
   pathname,
   badges,
+  isAdmin,
   size,
 }: {
   pathname: string;
   badges: Record<string, number>;
+  isAdmin: boolean;
   size: "desktop" | "mobile";
 }) {
   const { open, toggle } = useOpenGroups(pathname);
@@ -167,6 +172,16 @@ function NavContent({
           size={size}
         />
       ))}
+
+      {isAdmin ? (
+        <NavRow
+          href="/admin"
+          icon="key"
+          label="Admin"
+          active={isActive(pathname, "/admin")}
+          size={size}
+        />
+      ) : null}
     </div>
   );
 }
@@ -205,17 +220,20 @@ export function AppShell({
   user,
   orgName,
   badges,
+  isAdmin,
   onSignOut,
 }: {
   children: ReactNode;
   user: ShellUser;
   orgName: string;
   badges: Record<string, number>;
+  isAdmin: boolean;
   onSignOut: () => Promise<void>;
 }) {
   const pathname = usePathname();
   const [crumb, title] = useHeading(pathname, user?.name ?? null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
 
   // A navigation ends the visit that opened the drawer — close it so the next
   // page doesn't render underneath an open overlay. Adjusting state during
@@ -227,45 +245,83 @@ export function AppShell({
     setMenuOpen(false);
   }
 
+  // Lets a page (e.g. the overview card's "Ask about this") open the panel
+  // without needing a route to link to — dispatch `new CustomEvent("clandar:open-assistant")`.
+  useEffect(() => {
+    const onOpenRequest = () => setAssistantOpen(true);
+    window.addEventListener("clandar:open-assistant", onOpenRequest);
+    return () => window.removeEventListener("clandar:open-assistant", onOpenRequest);
+  }, []);
+
+  // Whether the panel was open persists across a refresh — a per-browser
+  // convenience, so it's read after mount (not in the initial useState) to
+  // avoid a server/client mismatch on the first render.
+  useEffect(() => {
+    try {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reading localStorage (not a prop) must happen post-mount to avoid a server/client mismatch; there's no "adjust during render" equivalent for an external read like this.
+      if (localStorage.getItem(ASSISTANT_OPEN_KEY) === "true") setAssistantOpen(true);
+    } catch {
+      // Private browsing or storage disabled — the panel just starts closed.
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(ASSISTANT_OPEN_KEY, String(assistantOpen));
+    } catch {
+      // Nothing to fall back to — losing the preference for this session is fine.
+    }
+  }, [assistantOpen]);
+
   return (
     <div className="grid min-h-screen grid-cols-1 lg:grid-cols-[236px_minmax(0,1fr)]">
-      <Sidebar pathname={pathname} user={user} orgName={orgName} badges={badges} onSignOut={onSignOut} />
+      <Sidebar
+        pathname={pathname}
+        user={user}
+        orgName={orgName}
+        badges={badges}
+        isAdmin={isAdmin}
+        onSignOut={onSignOut}
+      />
       <MobileNav
         pathname={pathname}
         user={user}
         orgName={orgName}
         badges={badges}
+        isAdmin={isAdmin}
         open={menuOpen}
         onClose={() => setMenuOpen(false)}
         onSignOut={onSignOut}
       />
 
-      <main className="flex min-w-0 flex-col gap-[14px] px-[14px] pt-4 pb-24 lg:gap-4 lg:px-[26px] lg:pt-[22px] lg:pb-10">
-        <header className="flex min-w-0 items-center gap-[14px]">
-          <button
-            type="button"
-            onClick={() => setMenuOpen(true)}
-            aria-label="Open menu"
-            aria-haspopup="dialog"
-            aria-expanded={menuOpen}
-            className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-[12px] border border-line bg-surface lg:hidden"
-          >
-            <Icon name="menu" size={18} />
-          </button>
-          <div className="flex min-w-0 flex-col gap-[2px]">
-            <span className="text-[12.5px] text-muted">{crumb}</span>
-            <h1 className="m-0 truncate text-[22px] font-bold tracking-[-0.03em]">{title}</h1>
-          </div>
-          <div className="ml-auto flex shrink-0 items-center gap-[9px]">
-            <div className="hidden w-[260px] min-w-0 items-center gap-2 rounded-[14px] border border-line bg-surface px-[13px] py-[9px] lg:flex">
-              <Icon name="search" size={16} className="text-muted" />
-              <span className="truncate text-[13px] text-faint">Search invoices, vendors…</span>
+      <div className="flex min-w-0">
+        <main className="flex min-w-0 flex-1 flex-col gap-[14px] px-[14px] pt-4 pb-24 lg:gap-4 lg:px-[26px] lg:pt-[22px] lg:pb-10">
+          <header className="flex min-w-0 items-center gap-[14px]">
+            <button
+              type="button"
+              onClick={() => setMenuOpen(true)}
+              aria-label="Open menu"
+              aria-haspopup="dialog"
+              aria-expanded={menuOpen}
+              className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-[12px] border border-line bg-surface lg:hidden"
+            >
+              <Icon name="menu" size={18} />
+            </button>
+            <div className="flex min-w-0 flex-col gap-[2px]">
+              <span className="text-[12.5px] text-muted">{crumb}</span>
+              <h1 className="m-0 truncate text-[22px] font-bold tracking-[-0.03em]">{title}</h1>
             </div>
-          </div>
-        </header>
+          </header>
 
-        {children}
-      </main>
+          {children}
+        </main>
+
+        <ExecutiveAssistantWidget
+          open={assistantOpen}
+          onOpenChange={setAssistantOpen}
+          pageContext={`${title} (${pathname})`}
+        />
+      </div>
 
       <nav className="fixed right-0 bottom-0 left-0 z-20 grid grid-cols-4 gap-[2px] border-t border-line bg-surface px-1 pt-[6px] pb-[10px] lg:hidden">
         {MOBILE_TABS.map((tab) => {
@@ -298,6 +354,7 @@ function MobileNav({
   user,
   orgName,
   badges,
+  isAdmin,
   open,
   onClose,
   onSignOut,
@@ -306,6 +363,7 @@ function MobileNav({
   user: ShellUser;
   orgName: string;
   badges: Record<string, number>;
+  isAdmin: boolean;
   open: boolean;
   onClose: () => void;
   onSignOut: () => Promise<void>;
@@ -356,7 +414,7 @@ function MobileNav({
           </button>
         </div>
 
-        <NavContent pathname={pathname} badges={badges} size="mobile" />
+        <NavContent pathname={pathname} badges={badges} isAdmin={isAdmin} size="mobile" />
 
         <div className="mt-auto flex items-center gap-[10px] border-t border-line pt-[14px]">
           <Avatar user={user} size={34} />
@@ -387,12 +445,14 @@ function Sidebar({
   user,
   orgName,
   badges,
+  isAdmin,
   onSignOut,
 }: {
   pathname: string;
   user: ShellUser;
   orgName: string;
   badges: Record<string, number>;
+  isAdmin: boolean;
   onSignOut: () => Promise<void>;
 }) {
   return (
@@ -405,7 +465,7 @@ function Sidebar({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <NavContent pathname={pathname} badges={badges} size="desktop" />
+        <NavContent pathname={pathname} badges={badges} isAdmin={isAdmin} size="desktop" />
       </div>
 
       <UserMenu user={user} orgName={orgName} onSignOut={onSignOut} />
@@ -502,10 +562,10 @@ function UserMenu({
               );
             }
             return (
-              <button key={item.label} type="button" className={className}>
+              <Link key={item.label} href={item.href ?? "#"} onClick={() => setOpen(false)} className={className}>
                 <Icon name={item.icon} size={17} className={iconClassName} />
                 <span className="min-w-0">{item.label}</span>
-              </button>
+              </Link>
             );
           })}
         </div>

@@ -24,6 +24,7 @@ import {
   pageParam,
   pagerHrefs,
 } from "@/lib/data";
+import { requireSession } from "@/lib/auth";
 import {
   ASSET_TYPE_TABS,
   assetRegions,
@@ -46,7 +47,8 @@ const COLUMNS: Column[] = [
 
 export default async function AssetsPage({ searchParams }: PageProps<"/assets">) {
   const params = await searchParams;
-  const regions = await assetRegions();
+  const { org } = await requireSession();
+  const regions = await assetRegions(org.id);
 
   const requestedType = firstParam(params.type) as AssetTypeTab;
   const type = ASSET_TYPE_TABS.includes(requestedType) ? requestedType : "All types";
@@ -56,8 +58,8 @@ export default async function AssetsPage({ searchParams }: PageProps<"/assets">)
   const page = pageParam(params.page);
 
   const [stats, { rows, total }] = await Promise.all([
-    assetStats(),
-    listAssets({ type, region, search, page, size: PAGE_SIZE }),
+    assetStats(org.id),
+    listAssets(org.id, { type, region, search, page, size: PAGE_SIZE }),
   ]);
 
   const info = pageInfo(total, page, PAGE_SIZE);

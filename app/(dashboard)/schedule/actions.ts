@@ -13,12 +13,12 @@ function field(form: FormData, name: string) {
 
 export async function addScheduleEntry(_prev: FormState, form: FormData): Promise<FormState> {
   const { org } = await requireSession();
-  const jobId = field(form, "jobId");
+  const projectId = field(form, "projectId");
   const date = field(form, "date");
   const startTime = field(form, "startTime") || "09:00";
   const endTime = field(form, "endTime") || "17:00";
   const redirectPath = field(form, "redirectPath") || "/schedule";
-  if (!jobId) return { error: "Pick a job." };
+  if (!projectId) return { error: "Pick a project." };
   if (!date) return { error: "Pick a date." };
 
   const startsAt = new Date(`${date}T${startTime}:00`);
@@ -29,7 +29,7 @@ export async function addScheduleEntry(_prev: FormState, form: FormData): Promis
 
   await createScheduleEntry({
     orgId: org.id,
-    jobId,
+    projectId,
     assignedTo: field(form, "assignedTo") || null,
     startsAt,
     endsAt,

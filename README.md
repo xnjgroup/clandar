@@ -1,8 +1,9 @@
 # Clandar
 
-A multi-tenant business dashboard for a home-improvement company: customers, jobs, AI-assisted
-photo quoting, scheduling, a task/shopping/permit list, and a Gmail-backed customer-support inbox
-— plus the invoice extraction, approvals, budgets and spend-analytics module the app started as.
+A multi-tenant business dashboard for any small business: customers, projects, AI-assisted photo
+quoting, scheduling, a task/shopping/permit list, an Executive Assistant chat that can act on your
+data, and a Gmail-backed customer-support inbox — plus the invoice extraction, approvals, budgets
+and spend-analytics module the app started as.
 Every page reads from a local Postgres database — there is no fixture data in the app code.
 
 ## Getting started
@@ -42,22 +43,19 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"  # A
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | OAuth client for the Gmail and Calendar connectors. Leave empty to keep them greyed out. |
 | `GOOGLE_REDIRECT_URI` | Optional. Leave unset — the redirect URI is derived per-request from whichever address you're connecting from (see below), which is what lets the same app be reached from `localhost` and, say, a phone over Tailscale without reconfiguring anything. Set this only to pin one fixed URL for a production deployment behind a stable domain. |
 | `SESSION_SECRET` | Signs the sign-in session cookie. Falls back to `APP_ENCRYPTION_KEY` if unset. Rotating it signs everyone out. |
+| `ADMIN_EMAILS` | Comma-separated Google account emails with access to `/admin` (see [Admin](#admin)). Empty means nobody. |
+| `R2_ACCOUNT_ID` / `R2_ENDPOINT` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` | Cloudflare R2 (S3-compatible) storage for project photos/files and chat attachments (`lib/storage.ts`). Leave empty to store on local disk under `UPLOADS_DIR` instead. `R2_ACCOUNT_ID` only derives the default endpoint — set `R2_ENDPOINT` directly for a custom domain or jurisdiction-specific endpoint. |
 
-### 4. Schema and data
+### 4. Schema
 
 ```bash
 npm run db:setup   # creates the database if missing, applies db/schema.sql (idempotent)
-npm run db:seed    # replaces the expense data, keeps connectors
-npm run db:reset   # both
 ```
 
-`npm run db:seed -- --all` also clears connectors and pending OAuth state.
-
-The seed writes a coherent starting set: 6 people, 17 vendors, 118 locations, 3,000
-assets, two years of invoices with line items, budgets, alert rules, fraud flags and
-one agent transcript. Current-month amounts are chosen so the dashboard has something
-to say — utilities near its cap, dining over it, and a duplicated telecom invoice that
-trips the fraud check.
+There's no seed script — every table is real and org-scoped, and the app starts empty for
+each organization. The first person to sign in with Google creates their org and everything
+from there (customers, projects, invoices, vendors, budgets, …) is data they actually entered,
+not a fixture.
 
 ### 5. Run it
 
@@ -92,39 +90,63 @@ reuse the same `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`, but **need their own e
 ...for every `{origin}` you actually use (`http://localhost:3000`, a Tailscale address, etc.) —
 same requirement as the connectors flow, just a second path per address.
 
-## Jobs, customers, scheduling, quoting & tasks
+## Projects, customers, scheduling, quoting & tasks
 
-The core of the app: a `customers` table and a `jobs` table (one property, one project, a status
-from `lead` through `completed`/`cancelled`) that everything else hangs off, all scoped to the
-signed-in org.
+The core of the app: a `customers` table and a `projects` table (one property, one job of work, a
+status from `lead` through `completed`/`cancelled`) that everything else hangs off, all scoped to
+the signed-in org.
 
-- **Customers** (`/customers`, `lib/customers.ts`) — contact info and every job for that customer.
-- **Jobs** (`/jobs`, `lib/jobs.ts`) — the hub page (`/jobs/[id]`) holds a job's status, crew
-  assignment, photos, estimates, schedule, tasks and files all in one place.
-- **Quoting** (`lib/quoting.ts`, `lib/job-photos.ts`) — upload photos of the job site, then "Analyze
-  photos with AI" sends them (as `image_url` parts, so the org's default LLM provider needs vision
-  support — every current OpenAI chat model and most local multimodal ones qualify) to propose a
-  line-itemized estimate. Nothing is ever saved or sent automatically: the proposal is editable,
-  saving it creates a `draft` row in `estimates`/`estimate_line_items`, and a separate "Send"
-  action emails it (`sendMail` in `lib/gmail.ts`, plain text, via a connected Gmail account) only
-  when someone clicks it.
-- **Scheduling** (`/schedule`, `lib/schedule.ts`) — `schedule_entries` ties a job to a crew member
-  and a time window; the standalone page lists the next 30 days and can filter to one person (a
-  simple stand-in for a per-person "route"). The same form appears on a job's own hub page.
+A project's *type* isn't hardcoded to one industry — it's a per-org, user-managed list
+(`project_types`, `lib/project-types.ts`). A new org's owner picks a company type at `/onboarding`
+(home improvement, retail, e-commerce, cleaning, landscaping, and more — see `COMPANY_TYPES` in
+`lib/data.ts`), which seeds a starter set of project types for their org; `/projects/types` lets
+them rename, add to, or remove from that list afterward.
+
+- **Customers** (`/customers`, `lib/customers.ts`) — contact info and every project for that customer.
+- **Projects** (`/projects`, `lib/projects.ts`) — the hub page (`/projects/[id]`) holds a project's
+  status, crew assignment, photos, estimates, schedule, tasks and files all in one place.
+- **Quoting** (`lib/quoting.ts`, `lib/project-photos.ts`) — upload photos of the project site, then
+  "Analyze photos with AI" sends them (as `image_url` parts, so the org's default LLM provider
+  needs vision support — every current OpenAI chat model and most local multimodal ones qualify)
+  to propose a line-itemized estimate. Nothing is ever saved or sent automatically: the proposal is
+  editable, saving it creates a `draft` row in `estimates`/`estimate_line_items`, and a separate
+  "Send" action emails it (`sendMail` in `lib/gmail.ts`, plain text, via a connected Gmail account)
+  only when someone clicks it.
+- **Scheduling** (`/schedule`, `lib/schedule.ts`) — `schedule_entries` ties a project to a crew
+  member and a time window; the standalone page lists the next 30 days and can filter to one
+  person (a simple stand-in for a per-person "route"). The same form appears on a project's own
+  hub page.
 - **Tasks** (`/tasks`, `lib/tasks.ts`) — one table, three kinds (`todo`, `shopping`, `permit`),
-  optionally tied to a job; `app/(dashboard)/tasks/{task-list,add-task-form}.tsx` are shared
-  between the standalone page and a job's hub page.
-- **Project records** — a job's hub page *is* the record: photos and files
-  (`job_photos`/`job_files`, bytes on local disk under `UPLOADS_DIR`, streamed back through
-  `/api/jobs/[jobId]/{photos,files}/[id]`, gated by the job's own org check) alongside its
-  estimates and an optional link from `invoices.job_id` for spend already tied to that job.
+  optionally tied to a project; `app/(dashboard)/tasks/{task-list,add-task-form}.tsx` are shared
+  between the standalone page and a project's hub page.
+- **Project records** — a project's hub page *is* the record: photos and files
+  (`project_photos`/`project_files`, bytes on local disk under `UPLOADS_DIR`, streamed back
+  through `/api/projects/[projectId]/{photos,files}/[id]`, gated by the project's own org check)
+  alongside its estimates and an optional link from `invoices.project_id` for spend already tied
+  to that project.
 - **Customer support** — the existing Email section below already covers reading, summarizing and
   cleaning up a connected inbox; `sendMail` (built for quoting) is the same primitive a reply or a
   schedule-confirmation email would use.
 
+## Executive Assistant
+
+A docked chat panel (`components/executive-assistant-widget.tsx`, opened from the bottom-right FAB
+on every dashboard page) backed by the org's default LLM provider. Unlike a plain Q&A bot, it has
+real tools (`lib/assistant.ts`) that read and write the org's actual data — creating customers,
+projects, project types, and tasks, not just describing what it would do. Tool calling is done via
+strict-JSON prompting (the same "reply with ONLY JSON" technique `lib/quoting.ts` uses for
+estimates) rather than a provider's native function-calling API, since this app targets arbitrary
+OpenAI-compatible endpoints whose function-calling support varies.
+
+It knows what page the user is on (passed as `pageContext` on every request), can attach images
+(sent to the vision model directly) or documents — markdown, PDF, Word, Excel, PowerPoint, each
+real-parsed server-side (`lib/document-extract.ts`) into text rather than faked — and keeps
+multiple switchable conversations per org (`agent_conversations`/`agent_messages`/`agent_tool_calls`),
+reachable from the panel's history icon instead of a dedicated page.
+
 ## How the data flows
 
-- `db/schema.sql` — every table, safe to re-run. `db/seed.mts` — the starting data.
+- `db/schema.sql` — every table, safe to re-run.
 - `lib/db.ts` — the `pg` pool (one per process, reused across dev reloads).
 - `lib/queries.ts` — every read the pages make. Pages call these, never `pg` directly.
 - `lib/data.ts` — design and navigation config only: tones, category tiles, formatters.
@@ -179,6 +201,23 @@ local model can run analysis while a different one stays default, or the same on
 both. Both assignments enforce "at most one" as a partial unique index in Postgres
 (`llm_providers_one_default`, `llm_providers_one_email_analyzer`), so switching is one
 atomic `UPDATE`, never a moment with none or two set.
+
+## Admin
+
+`/admin` is a second, separate concern from org settings above — cross-tenant, not scoped
+to any one organization, and visible only to whoever's Google account email is listed in
+`ADMIN_EMAILS` (comma-separated; see `lib/admin.ts`). An org's own "owner" role grants
+none of this, and admin status grants nothing inside an org (an admin doesn't automatically
+see a specific org's customers, jobs, or invoices — only the platform-level views below).
+
+- **Platform LLM providers** — configured the same way as `/settings`'s org-level ones
+  (`lib/platform-llm-providers.ts`, its own `platform_llm_providers` table), but org-scoped
+  the other direction: whichever one is marked default here is the fallback every org's
+  `defaultLlmProvider()` call resolves to when that org hasn't configured (or enabled) its
+  own. An org's own default always wins when it has one — this only matters for an org that
+  hasn't brought its own key yet.
+- **Organizations** — a read-only list of every org on the platform, its member count, and
+  whether it's finished [onboarding](#authentication).
 
 ## Email
 

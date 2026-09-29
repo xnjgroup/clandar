@@ -6,14 +6,14 @@ import { addTask, type FormState } from "./actions";
 const inputClass =
   "rounded-[12px] border border-line bg-surface px-3 py-[9px] text-[12.5px] text-ink outline-none placeholder:text-faint focus:border-[#9aa78a]";
 
-/** Shared between /tasks (no `jobId`) and a job hub page (`jobId` set, `kind` optionally locked). */
+/** Shared between /tasks (no `projectId`) and a project hub page (`projectId` set, `kind` optionally locked). */
 export function AddTaskForm({
-  jobId,
+  projectId,
   redirectPath,
   defaultKind = "todo",
   members = [],
 }: {
-  jobId?: string;
+  projectId?: string;
   redirectPath: string;
   defaultKind?: "todo" | "shopping" | "permit";
   members?: { id: string; name: string }[];
@@ -30,7 +30,7 @@ export function AddTaskForm({
 
   return (
     <form key={resetKey} action={action} className="flex flex-wrap items-center gap-[8px]">
-      {jobId ? <input type="hidden" name="jobId" value={jobId} /> : null}
+      {projectId ? <input type="hidden" name="projectId" value={projectId} /> : null}
       <input type="hidden" name="redirectPath" value={redirectPath} />
       <select name="kind" defaultValue={defaultKind} className={inputClass}>
         <option value="todo">To-do</option>

@@ -1,14 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Icon } from "@/components/icons";
+import { Icon, iconName } from "@/components/icons";
 import { Card, CardTitle, EmptyRow, IconTile, PageBody, Pill, TableCard, TableHeader, TableTitle } from "@/components/ui";
 import { relativeTime, type Tone } from "@/lib/data";
 import { requireSession } from "@/lib/auth";
 import { getCustomer } from "@/lib/customers";
-import { JOB_STATUSES, listJobs, tradeLabel, type JobStatus } from "@/lib/jobs";
-import { removeCustomer, saveCustomer } from "../actions";
+import { PROJECT_STATUSES, listProjects, type ProjectStatus } from "@/lib/projects";
+import { removeCustomer, removeCustomerProject, saveCustomer } from "../actions";
 
-const STATUS_TONE: Record<JobStatus, Tone> = {
+const STATUS_TONE: Record<ProjectStatus, Tone> = {
   lead: "idle",
   quoted: "warn",
   scheduled: "warn",
@@ -26,7 +26,7 @@ export default async function CustomerDetailPage({ params }: PageProps<"/custome
   const customer = await getCustomer(id, org.id);
   if (!customer) notFound();
 
-  const jobs = await listJobs(org.id, { customerId: id });
+  const projects = await listProjects(org.id, { customerId: id });
 
   return (
     <PageBody>
@@ -75,8 +75,8 @@ export default async function CustomerDetailPage({ params }: PageProps<"/custome
           <input type="hidden" name="id" value={customer.id} />
           <button
             type="submit"
-            disabled={jobs.length > 0}
-            title={jobs.length > 0 ? "Remove this customer's jobs first" : undefined}
+            disabled={projects.length > 0}
+            title={projects.length > 0 ? "Remove this customer's projects first" : undefined}
             className="cursor-pointer text-[11.5px] font-medium text-bad-fg underline enabled:cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
           >
             Delete customer
@@ -86,34 +86,48 @@ export default async function CustomerDetailPage({ params }: PageProps<"/custome
 
       <TableCard>
         <TableHeader>
-          <TableTitle>Jobs</TableTitle>
+          <TableTitle>Projects</TableTitle>
           <Link
-            href={`/jobs/new?customer=${customer.id}`}
+            href={`/projects/new?customer=${customer.id}`}
             className="ml-auto flex shrink-0 items-center gap-[6px] rounded-full bg-ink px-[14px] py-[7px] text-[12px] font-semibold text-bg"
           >
             <Icon name="briefcase" size={14} />
-            New job
+            New project
           </Link>
         </TableHeader>
 
-        {jobs.length === 0 ? (
-          <EmptyRow>No jobs for this customer yet.</EmptyRow>
+        {projects.length === 0 ? (
+          <EmptyRow>No projects for this customer yet.</EmptyRow>
         ) : (
-          jobs.map((job) => (
-            <Link
-              key={job.id}
-              href={`/jobs/${job.id}`}
+          projects.map((project) => (
+            <div
+              key={project.id}
               className="flex min-h-[60px] min-w-0 items-center gap-3 border-t border-line-soft px-[18px] py-[12px] hover:bg-[#fafbf9]"
             >
-              <IconTile icon="briefcase" bg="#f2f4ef" fg="#4c4f47" />
-              <div className="flex min-w-0 flex-1 flex-col leading-[1.35]">
-                <span className="truncate text-[13px] font-semibold">{job.title}</span>
-                <span className="truncate text-[11px] text-muted">{tradeLabel(job.trade)}</span>
-              </div>
-              <Pill tone={STATUS_TONE[job.status]}>
-                {JOB_STATUSES.find((s) => s.id === job.status)?.label ?? job.status}
+              <Link href={`/projects/${project.id}`} className="flex min-w-0 flex-1 items-center gap-3">
+                <IconTile icon={iconName(project.projectTypeIcon)} bg="#f2f4ef" fg="#4c4f47" />
+                <div className="flex min-w-0 flex-1 flex-col leading-[1.35]">
+                  <span className="truncate text-[13px] font-semibold">{project.title}</span>
+                  {project.projectTypeName ? (
+                    <span className="truncate text-[11px] text-muted">{project.projectTypeName}</span>
+                  ) : null}
+                </div>
+              </Link>
+              <Pill tone={STATUS_TONE[project.status]}>
+                {PROJECT_STATUSES.find((s) => s.id === project.status)?.label ?? project.status}
               </Pill>
-            </Link>
+              <form action={removeCustomerProject}>
+                <input type="hidden" name="projectId" value={project.id} />
+                <input type="hidden" name="customerId" value={customer.id} />
+                <button
+                  type="submit"
+                  aria-label={`Delete ${project.title}`}
+                  className="cursor-pointer text-faint hover:text-bad-fg"
+                >
+                  <Icon name="close" size={16} />
+                </button>
+              </form>
+            </div>
           ))
         )}
       </TableCard>

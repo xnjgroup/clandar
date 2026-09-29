@@ -2,8 +2,10 @@ import Link from "next/link";
 import { Icon } from "@/components/icons";
 import { SpendByCategoryChart } from "@/components/charts";
 import { InvoiceListRow } from "@/components/invoice-row";
+import { OpenAssistantButton } from "@/components/open-assistant-button";
 import { Card, CardTitle, EmptyRow, PageBody, StatCard, StatRow, TableCard } from "@/components/ui";
 import { count, delta, money0 } from "@/lib/data";
+import { requireSession } from "@/lib/auth";
 import {
   latestAgentLine,
   needsAttention,
@@ -13,12 +15,13 @@ import {
 } from "@/lib/queries";
 
 export default async function OverviewPage() {
+  const { org } = await requireSession();
   const [stats, slices, attention, invoices, agentLine] = await Promise.all([
-    overviewStats(),
-    spendByCategory(),
-    needsAttention(),
-    recentInvoices(5),
-    latestAgentLine(),
+    overviewStats(org.id),
+    spendByCategory(org.id),
+    needsAttention(org.id),
+    recentInvoices(org.id, 5),
+    latestAgentLine(org.id),
   ]);
 
   const cards = [
@@ -121,7 +124,7 @@ export default async function OverviewPage() {
             </Link>
           </div>
           {invoices.length === 0 ? (
-            <EmptyRow>No invoices yet — run `npm run db:seed` or upload one.</EmptyRow>
+            <EmptyRow>No invoices yet — upload one to get started.</EmptyRow>
           ) : (
             invoices.map((row) => <InvoiceListRow key={row.id} row={row} />)
           )}
@@ -130,19 +133,16 @@ export default async function OverviewPage() {
         <div className="flex min-w-0 flex-col gap-3 rounded-[22px] bg-lime p-[18px]">
           <div className="flex items-center gap-[10px]">
             <Icon name="bot" size={18} />
-            <CardTitle>Expense agent</CardTitle>
+            <CardTitle>Executive Assistant</CardTitle>
           </div>
           <p className="m-0 text-[12.5px] leading-[1.55] text-[#3f4b28]">
             {agentLine
               ? `“${agentLine}”`
-              : "Ask about any bill, category or trend and the agent will query your spend."}
+              : "Ask about any bill, category or trend and your assistant will query your spend."}
           </p>
-          <Link
-            href="/messages"
-            className="rounded-full bg-ink px-[15px] py-[9px] text-center text-[12.5px] font-semibold text-bg"
-          >
+          <OpenAssistantButton className="cursor-pointer rounded-full bg-ink px-[15px] py-[9px] text-center text-[12.5px] font-semibold text-bg">
             Ask about this
-          </Link>
+          </OpenAssistantButton>
         </div>
       </div>
     </PageBody>

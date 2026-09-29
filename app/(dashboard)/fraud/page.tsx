@@ -10,10 +10,12 @@ import {
   TableTitle,
 } from "@/components/ui";
 import { count, money0 } from "@/lib/data";
+import { requireSession } from "@/lib/auth";
 import { fraudStats, openFraudFlags } from "@/lib/queries";
 
 export default async function FraudPage() {
-  const [stats, flags] = await Promise.all([fraudStats(), openFraudFlags()]);
+  const { org } = await requireSession();
+  const [stats, flags] = await Promise.all([fraudStats(org.id), openFraudFlags(org.id)]);
 
   const cards = [
     {

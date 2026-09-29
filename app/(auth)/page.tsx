@@ -50,7 +50,7 @@ function MiniRow({
 const FEATURES: { icon: IconName; title: string; body: string; preview: ReactNode }[] = [
   {
     icon: "briefcase",
-    title: "Customers & jobs",
+    title: "Customers & Projects",
     body: "Every customer, every property, every project — tracked in one place from first call to final invoice.",
     preview: (
       <MiniScreen>

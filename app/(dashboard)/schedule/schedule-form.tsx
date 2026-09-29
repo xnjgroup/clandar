@@ -6,15 +6,15 @@ import { addScheduleEntry, type FormState } from "./actions";
 const inputClass =
   "rounded-[10px] border border-line bg-surface px-2 py-[7px] text-[12px] text-ink outline-none focus:border-[#9aa78a]";
 
-/** `jobId` fixes the job (used on a job hub page); omit it and pass `jobs` for a picker (the standalone /schedule page). */
+/** `projectId` fixes the project (used on a project hub page); omit it and pass `projects` for a picker (the standalone /schedule page). */
 export function ScheduleForm({
-  jobId,
-  jobs,
+  projectId,
+  projects,
   members,
   redirectPath,
 }: {
-  jobId?: string;
-  jobs?: { id: string; title: string }[];
+  projectId?: string;
+  projects?: { id: string; title: string }[];
   members: { id: string; name: string }[];
   redirectPath: string;
 }) {
@@ -30,14 +30,14 @@ export function ScheduleForm({
     <form key={resetKey} action={action} className="flex flex-col gap-[8px]">
       <input type="hidden" name="redirectPath" value={redirectPath} />
       <div className="flex flex-wrap items-center gap-[7px]">
-        {jobId ? (
-          <input type="hidden" name="jobId" value={jobId} />
+        {projectId ? (
+          <input type="hidden" name="projectId" value={projectId} />
         ) : (
-          <select name="jobId" required defaultValue="" className={`${inputClass} min-w-[160px] flex-1`}>
+          <select name="projectId" required defaultValue="" className={`${inputClass} min-w-[160px] flex-1`}>
             <option value="" disabled>
-              Select a job…
+              Select a project…
             </option>
-            {jobs?.map((j) => (
+            {projects?.map((j) => (
               <option key={j.id} value={j.id}>
                 {j.title}
               </option>

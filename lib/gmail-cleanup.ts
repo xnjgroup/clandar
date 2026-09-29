@@ -169,6 +169,7 @@ export async function cleanupCounts(connectorId: string) {
 /** Asks the analyzer LLM to double-check one batch, returning ids it vetoes and reason text for the rest. */
 async function refineWithLlm(
   providerId: string,
+  model: string | undefined,
   batch: { message: ScannedMessage; heuristicReason: string }[],
 ): Promise<Map<string, { keep: boolean; reason: string }>> {
   const listing = batch
@@ -178,15 +179,19 @@ async function refineWithLlm(
     )
     .join("\n\n");
 
-  const raw = await chatComplete(providerId, [
-    {
-      role: "system",
-      content:
-        "You help a person clean up their email inbox. You are given emails a heuristic already flagged as low-value (old, promotional-looking, from an automated sender) and already excluded anything unread, starred, or marked important. " +
-        'For each one, decide if it genuinely looks safe to delete. Reply with ONLY a JSON array, no prose, no markdown fences: [{"i": 0, "delete": true, "reason": "one short sentence"}, ...] — one entry per email, in order.',
-    },
-    { role: "user", content: listing },
-  ]);
+  const raw = await chatComplete(
+    providerId,
+    [
+      {
+        role: "system",
+        content:
+          "You help a person clean up their email inbox. You are given emails a heuristic already flagged as low-value (old, promotional-looking, from an automated sender) and already excluded anything unread, starred, or marked important. " +
+          'For each one, decide if it genuinely looks safe to delete. Reply with ONLY a JSON array, no prose, no markdown fences: [{"i": 0, "delete": true, "reason": "one short sentence"}, ...] — one entry per email, in order.',
+      },
+      { role: "user", content: listing },
+    ],
+    { model },
+  );
 
   const match = /\[[\s\S]*\]/.exec(raw);
   if (!match) throw new Error("Analyzer did not return a JSON array");
@@ -243,7 +248,7 @@ export async function runInboxScan(
       let verdicts: Map<string, { keep: boolean; reason: string }> | null = null;
       if (analyzer) {
         try {
-          verdicts = await refineWithLlm(analyzer.id, batch);
+          verdicts = await refineWithLlm(analyzer.id, analyzer.emailModel ?? undefined, batch);
         } catch {
           // The heuristic result alone is still useful — never let an LLM
           // hiccup (timeout, bad JSON, endpoint down) block the whole scan.

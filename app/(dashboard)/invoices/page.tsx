@@ -11,6 +11,7 @@ import {
   TableTitle,
 } from "@/components/ui";
 import { count, firstParam, hrefWith, pageInfo, pageParam, pagerHrefs } from "@/lib/data";
+import { requireSession } from "@/lib/auth";
 import {
   INVOICE_STATUS_TABS,
   listInvoices,
@@ -25,8 +26,9 @@ export default async function InvoicesPage({ searchParams }: PageProps<"/invoice
   const requested = firstParam(params.status) as InvoiceStatusTab;
   const tab = INVOICE_STATUS_TABS.includes(requested) ? requested : "All";
   const search = firstParam(params.q);
+  const { org } = await requireSession();
 
-  const { rows, total } = await listInvoices({
+  const { rows, total } = await listInvoices(org.id, {
     tab,
     search,
     page: pageParam(params.page),

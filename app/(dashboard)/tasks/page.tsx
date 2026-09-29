@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Icon } from "@/components/icons";
 import { Card, CardTitle, PageBody, TableCard, TableHeader, TableTitle } from "@/components/ui";
 import { firstParam, hrefWith } from "@/lib/data";
 import { listTeam, requireSession } from "@/lib/auth";
@@ -53,13 +54,20 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
         >
           {firstParam(params.done) === "true" ? "Hide done" : "Show done"}
         </Link>
+        <Link
+          href="/tasks/scheduled"
+          className="flex shrink-0 items-center gap-[6px] rounded-full border border-line bg-surface px-[14px] py-[8px] text-[12.5px] font-medium"
+        >
+          <Icon name="clock" size={14} />
+          Scheduled tasks
+        </Link>
       </div>
 
       <TableCard>
         <TableHeader>
           <TableTitle>{kind ? KIND_LABEL[kind] : "All tasks"}</TableTitle>
         </TableHeader>
-        <TaskList tasks={tasks} redirectPath="/tasks" emptyLabel="Nothing here." showJob />
+        <TaskList tasks={tasks} redirectPath="/tasks" emptyLabel="Nothing here." showProject />
       </TableCard>
     </PageBody>
   );

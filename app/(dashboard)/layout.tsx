@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { Instrument_Sans, JetBrains_Mono } from "next/font/google";
+import { redirect } from "next/navigation";
 import "../globals.css";
 import { AppShell } from "@/components/app-shell";
+import { isAdminEmail } from "@/lib/admin";
 import { requireSession, signOutAction } from "@/lib/auth";
 import { navCounts } from "@/lib/queries";
 
@@ -31,7 +33,11 @@ export const dynamic = "force-dynamic";
 export default async function RootLayout({ children }: LayoutProps<"/">) {
   // The DAL primitive (see lib/auth.ts) — redirects to /login when there's no
   // valid session, before any page under this layout ever renders.
-  const [session, badges] = await Promise.all([requireSession(), navCounts()]);
+  const session = await requireSession();
+  // A brand-new org's owner names it before seeing the dashboard at all —
+  // everyone else (crew joining an org already named) skips straight past.
+  if (!session.org.onboarded && session.person.role === "owner") redirect("/onboarding");
+  const badges = await navCounts(session.org.id);
 
   return (
     <html
@@ -48,6 +54,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
           }}
           orgName={session.org.name}
           badges={badges}
+          isAdmin={isAdminEmail(session.person.email)}
           onSignOut={signOutAction}
         >
           {children}

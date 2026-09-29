@@ -7,12 +7,23 @@ import {
   deleteLlmProvider,
   listLlmProviders,
   probeLlmProvider,
+  setChatProvider,
   setDefaultLlmProvider,
   setEmailAnalyzerProvider,
   setLlmProviderEnabled,
   setLlmProviderModel,
 } from "@/lib/llm-providers";
-import { inviteTeammate, removeTeammate, requireSession, revokeInvite, updateTeammateRole } from "@/lib/auth";
+import { redirect } from "next/navigation";
+import {
+  deleteOrganization,
+  inviteTeammate,
+  removeTeammate,
+  requireSession,
+  revokeInvite,
+  signOut,
+  updateOrgName,
+  updateTeammateRole,
+} from "@/lib/auth";
 
 const PATH = "/settings";
 
@@ -106,10 +117,15 @@ export async function makeDefaultProvider(form: FormData) {
   revalidatePath(PATH);
 }
 
-export async function makeEmailAnalyzer(form: FormData) {
+export async function selectEmailProvider(form: FormData) {
   const { org } = await requireSession();
-  const id = field(form, "id");
-  await setEmailAnalyzerProvider(id, org.id);
+  await setEmailAnalyzerProvider(field(form, "id") || null, field(form, "model") || null, org.id);
+  revalidatePath(PATH);
+}
+
+export async function selectChatProvider(form: FormData) {
+  const { org } = await requireSession();
+  await setChatProvider(field(form, "id") || null, field(form, "model") || null, org.id);
   revalidatePath(PATH);
 }
 
@@ -165,4 +181,31 @@ export async function removeTeammateAction(form: FormData) {
   const id = field(form, "id");
   await removeTeammate(org.id, id);
   revalidatePath(PATH);
+}
+
+export async function renameOrg(_prev: FormState, form: FormData): Promise<FormState> {
+  const { org, person } = await requireSession();
+  if (person.role !== "owner") return { error: "Only the owner can rename the workspace." };
+  const name = field(form, "name");
+  if (!name) return { error: "Enter a name." };
+
+  await updateOrgName(org.id, name);
+  revalidatePath(PATH);
+  return { ok: "Saved." };
+}
+
+/**
+ * Permanently deletes the org and everything in it. The confirming click
+ * already happened in the browser (see delete-company-form.tsx's modal) — the
+ * server side re-checks the typed name as defense in depth, since a form
+ * submission can be replayed or forged without going through that UI.
+ */
+export async function deleteCompany(_prev: FormState, form: FormData): Promise<FormState> {
+  const { org, person } = await requireSession();
+  if (person.role !== "owner") return { error: "Only the owner can delete the company." };
+  if (field(form, "confirmName") !== org.name) return { error: "Type the company name exactly to confirm." };
+
+  await deleteOrganization(org.id);
+  await signOut();
+  redirect("/");
 }

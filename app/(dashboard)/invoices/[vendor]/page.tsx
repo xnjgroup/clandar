@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { Icon, iconName } from "@/components/icons";
 import { IconTile, PageBody, TableCard } from "@/components/ui";
 import { LINE_TAG_CLASS, firstParam, longDate, money, shortDate } from "@/lib/data";
+import { requireSession } from "@/lib/auth";
 import { invoiceDetail } from "@/lib/queries";
 
 /** `?id=` pins one document; without it the vendor's latest invoice is shown. */
@@ -12,7 +13,8 @@ export default async function InvoiceDetailPage({
 }: PageProps<"/invoices/[vendor]">) {
   const { vendor: slug } = await params;
   const id = firstParam((await searchParams).id);
-  const invoice = await invoiceDetail(slug, id || undefined);
+  const { org } = await requireSession();
+  const invoice = await invoiceDetail(org.id, slug, id || undefined);
   if (!invoice) notFound();
 
   const flagged = invoice.status === "flagged";

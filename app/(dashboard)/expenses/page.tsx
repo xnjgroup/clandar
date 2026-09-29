@@ -1,6 +1,7 @@
 import { TabLinks } from "@/components/tabs";
 import { DataTable, EmptyRow, PageBody, TableCard, type Column } from "@/components/ui";
 import { count, delta, firstParam, hrefWith, money } from "@/lib/data";
+import { requireSession } from "@/lib/auth";
 import { categorySpend, monthlySpend, vendorSpend } from "@/lib/queries";
 
 const EXPENSE_TABS = ["By vendor", "By category", "By month"] as const;
@@ -35,13 +36,14 @@ export default async function ExpensesPage({ searchParams }: PageProps<"/expense
   const params = await searchParams;
   const requested = firstParam(params.view) as ExpenseTab;
   const tab = EXPENSE_TABS.includes(requested) ? requested : "By vendor";
+  const { org } = await requireSession();
 
   let columns: Column[];
   let rows: string[][];
 
   if (tab === "By vendor") {
     columns = VENDOR_COLUMNS;
-    rows = (await vendorSpend()).map((v) => [
+    rows = (await vendorSpend(org.id)).map((v) => [
       v.vendor,
       v.category,
       money(v.thisMonth),
@@ -50,7 +52,7 @@ export default async function ExpensesPage({ searchParams }: PageProps<"/expense
     ]);
   } else if (tab === "By category") {
     columns = CATEGORY_COLUMNS;
-    rows = (await categorySpend()).map((c) => [
+    rows = (await categorySpend(org.id)).map((c) => [
       c.category,
       count(c.vendors),
       money(c.thisMonth),
@@ -59,7 +61,7 @@ export default async function ExpensesPage({ searchParams }: PageProps<"/expense
     ]);
   } else {
     columns = MONTH_COLUMNS;
-    const months = await monthlySpend(6);
+    const months = await monthlySpend(org.id, 6);
     rows = months.map((m, i) => [
       m.month,
       count(m.invoices),

@@ -1,10 +1,16 @@
 import { Icon, iconName } from "@/components/icons";
 import { Card, CardGrid, CardTitle, PageBody } from "@/components/ui";
 import { money0, relativeTime } from "@/lib/data";
+import { requireSession } from "@/lib/auth";
 import { alertEvents, alertRules, budgetUsage } from "@/lib/queries";
 
 export default async function BudgetsPage() {
-  const [budgets, rules, events] = await Promise.all([budgetUsage(), alertRules(), alertEvents(3)]);
+  const { org } = await requireSession();
+  const [budgets, rules, events] = await Promise.all([
+    budgetUsage(org.id),
+    alertRules(org.id),
+    alertEvents(org.id, 3),
+  ]);
 
   return (
     <PageBody>

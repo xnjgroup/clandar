@@ -10,6 +10,11 @@
  */
 import { decryptSecret, encryptSecret } from "@/lib/crypto";
 import { query, queryOne } from "@/lib/db";
+import {
+  getPlatformLlmProvider,
+  platformDefaultLlmProvider,
+  platformProviderSecret,
+} from "@/lib/platform-llm-providers";
 
 export type ProviderStatus = "unverified" | "connected" | "error" | "disabled";
 
@@ -23,6 +28,12 @@ export type LlmProvider = {
   isDefault: boolean;
   /** The provider the Gmail cleanup worker uses to judge/explain messages. */
   isEmailAnalyzer: boolean;
+  /** The provider the Executive Assistant chat uses. */
+  isChatProvider: boolean;
+  /** Overrides `model` for email analysis specifically — null means use the provider's own default model. */
+  emailModel: string | null;
+  /** Overrides `model` for chat specifically — null means use the provider's own default model. */
+  chatModel: string | null;
   enabled: boolean;
   status: ProviderStatus;
   statusDetail: string | null;
@@ -38,6 +49,9 @@ type ProviderRow = {
   has_api_key: boolean;
   is_default: boolean;
   is_email_analyzer: boolean;
+  is_chat_provider: boolean;
+  email_model: string | null;
+  chat_model: string | null;
   is_enabled: boolean;
   status: ProviderStatus;
   status_detail: string | null;
@@ -46,7 +60,8 @@ type ProviderRow = {
 };
 
 const SELECT_COLUMNS = `id, name, base_url, model, (api_key_cipher IS NOT NULL) AS has_api_key,
-       is_default, is_email_analyzer, is_enabled, status, status_detail, available_models, last_checked_at`;
+       is_default, is_email_analyzer, is_chat_provider, email_model, chat_model,
+       is_enabled, status, status_detail, available_models, last_checked_at`;
 
 function toProvider(row: ProviderRow): LlmProvider {
   return {
@@ -57,6 +72,9 @@ function toProvider(row: ProviderRow): LlmProvider {
     hasApiKey: row.has_api_key,
     isDefault: row.is_default,
     isEmailAnalyzer: row.is_email_analyzer,
+    isChatProvider: row.is_chat_provider,
+    emailModel: row.email_model,
+    chatModel: row.chat_model,
     enabled: row.is_enabled,
     status: row.status,
     statusDetail: row.status_detail,
@@ -73,11 +91,13 @@ export async function listLlmProviders(orgId: string): Promise<LlmProvider[]> {
   return rows.map(toProvider);
 }
 
+/** Looks in `llm_providers` first, then `platform_llm_providers` — an id from `defaultLlmProvider`'s fallback lives in the latter. */
 export async function getLlmProvider(id: string): Promise<LlmProvider | null> {
   const row = await queryOne<ProviderRow>(`SELECT ${SELECT_COLUMNS} FROM llm_providers WHERE id = $1`, [
     id,
   ]);
-  return row ? toProvider(row) : null;
+  if (row) return toProvider(row);
+  return getPlatformLlmProvider(id);
 }
 
 /** `getLlmProvider`, but `null` unless it also belongs to `orgId`. */
@@ -87,19 +107,35 @@ export async function getLlmProviderForOrg(id: string, orgId: string): Promise<L
   return getLlmProvider(id);
 }
 
-/** The provider features should use when none is named explicitly — `null` if none is set default, or configured at all. */
+/**
+ * The provider features should use when none is named explicitly. An org's
+ * own default always wins; with none configured (or enabled), this falls
+ * back to whichever platform provider an admin has set as default at
+ * /admin — `null` only if neither exists.
+ */
 export async function defaultLlmProvider(orgId: string): Promise<LlmProvider | null> {
   const row = await queryOne<ProviderRow>(
     `SELECT ${SELECT_COLUMNS} FROM llm_providers WHERE org_id = $1 AND is_default AND is_enabled`,
     [orgId],
   );
-  return row ? toProvider(row) : null;
+  if (row) return toProvider(row);
+  return platformDefaultLlmProvider();
 }
 
 /** The provider the Gmail cleanup worker calls — falls back to the default if none is assigned specifically. */
 export async function emailAnalyzerProvider(orgId: string): Promise<LlmProvider | null> {
   const row = await queryOne<ProviderRow>(
     `SELECT ${SELECT_COLUMNS} FROM llm_providers WHERE org_id = $1 AND is_email_analyzer AND is_enabled`,
+    [orgId],
+  );
+  if (row) return toProvider(row);
+  return defaultLlmProvider(orgId);
+}
+
+/** The provider the Executive Assistant chat calls (lib/assistant.ts) — falls back to the default if none is assigned specifically. */
+export async function chatLlmProvider(orgId: string): Promise<LlmProvider | null> {
+  const row = await queryOne<ProviderRow>(
+    `SELECT ${SELECT_COLUMNS} FROM llm_providers WHERE org_id = $1 AND is_chat_provider AND is_enabled`,
     [orgId],
   );
   if (row) return toProvider(row);
@@ -138,9 +174,37 @@ export async function setDefaultLlmProvider(id: string, orgId: string) {
   await query(`UPDATE llm_providers SET is_default = (id = $1) WHERE org_id = $2`, [id, orgId]);
 }
 
-/** Assigns exactly this provider to analyze email — same one-statement pattern as `setDefaultLlmProvider`. */
-export async function setEmailAnalyzerProvider(id: string, orgId: string) {
-  await query(`UPDATE llm_providers SET is_email_analyzer = (id = $1) WHERE org_id = $2`, [id, orgId]);
+/**
+ * Assigns exactly this provider (and, optionally, a specific model of its
+ * own to use instead of that provider's general default) to analyze email —
+ * same one-statement pattern as `setDefaultLlmProvider`. `id: null` clears
+ * the assignment entirely, so the org falls back to its own default (the
+ * "Built-in" choice in the Email section on /settings).
+ */
+export async function setEmailAnalyzerProvider(id: string | null, model: string | null, orgId: string) {
+  await query(
+    `UPDATE llm_providers
+        SET is_email_analyzer = coalesce(id = $1, false),
+            email_model = CASE WHEN id = $1 THEN $2 ELSE email_model END
+      WHERE org_id = $3`,
+    [id, model, orgId],
+  );
+}
+
+/**
+ * Assigns exactly this provider (and, optionally, a specific model override)
+ * to the Executive Assistant chat — same one-statement pattern as
+ * `setDefaultLlmProvider`. `id: null` clears the assignment (the "Built-in"
+ * choice in the Chat section on /settings).
+ */
+export async function setChatProvider(id: string | null, model: string | null, orgId: string) {
+  await query(
+    `UPDATE llm_providers
+        SET is_chat_provider = coalesce(id = $1, false),
+            chat_model = CASE WHEN id = $1 THEN $2 ELSE chat_model END
+      WHERE org_id = $3`,
+    [id, model, orgId],
+  );
 }
 
 export async function setLlmProviderEnabled(id: string, orgId: string, enabled: boolean) {
@@ -149,6 +213,7 @@ export async function setLlmProviderEnabled(id: string, orgId: string, enabled: 
         SET is_enabled = $3,
             is_default = is_default AND $3,
             is_email_analyzer = is_email_analyzer AND $3,
+            is_chat_provider = is_chat_provider AND $3,
             status = CASE WHEN $3 THEN 'unverified' ELSE 'disabled' END
       WHERE id = $1 AND org_id = $2`,
     [id, orgId, enabled],
@@ -172,8 +237,9 @@ async function authHeaders(id: string): Promise<Record<string, string>> {
     `SELECT api_key_cipher FROM llm_providers WHERE id = $1`,
     [id],
   );
-  if (!row?.api_key_cipher) return {};
-  return { Authorization: `Bearer ${decryptSecret(row.api_key_cipher)}` };
+  const cipher = row ? row.api_key_cipher : (await platformProviderSecret(id))?.apiKeyCipher;
+  if (!cipher) return {};
+  return { Authorization: `Bearer ${decryptSecret(cipher)}` };
 }
 
 /** Turns a fetch/JSON failure into a message worth showing, with the common misconfigurations named. */
@@ -267,18 +333,19 @@ export type ChatMessage = {
 export async function chatComplete(
   providerId: string,
   messages: ChatMessage[],
-  options: { temperature?: number; timeoutMs?: number } = {},
+  options: { temperature?: number; timeoutMs?: number; model?: string } = {},
 ): Promise<string> {
   const provider = await getLlmProvider(providerId);
   if (!provider) throw new Error("LLM provider not found");
-  if (!provider.model) throw new Error(`${provider.name} has no model selected — test it on /settings first`);
+  const model = options.model || provider.model;
+  if (!model) throw new Error(`${provider.name} has no model selected — test it on /settings first`);
 
   const baseUrl = trimTrailingSlash(provider.baseUrl);
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: { "content-type": "application/json", ...(await authHeaders(providerId)) },
     body: JSON.stringify({
-      model: provider.model,
+      model,
       messages,
       temperature: options.temperature ?? 0,
     }),
@@ -298,6 +365,78 @@ export async function chatComplete(
   const content = body.choices?.[0]?.message?.content;
   if (!content) throw new Error(`${provider.name} returned no completion content`);
   return content;
+}
+
+/**
+ * Same call as `chatComplete`, but reads the OpenAI-compatible `stream: true`
+ * SSE response and yields each new slice of text as it arrives — what lets
+ * the Executive Assistant's chat show a reply word by word instead of
+ * waiting for the whole thing. Concatenating every yielded piece gives the
+ * same full text `chatComplete` would have returned.
+ */
+export async function* chatCompleteStream(
+  providerId: string,
+  messages: ChatMessage[],
+  options: { temperature?: number; timeoutMs?: number; model?: string } = {},
+): AsyncGenerator<string> {
+  const provider = await getLlmProvider(providerId);
+  if (!provider) throw new Error("LLM provider not found");
+  const model = options.model || provider.model;
+  if (!model) throw new Error(`${provider.name} has no model selected — test it on /settings first`);
+
+  const baseUrl = trimTrailingSlash(provider.baseUrl);
+  const response = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: { "content-type": "application/json", ...(await authHeaders(providerId)) },
+    body: JSON.stringify({
+      model,
+      messages,
+      temperature: options.temperature ?? 0,
+      stream: true,
+    }),
+    cache: "no-store",
+    signal: AbortSignal.timeout(options.timeoutMs ?? 60_000),
+  }).catch((error: unknown) => {
+    throw new Error(`Could not reach ${provider.name}: ${error instanceof Error ? error.message : "unknown error"}`);
+  });
+
+  if (!response.ok || !response.body) {
+    throw new Error(`${provider.name} chat completion failed: ${await describeFailure(null, response, baseUrl)}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let sawAny = false;
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    // SSE frames are separated by a blank line; each frame's payload lines start with "data: ".
+    const frames = buffer.split("\n\n");
+    buffer = frames.pop() ?? "";
+    for (const frame of frames) {
+      const line = frame.split("\n").find((l) => l.startsWith("data:"));
+      if (!line) continue;
+      const payload = line.slice(5).trim();
+      if (payload === "[DONE]") continue;
+      try {
+        const parsed = JSON.parse(payload) as { choices?: { delta?: { content?: string } }[] };
+        const delta = parsed.choices?.[0]?.delta?.content;
+        if (delta) {
+          sawAny = true;
+          yield delta;
+        }
+      } catch {
+        // A partial JSON object split across reads — SSE frames should be whole per read,
+        // but tolerate it rather than aborting a stream over one malformed frame.
+      }
+    }
+  }
+
+  if (!sawAny) throw new Error(`${provider.name} returned no completion content`);
 }
 
 async function recordProbe(

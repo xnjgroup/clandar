@@ -11,19 +11,19 @@ function field(form: FormData, name: string) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-/** `redirectPath` lets both the global /tasks page and a job hub page reuse this and revalidate their own route. */
+/** `redirectPath` lets both the global /tasks page and a project hub page reuse this and revalidate their own route. */
 export async function addTask(_prev: FormState, form: FormData): Promise<FormState> {
   const session = await requireSession();
   const title = field(form, "title");
   const kind = (field(form, "kind") || "todo") as TaskKind;
-  const jobId = field(form, "jobId") || null;
+  const projectId = field(form, "projectId") || null;
   const dueDate = field(form, "dueDate") || null;
   const redirectPath = field(form, "redirectPath") || "/tasks";
   if (!title) return { error: "Give the task a title." };
 
   await createTask({
     orgId: session.org.id,
-    jobId,
+    projectId,
     kind,
     title,
     dueDate,

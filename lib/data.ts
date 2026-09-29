@@ -46,36 +46,160 @@ export const CATEGORY_COLORS: Record<string, string> = {
 
 export const CHART_SERIES_COLORS = ["#8dc63f", "#7ea6d9", "#f4a259", "#c98bc9", "#d7f56b"];
 
-/* ── Jobs ─────────────────────────────────────────────────── */
+/* ── Projects ─────────────────────────────────────────────── */
+// The kind of project (was a fixed "trade" enum) is now a per-org, editable
+// list stored in the `project_types` table — see lib/project-types.ts.
 
-export type Trade =
-  | "painting"
-  | "plumbing"
-  | "electrical"
-  | "drywall"
-  | "flooring"
-  | "tile"
-  | "siding"
-  | "deck-fence"
-  | "paver-patio"
-  | "handyman-repair";
+/**
+ * A ready-made starter list of project types for one kind of business —
+ * picked once, at /onboarding. Lives here (not lib/project-types.ts, which
+ * imports `@/lib/db`) because the onboarding form is a client component that
+ * needs this same plain list.
+ */
+export type CompanyType = { id: string; label: string; projectTypes: { name: string; icon: IconName }[] };
 
-export const TRADES: { id: Trade; label: string; icon: IconName }[] = [
-  { id: "painting", label: "Painting", icon: "brush" },
-  { id: "plumbing", label: "Plumbing", icon: "droplet" },
-  { id: "electrical", label: "Electrical", icon: "bolt" },
-  { id: "drywall", label: "Drywall", icon: "building2" },
-  { id: "flooring", label: "Flooring", icon: "layers" },
-  { id: "tile", label: "Tile", icon: "grid" },
-  { id: "siding", label: "Siding", icon: "home" },
-  { id: "deck-fence", label: "Deck & Fence", icon: "fence" },
-  { id: "paver-patio", label: "Paver & Patio", icon: "square" },
-  { id: "handyman-repair", label: "Handyman Repair", icon: "wrench" },
+export const COMPANY_TYPES: CompanyType[] = [
+  {
+    id: "home-improvement",
+    label: "Home improvement",
+    projectTypes: [
+      { name: "Painting", icon: "brush" },
+      { name: "Plumbing", icon: "droplet" },
+      { name: "Electrical", icon: "bolt" },
+      { name: "Drywall", icon: "building2" },
+      { name: "Flooring", icon: "layers" },
+      { name: "Tile", icon: "grid" },
+      { name: "Siding", icon: "home" },
+      { name: "Deck & fence", icon: "fence" },
+      { name: "Paver & patio", icon: "square" },
+      { name: "Handyman repair", icon: "wrench" },
+    ],
+  },
+  {
+    id: "house-cleaning",
+    label: "House cleaning",
+    projectTypes: [
+      { name: "Standard cleaning", icon: "home" },
+      { name: "Deep clean", icon: "brush" },
+      { name: "Move-in / move-out", icon: "briefcase" },
+      { name: "Recurring service", icon: "refresh" },
+      { name: "Post-construction clean", icon: "building2" },
+    ],
+  },
+  {
+    id: "landscaping",
+    label: "Landscaping & lawn care",
+    projectTypes: [
+      { name: "Lawn maintenance", icon: "refresh" },
+      { name: "Landscape design", icon: "layers" },
+      { name: "Tree removal", icon: "wrench" },
+      { name: "Irrigation", icon: "droplet" },
+      { name: "Seasonal cleanup", icon: "brush" },
+    ],
+  },
+  {
+    id: "automotive",
+    label: "Automotive services",
+    projectTypes: [
+      { name: "Repair", icon: "wrench" },
+      { name: "Maintenance", icon: "refresh" },
+      { name: "Detailing", icon: "brush" },
+      { name: "Inspection", icon: "check2" },
+      { name: "Bodywork", icon: "wrench" },
+    ],
+  },
+  {
+    id: "events",
+    label: "Events & catering",
+    projectTypes: [
+      { name: "Wedding", icon: "calendar" },
+      { name: "Corporate event", icon: "briefcase" },
+      { name: "Private party", icon: "users" },
+      { name: "Catering only", icon: "fork" },
+      { name: "Full service", icon: "check2" },
+    ],
+  },
+  {
+    id: "professional-services",
+    label: "Professional services / consulting",
+    projectTypes: [
+      { name: "Client onboarding", icon: "users" },
+      { name: "Strategy engagement", icon: "chart" },
+      { name: "Audit / assessment", icon: "clipboard" },
+      { name: "Ongoing retainer", icon: "refresh" },
+      { name: "Project delivery", icon: "briefcase" },
+    ],
+  },
+  {
+    id: "retail",
+    label: "Retail",
+    projectTypes: [
+      { name: "New product launch", icon: "briefcase" },
+      { name: "Store display refresh", icon: "building" },
+      { name: "Inventory restock", icon: "doc" },
+      { name: "Seasonal promotion", icon: "calendar" },
+      { name: "Vendor onboarding", icon: "users" },
+    ],
+  },
+  {
+    id: "ecommerce",
+    label: "E-commerce",
+    projectTypes: [
+      { name: "Website update", icon: "laptop" },
+      { name: "Product photography", icon: "camera" },
+      { name: "Marketing campaign", icon: "chart" },
+      { name: "Inventory restock", icon: "doc" },
+      { name: "Fulfillment issue", icon: "alertSm" },
+    ],
+  },
+  {
+    id: "travel-agency",
+    label: "Travel agency",
+    projectTypes: [
+      { name: "Trip planning", icon: "plane" },
+      { name: "Group tour", icon: "users" },
+      { name: "Corporate travel", icon: "briefcase" },
+      { name: "Honeymoon / special occasion", icon: "calendar" },
+      { name: "Visa & documentation", icon: "clipboard" },
+    ],
+  },
+  {
+    id: "personal-care",
+    label: "Personal care",
+    projectTypes: [
+      { name: "New client intake", icon: "users" },
+      { name: "Recurring appointment", icon: "calendar" },
+      { name: "Special event styling", icon: "brush" },
+      { name: "Retail product order", icon: "doc" },
+      { name: "Membership signup", icon: "check2" },
+    ],
+  },
+  {
+    id: "real-estate",
+    label: "Real estate",
+    projectTypes: [
+      { name: "New listing", icon: "building" },
+      { name: "Buyer representation", icon: "users" },
+      { name: "Property showing", icon: "home" },
+      { name: "Closing", icon: "key" },
+      { name: "Property management", icon: "clipboard" },
+    ],
+  },
+  {
+    id: "other",
+    label: "Other / general services",
+    projectTypes: [
+      { name: "Consulting", icon: "briefcase" },
+      { name: "Installation", icon: "wrench" },
+      { name: "Maintenance", icon: "refresh" },
+      { name: "Custom project", icon: "clipboard" },
+    ],
+  },
 ];
 
-export type JobStatus = "lead" | "quoted" | "scheduled" | "in_progress" | "completed" | "cancelled";
+export type ProjectStatus = "lead" | "quoted" | "scheduled" | "in_progress" | "completed" | "cancelled";
 
-export const JOB_STATUSES: { id: JobStatus; label: string }[] = [
+export const PROJECT_STATUSES: { id: ProjectStatus; label: string }[] = [
   { id: "lead", label: "Lead" },
   { id: "quoted", label: "Quoted" },
   { id: "scheduled", label: "Scheduled" },
@@ -83,6 +207,12 @@ export const JOB_STATUSES: { id: JobStatus; label: string }[] = [
   { id: "completed", label: "Completed" },
   { id: "cancelled", label: "Cancelled" },
 ];
+
+/* ── Scheduled AI tasks ───────────────────────────────────── */
+
+export type Frequency = "daily" | "weekdays" | "weekly";
+
+export const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 /* ── Invoice status ───────────────────────────────────────── */
 
@@ -119,7 +249,7 @@ export type NavGroup = { label: string; icon: IconName; items: NavItem[] };
 /** The always-visible top-level rows — kept to a handful so the sidebar reads at a glance. */
 export const NAV_TOP: NavItem[] = [
   { label: "Overview", icon: "home", href: "/overview" },
-  { label: "Jobs", icon: "briefcase", href: "/jobs" },
+  { label: "Projects", icon: "briefcase", href: "/projects" },
   { label: "Customers", icon: "users", href: "/customers" },
   { label: "Schedule", icon: "calendar", href: "/schedule" },
   { label: "Tasks", icon: "clipboard", href: "/tasks" },
@@ -138,7 +268,6 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: "Budgets", icon: "wallet", href: "/budgets" },
       { label: "Approvals", icon: "check2", href: "/approvals" },
       { label: "Fraud", icon: "shield", href: "/fraud" },
-      { label: "Messages", icon: "chat", href: "/messages" },
     ],
   },
   {
@@ -160,22 +289,21 @@ export const NAV_FOOTER: NavItem[] = [
 
 export const MOBILE_TABS: { label: string; icon: IconName; href: string }[] = [
   { label: "Overview", icon: "home", href: "/overview" },
-  { label: "Jobs", icon: "briefcase", href: "/jobs" },
+  { label: "Projects", icon: "briefcase", href: "/projects" },
   { label: "Schedule", icon: "calendar", href: "/schedule" },
   { label: "Tasks", icon: "clipboard", href: "/tasks" },
 ];
 
-export const USER_MENU: { label: string; icon: IconName; danger?: boolean }[] = [
-  { label: "Profile & preferences", icon: "user" },
-  { label: "Company settings", icon: "building" },
-  { label: "Billing & plan", icon: "card" },
+export const USER_MENU: { label: string; icon: IconName; href?: string; danger?: boolean }[] = [
+  { label: "Company settings", icon: "building", href: "/settings" },
   { label: "Sign out", icon: "logout", danger: true },
 ];
 
 /** Breadcrumb + title per route, keyed by the first path segment. */
 export const PAGE_TITLES: Record<string, [crumb: string, title: string]> = {
   overview: ["Overview", "Overview"],
-  jobs: ["Work", "Jobs"],
+  admin: ["Platform", "Admin"],
+  projects: ["Work", "Projects"],
   customers: ["Work", "Customers"],
   schedule: ["Work", "Schedule"],
   tasks: ["Work", "Tasks"],
@@ -191,7 +319,6 @@ export const PAGE_TITLES: Record<string, [crumb: string, title: string]> = {
   connectors: ["Automation", "Connectors"],
   settings: ["Automation", "Settings"],
   vendors: ["Directory", "Vendors & accounts"],
-  messages: ["Workspace", "Expense agent"],
 };
 
 /* ── Formatting ───────────────────────────────────────────── */

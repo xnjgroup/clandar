@@ -3,7 +3,7 @@ import { Icon } from "@/components/icons";
 import { Card, CardTitle, EmptyRow, PageBody, TableCard, TableHeader, TableTitle } from "@/components/ui";
 import { firstParam, hrefWith } from "@/lib/data";
 import { listTeam, requireSession } from "@/lib/auth";
-import { listJobs } from "@/lib/jobs";
+import { listProjects } from "@/lib/projects";
 import { listSchedule } from "@/lib/schedule";
 import { removeScheduleEntry } from "./actions";
 import { ScheduleForm } from "./schedule-form";
@@ -18,9 +18,9 @@ export default async function SchedulePage({ searchParams }: PageProps<"/schedul
   const to = new Date(from);
   to.setDate(to.getDate() + 30);
 
-  const [team, jobs, entries] = await Promise.all([
+  const [team, projects, entries] = await Promise.all([
     listTeam(org.id),
-    listJobs(org.id),
+    listProjects(org.id),
     listSchedule(org.id, { from, to }, assignedTo ? { assignedTo } : {}),
   ]);
 
@@ -33,9 +33,9 @@ export default async function SchedulePage({ searchParams }: PageProps<"/schedul
   return (
     <PageBody>
       <Card className="flex flex-col gap-[13px]">
-        <CardTitle>Schedule a job</CardTitle>
+        <CardTitle>Schedule a project</CardTitle>
         <ScheduleForm
-          jobs={jobs.map((j) => ({ id: j.id, title: `${j.title} — ${j.customerName}` }))}
+          projects={projects.map((j) => ({ id: j.id, title: `${j.title} — ${j.customerName}` }))}
           members={team}
           redirectPath="/schedule"
         />
@@ -79,8 +79,8 @@ export default async function SchedulePage({ searchParams }: PageProps<"/schedul
                     {entry.startsAt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} –{" "}
                     {entry.endsAt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
                   </span>
-                  <Link href={`/jobs/${entry.jobId}`} className="min-w-0 flex-1 truncate text-[13px] font-semibold underline">
-                    {entry.jobTitle}
+                  <Link href={`/projects/${entry.projectId}`} className="min-w-0 flex-1 truncate text-[13px] font-semibold underline">
+                    {entry.projectTitle}
                   </Link>
                   <span className="truncate text-[11.5px] text-muted">{entry.customerName}</span>
                   {entry.assignedName ? (

@@ -1,9 +1,11 @@
 import { CardGrid, CategoryTile, PageBody, StatCard, StatRow } from "@/components/ui";
 import { count, money, money0, shortDate } from "@/lib/data";
+import { requireSession } from "@/lib/auth";
 import { recurringCharges, recurringStats } from "@/lib/queries";
 
 export default async function RecurringPage() {
-  const [stats, charges] = await Promise.all([recurringStats(), recurringCharges()]);
+  const { org } = await requireSession();
+  const [stats, charges] = await Promise.all([recurringStats(org.id), recurringCharges(org.id)]);
 
   const cards = [
     {

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { TabLinks } from "@/components/tabs";
 import { CategoryTile, EmptyRow, PageBody, TableCard } from "@/components/ui";
 import { firstParam, hrefWith, money, shortDate } from "@/lib/data";
+import { requireSession } from "@/lib/auth";
 import { APPROVAL_TABS, listApprovals, type ApprovalTab } from "@/lib/queries";
 
 const PATH = "/approvals";
@@ -10,7 +11,8 @@ export default async function ApprovalsPage({ searchParams }: PageProps<"/approv
   const params = await searchParams;
   const requested = firstParam(params.state) as ApprovalTab;
   const tab = APPROVAL_TABS.includes(requested) ? requested : "Pending";
-  const rows = await listApprovals(tab);
+  const { org } = await requireSession();
+  const rows = await listApprovals(org.id, tab);
 
   return (
     <PageBody>

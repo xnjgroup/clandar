@@ -39,7 +39,7 @@ export default async function CustomersPage({ searchParams }: PageProps<"/custom
                 {c.address ? <span className="truncate text-[11px] text-faint">{c.address}</span> : null}
               </div>
               <span className="shrink-0 font-mono text-[11px] text-faint">
-                {c.jobCount} job{c.jobCount === 1 ? "" : "s"}
+                {c.projectCount} project{c.projectCount === 1 ? "" : "s"}
               </span>
             </Link>
           ))

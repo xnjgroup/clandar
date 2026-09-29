@@ -9,6 +9,7 @@ import {
   type Column,
 } from "@/components/ui";
 import { money0 } from "@/lib/data";
+import { requireSession } from "@/lib/auth";
 import { vendorDirectory } from "@/lib/queries";
 
 const COLUMNS: Column[] = [
@@ -20,7 +21,8 @@ const COLUMNS: Column[] = [
 ];
 
 export default async function VendorsPage() {
-  const vendors = await vendorDirectory();
+  const { org } = await requireSession();
+  const vendors = await vendorDirectory(org.id);
 
   return (
     <PageBody>

@@ -14,19 +14,17 @@ $$ LANGUAGE plpgsql;
 
 /* ── People ───────────────────────────────────────────────── */
 
+-- `is_current`/`people_one_current` (the pre-auth "exactly one signed-in
+-- person" hack) are gone — replaced by real sessions, see the auth migration
+-- further down this file.
 CREATE TABLE IF NOT EXISTS people (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name        text NOT NULL,
   email       text NOT NULL UNIQUE,
   role        text NOT NULL DEFAULT 'member'
                 CHECK (role IN ('owner', 'approver', 'member')),
-  is_current  boolean NOT NULL DEFAULT false,
   created_at  timestamptz NOT NULL DEFAULT now()
 );
-
--- Exactly one person is "signed in" while there is no auth layer.
-CREATE UNIQUE INDEX IF NOT EXISTS people_one_current
-  ON people ((is_current)) WHERE is_current;
 
 /* ── Reference data ───────────────────────────────────────── */
 
@@ -501,10 +499,13 @@ DROP INDEX IF EXISTS llm_providers_one_email_analyzer;
 CREATE UNIQUE INDEX IF NOT EXISTS llm_providers_one_email_analyzer_per_org
   ON llm_providers (org_id) WHERE is_email_analyzer;
 
-/* ── Customers & jobs ─────────────────────────────────────────
+/* ── Customers & projects ───────────────────────────────────────
    The spine every feature below hangs off: a customer's contact info, and a
-   job (one property, one project) tracked from first quote through
-   completion.
+   project (one property, one job of work) tracked from first quote through
+   completion. A project's "type" (was a fixed home-improvement trade enum)
+   is a per-org, user-managed list — see `project_types` below and
+   lib/project-types.ts — seeded from a company-type template at /onboarding
+   and freely editable after that.
 */
 CREATE TABLE IF NOT EXISTS customers (
   id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -522,36 +523,45 @@ DROP TRIGGER IF EXISTS trg_customers_updated_at ON customers;
 CREATE TRIGGER trg_customers_updated_at BEFORE UPDATE ON customers
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
-CREATE TABLE IF NOT EXISTS jobs (
-  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  org_id      uuid NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
-  customer_id uuid NOT NULL REFERENCES customers (id) ON DELETE CASCADE,
-  title       text NOT NULL,
-  trade       text NOT NULL DEFAULT 'handyman-repair'
-                CHECK (trade IN ('painting', 'plumbing', 'electrical', 'drywall', 'flooring',
-                                  'tile', 'siding', 'deck-fence', 'paver-patio', 'handyman-repair')),
-  address     text NOT NULL DEFAULT '',
-  status      text NOT NULL DEFAULT 'lead'
-                CHECK (status IN ('lead', 'quoted', 'scheduled', 'in_progress', 'completed', 'cancelled')),
-  assigned_to uuid REFERENCES people (id) ON DELETE SET NULL,
-  notes       text NOT NULL DEFAULT '',
-  created_by  uuid REFERENCES people (id) ON DELETE SET NULL,
-  created_at  timestamptz NOT NULL DEFAULT now(),
-  updated_at  timestamptz NOT NULL DEFAULT now()
+CREATE TABLE IF NOT EXISTS project_types (
+  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id     uuid NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+  name       text NOT NULL,
+  icon       text NOT NULL DEFAULT 'briefcase',
+  sort_order integer NOT NULL DEFAULT 0,
+  created_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS jobs_org_idx ON jobs (org_id, status, created_at DESC);
-CREATE INDEX IF NOT EXISTS jobs_customer_idx ON jobs (customer_id);
-DROP TRIGGER IF EXISTS trg_jobs_updated_at ON jobs;
-CREATE TRIGGER trg_jobs_updated_at BEFORE UPDATE ON jobs
+CREATE UNIQUE INDEX IF NOT EXISTS project_types_org_name_key ON project_types (org_id, lower(name));
+CREATE INDEX IF NOT EXISTS project_types_org_idx ON project_types (org_id, sort_order);
+
+CREATE TABLE IF NOT EXISTS projects (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id          uuid NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+  customer_id     uuid NOT NULL REFERENCES customers (id) ON DELETE CASCADE,
+  title           text NOT NULL,
+  project_type_id uuid REFERENCES project_types (id) ON DELETE SET NULL,
+  address         text NOT NULL DEFAULT '',
+  status          text NOT NULL DEFAULT 'lead'
+                    CHECK (status IN ('lead', 'quoted', 'scheduled', 'in_progress', 'completed', 'cancelled')),
+  assigned_to     uuid REFERENCES people (id) ON DELETE SET NULL,
+  notes           text NOT NULL DEFAULT '',
+  created_by      uuid REFERENCES people (id) ON DELETE SET NULL,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS jobs_org_idx ON projects (org_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS jobs_customer_idx ON projects (customer_id);
+DROP TRIGGER IF EXISTS trg_jobs_updated_at ON projects;
+CREATE TRIGGER trg_jobs_updated_at BEFORE UPDATE ON projects
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
--- A job's photos: the quoting flow's input (see lib/quoting.ts), and part of
--- the project record afterward. Files live on disk under UPLOADS_DIR (see
+-- A project's photos: the quoting flow's input (see lib/quoting.ts), and part
+-- of the project record afterward. Files live on disk under UPLOADS_DIR (see
 -- lib/storage.ts) — this row is the pointer plus whatever the AI quote pass
 -- said about it.
-CREATE TABLE IF NOT EXISTS job_photos (
+CREATE TABLE IF NOT EXISTS project_photos (
   id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  job_id       uuid NOT NULL REFERENCES jobs (id) ON DELETE CASCADE,
+  project_id   uuid NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
   file_path    text NOT NULL,
   content_type text NOT NULL,
   size_bytes   integer NOT NULL DEFAULT 0,
@@ -559,13 +569,13 @@ CREATE TABLE IF NOT EXISTS job_photos (
   uploaded_by  uuid REFERENCES people (id) ON DELETE SET NULL,
   created_at   timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS job_photos_job_idx ON job_photos (job_id, created_at);
+CREATE INDEX IF NOT EXISTS job_photos_job_idx ON project_photos (project_id, created_at);
 
--- Any other file worth keeping against a job — a permit PDF, a signed
+-- Any other file worth keeping against a project — a permit PDF, a signed
 -- contract, a supplier receipt.
-CREATE TABLE IF NOT EXISTS job_files (
+CREATE TABLE IF NOT EXISTS project_files (
   id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  job_id       uuid NOT NULL REFERENCES jobs (id) ON DELETE CASCADE,
+  project_id   uuid NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
   file_path    text NOT NULL,
   file_name    text NOT NULL,
   content_type text NOT NULL,
@@ -573,13 +583,13 @@ CREATE TABLE IF NOT EXISTS job_files (
   uploaded_by  uuid REFERENCES people (id) ON DELETE SET NULL,
   created_at   timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS job_files_job_idx ON job_files (job_id, created_at);
+CREATE INDEX IF NOT EXISTS job_files_job_idx ON project_files (project_id, created_at);
 
--- Invoices can optionally be tied back to the job they were spent on, for the
--- project record's "track invoices" view. Nullable — the personal-expense
+-- Invoices can optionally be tied back to the project they were spent on, for
+-- the project record's "track invoices" view. Nullable — the personal-expense
 -- side of the app (unrelated bills) leaves this unset.
-ALTER TABLE invoices ADD COLUMN IF NOT EXISTS job_id uuid REFERENCES jobs (id) ON DELETE SET NULL;
-CREATE INDEX IF NOT EXISTS invoices_job_idx ON invoices (job_id);
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS project_id uuid REFERENCES projects (id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS invoices_job_idx ON invoices (project_id);
 
 /* ── Quoting ──────────────────────────────────────────────────
    An AI-assisted estimate: photos in, a line-itemized quote out. See
@@ -588,7 +598,7 @@ CREATE INDEX IF NOT EXISTS invoices_job_idx ON invoices (job_id);
 CREATE TABLE IF NOT EXISTS estimates (
   id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id       uuid NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
-  job_id       uuid NOT NULL REFERENCES jobs (id) ON DELETE CASCADE,
+  project_id   uuid NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
   status       text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'sent', 'accepted', 'declined')),
   summary      text NOT NULL DEFAULT '',
   subtotal     numeric(12, 2) NOT NULL DEFAULT 0,
@@ -600,7 +610,7 @@ CREATE TABLE IF NOT EXISTS estimates (
   created_at   timestamptz NOT NULL DEFAULT now(),
   updated_at   timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS estimates_job_idx ON estimates (job_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS estimates_job_idx ON estimates (project_id, created_at DESC);
 DROP TRIGGER IF EXISTS trg_estimates_updated_at ON estimates;
 CREATE TRIGGER trg_estimates_updated_at BEFORE UPDATE ON estimates
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
@@ -617,13 +627,14 @@ CREATE TABLE IF NOT EXISTS estimate_line_items (
 CREATE INDEX IF NOT EXISTS estimate_line_items_estimate_idx ON estimate_line_items (estimate_id, sort_order);
 
 /* ── Scheduling ───────────────────────────────────────────────
-   One calendar entry: a job, a crew member, a time window. The daily "route"
-   is just this list filtered to one person and one day, ordered by start time.
+   One calendar entry: a project, a crew member, a time window. The daily
+   "route" is just this list filtered to one person and one day, ordered by
+   start time.
 */
 CREATE TABLE IF NOT EXISTS schedule_entries (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id      uuid NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
-  job_id      uuid NOT NULL REFERENCES jobs (id) ON DELETE CASCADE,
+  project_id  uuid NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
   assigned_to uuid REFERENCES people (id) ON DELETE SET NULL,
   starts_at   timestamptz NOT NULL,
   ends_at     timestamptz NOT NULL,
@@ -631,7 +642,7 @@ CREATE TABLE IF NOT EXISTS schedule_entries (
   created_at  timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS schedule_entries_org_idx ON schedule_entries (org_id, starts_at);
-CREATE INDEX IF NOT EXISTS schedule_entries_job_idx ON schedule_entries (job_id);
+CREATE INDEX IF NOT EXISTS schedule_entries_job_idx ON schedule_entries (project_id);
 CREATE INDEX IF NOT EXISTS schedule_entries_assignee_idx ON schedule_entries (assigned_to, starts_at);
 
 /* ── Tasks ──────────────────────────────────────────────────── */
@@ -639,7 +650,7 @@ CREATE INDEX IF NOT EXISTS schedule_entries_assignee_idx ON schedule_entries (as
 CREATE TABLE IF NOT EXISTS tasks (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id      uuid NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
-  job_id      uuid REFERENCES jobs (id) ON DELETE CASCADE,
+  project_id  uuid REFERENCES projects (id) ON DELETE CASCADE,
   kind        text NOT NULL DEFAULT 'todo' CHECK (kind IN ('todo', 'shopping', 'permit')),
   title       text NOT NULL,
   due_date    date,
@@ -650,4 +661,218 @@ CREATE TABLE IF NOT EXISTS tasks (
   done_at     timestamptz
 );
 CREATE INDEX IF NOT EXISTS tasks_org_idx ON tasks (org_id, is_done, due_date);
-CREATE INDEX IF NOT EXISTS tasks_job_idx ON tasks (job_id);
+CREATE INDEX IF NOT EXISTS tasks_job_idx ON tasks (project_id);
+
+/* ── Org-scoping the legacy expense-tracking tables ──────────
+   These predate multi-tenancy and were left global — every org shared the
+   same locations/vendors/invoices/etc. `categories` stays global on purpose
+   (a small shared reference taxonomy, not business data); everything else
+   below gets its own org_id, same backfill-then-tighten pattern used for
+   connectors/llm_providers above.
+*/
+ALTER TABLE locations ADD COLUMN IF NOT EXISTS org_id uuid REFERENCES organizations (id) ON DELETE CASCADE;
+ALTER TABLE vendors ADD COLUMN IF NOT EXISTS org_id uuid REFERENCES organizations (id) ON DELETE CASCADE;
+ALTER TABLE assets ADD COLUMN IF NOT EXISTS org_id uuid REFERENCES organizations (id) ON DELETE CASCADE;
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS org_id uuid REFERENCES organizations (id) ON DELETE CASCADE;
+ALTER TABLE recurring_charges ADD COLUMN IF NOT EXISTS org_id uuid REFERENCES organizations (id) ON DELETE CASCADE;
+ALTER TABLE budgets ADD COLUMN IF NOT EXISTS org_id uuid REFERENCES organizations (id) ON DELETE CASCADE;
+ALTER TABLE alert_rules ADD COLUMN IF NOT EXISTS org_id uuid REFERENCES organizations (id) ON DELETE CASCADE;
+ALTER TABLE alert_events ADD COLUMN IF NOT EXISTS org_id uuid REFERENCES organizations (id) ON DELETE CASCADE;
+ALTER TABLE fraud_flags ADD COLUMN IF NOT EXISTS org_id uuid REFERENCES organizations (id) ON DELETE CASCADE;
+ALTER TABLE agent_conversations ADD COLUMN IF NOT EXISTS org_id uuid REFERENCES organizations (id) ON DELETE CASCADE;
+
+DO $$
+DECLARE
+  bootstrap_org_id uuid;
+BEGIN
+  IF EXISTS (SELECT 1 FROM locations WHERE org_id IS NULL)
+     OR EXISTS (SELECT 1 FROM vendors WHERE org_id IS NULL)
+     OR EXISTS (SELECT 1 FROM assets WHERE org_id IS NULL)
+     OR EXISTS (SELECT 1 FROM invoices WHERE org_id IS NULL)
+     OR EXISTS (SELECT 1 FROM recurring_charges WHERE org_id IS NULL)
+     OR EXISTS (SELECT 1 FROM budgets WHERE org_id IS NULL)
+     OR EXISTS (SELECT 1 FROM alert_rules WHERE org_id IS NULL)
+     OR EXISTS (SELECT 1 FROM alert_events WHERE org_id IS NULL)
+     OR EXISTS (SELECT 1 FROM fraud_flags WHERE org_id IS NULL)
+     OR EXISTS (SELECT 1 FROM agent_conversations WHERE org_id IS NULL) THEN
+    SELECT id INTO bootstrap_org_id FROM organizations ORDER BY created_at LIMIT 1;
+    IF bootstrap_org_id IS NULL THEN
+      INSERT INTO organizations (name) VALUES ('My Company') RETURNING id INTO bootstrap_org_id;
+    END IF;
+    UPDATE locations SET org_id = bootstrap_org_id WHERE org_id IS NULL;
+    UPDATE vendors SET org_id = bootstrap_org_id WHERE org_id IS NULL;
+    UPDATE assets SET org_id = bootstrap_org_id WHERE org_id IS NULL;
+    UPDATE invoices SET org_id = bootstrap_org_id WHERE org_id IS NULL;
+    UPDATE recurring_charges SET org_id = bootstrap_org_id WHERE org_id IS NULL;
+    UPDATE budgets SET org_id = bootstrap_org_id WHERE org_id IS NULL;
+    UPDATE alert_rules SET org_id = bootstrap_org_id WHERE org_id IS NULL;
+    UPDATE alert_events SET org_id = bootstrap_org_id WHERE org_id IS NULL;
+    UPDATE fraud_flags SET org_id = bootstrap_org_id WHERE org_id IS NULL;
+    UPDATE agent_conversations SET org_id = bootstrap_org_id WHERE org_id IS NULL;
+  END IF;
+END $$;
+
+ALTER TABLE locations ALTER COLUMN org_id SET NOT NULL;
+ALTER TABLE vendors ALTER COLUMN org_id SET NOT NULL;
+ALTER TABLE assets ALTER COLUMN org_id SET NOT NULL;
+ALTER TABLE invoices ALTER COLUMN org_id SET NOT NULL;
+ALTER TABLE recurring_charges ALTER COLUMN org_id SET NOT NULL;
+ALTER TABLE budgets ALTER COLUMN org_id SET NOT NULL;
+ALTER TABLE alert_rules ALTER COLUMN org_id SET NOT NULL;
+ALTER TABLE alert_events ALTER COLUMN org_id SET NOT NULL;
+ALTER TABLE fraud_flags ALTER COLUMN org_id SET NOT NULL;
+ALTER TABLE agent_conversations ALTER COLUMN org_id SET NOT NULL;
+
+CREATE INDEX IF NOT EXISTS locations_org_idx ON locations (org_id, region, name);
+CREATE INDEX IF NOT EXISTS vendors_org_idx ON vendors (org_id, name);
+CREATE INDEX IF NOT EXISTS assets_org_idx ON assets (org_id);
+CREATE INDEX IF NOT EXISTS invoices_org_idx ON invoices (org_id, invoice_date DESC);
+CREATE INDEX IF NOT EXISTS recurring_charges_org_idx ON recurring_charges (org_id);
+CREATE INDEX IF NOT EXISTS budgets_org_idx ON budgets (org_id);
+CREATE INDEX IF NOT EXISTS alert_rules_org_idx ON alert_rules (org_id);
+CREATE INDEX IF NOT EXISTS alert_events_org_idx ON alert_events (org_id, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS fraud_flags_org_idx ON fraud_flags (org_id, status, opened_at DESC);
+CREATE INDEX IF NOT EXISTS agent_conversations_org_idx ON agent_conversations (org_id, created_at DESC);
+
+-- What used to be global-uniqueness constraints become per-org ones.
+ALTER TABLE locations DROP CONSTRAINT IF EXISTS locations_name_key;
+CREATE UNIQUE INDEX IF NOT EXISTS locations_org_name_key ON locations (org_id, lower(name));
+
+ALTER TABLE vendors DROP CONSTRAINT IF EXISTS vendors_name_key;
+CREATE UNIQUE INDEX IF NOT EXISTS vendors_org_name_key ON vendors (org_id, lower(name));
+ALTER TABLE vendors DROP CONSTRAINT IF EXISTS vendors_slug_key;
+CREATE UNIQUE INDEX IF NOT EXISTS vendors_org_slug_key ON vendors (org_id, slug);
+
+ALTER TABLE assets DROP CONSTRAINT IF EXISTS assets_identifier_key;
+CREATE UNIQUE INDEX IF NOT EXISTS assets_org_identifier_key ON assets (org_id, identifier);
+
+ALTER TABLE budgets DROP CONSTRAINT IF EXISTS budgets_label_key;
+CREATE UNIQUE INDEX IF NOT EXISTS budgets_org_label_key ON budgets (org_id, lower(label));
+
+ALTER TABLE alert_rules DROP CONSTRAINT IF EXISTS alert_rules_label_key;
+CREATE UNIQUE INDEX IF NOT EXISTS alert_rules_org_label_key ON alert_rules (org_id, lower(label));
+
+-- Whether the owner has set a real company name yet — false on every
+-- freshly-created org (see lib/auth.ts's resolvePersonForLogin), which sends
+-- them to /onboarding on their first sign-in instead of straight to the
+-- dashboard. Backfilled true here so an org that already existed before this
+-- column was added is never unexpectedly interrupted.
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS onboarded boolean NOT NULL DEFAULT true;
+ALTER TABLE organizations ALTER COLUMN onboarded DROP DEFAULT;
+ALTER TABLE organizations ALTER COLUMN onboarded SET DEFAULT false;
+
+/* ── Scheduled AI tasks ───────────────────────────────────────
+   A recurring automation: on its schedule, a worker (lib/scheduled-tasks-worker.ts)
+   gathers a snapshot of the org's real business data, sends it plus `prompt` to
+   the org's default LLM provider, and records the result as a run — never
+   sends anything to a customer or changes any data on its own.
+*/
+CREATE TABLE IF NOT EXISTS scheduled_tasks (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id       uuid NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+  name         text NOT NULL,
+  description  text NOT NULL DEFAULT '',
+  icon         text NOT NULL DEFAULT 'bot',
+  prompt       text NOT NULL,
+  frequency    text NOT NULL CHECK (frequency IN ('daily', 'weekdays', 'weekly')),
+  run_time     time NOT NULL DEFAULT '08:00',
+  -- Only meaningful (and required) for frequency = 'weekly': 0 = Sunday .. 6 = Saturday.
+  run_weekday  integer CHECK (run_weekday BETWEEN 0 AND 6),
+  is_enabled   boolean NOT NULL DEFAULT true,
+  last_run_at  timestamptz,
+  next_run_at  timestamptz NOT NULL,
+  created_by   uuid REFERENCES people (id) ON DELETE SET NULL,
+  created_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS scheduled_tasks_org_idx ON scheduled_tasks (org_id, created_at DESC);
+-- What the scheduler tick (lib/scheduled-tasks-worker.ts) polls every few minutes.
+CREATE INDEX IF NOT EXISTS scheduled_tasks_due_idx ON scheduled_tasks (next_run_at) WHERE is_enabled;
+
+CREATE TABLE IF NOT EXISTS scheduled_task_runs (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  task_id     uuid NOT NULL REFERENCES scheduled_tasks (id) ON DELETE CASCADE,
+  status      text NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'completed', 'failed')),
+  output      text,
+  error       text,
+  started_at  timestamptz NOT NULL DEFAULT now(),
+  finished_at timestamptz
+);
+CREATE INDEX IF NOT EXISTS scheduled_task_runs_task_idx ON scheduled_task_runs (task_id, started_at DESC);
+
+/* ── Platform LLM providers (admin-only) ─────────────────────
+   Same shape as `llm_providers`, but with no `org_id` — configured at
+   /admin by whoever's email is in ADMIN_EMAILS (see lib/admin.ts), and used
+   as the fallback default for any org that hasn't configured (or enabled)
+   its own provider. An org's own provider always wins when it has one —
+   see `defaultLlmProvider` in lib/llm-providers.ts.
+*/
+CREATE TABLE IF NOT EXISTS platform_llm_providers (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name              text NOT NULL,
+  base_url          text NOT NULL,
+  model             text,
+  api_key_cipher    text,
+  is_default        boolean NOT NULL DEFAULT false,
+  is_enabled        boolean NOT NULL DEFAULT true,
+  status            text NOT NULL DEFAULT 'unverified'
+                      CHECK (status IN ('unverified', 'connected', 'error', 'disabled')),
+  status_detail     text,
+  available_models  jsonb NOT NULL DEFAULT '[]',
+  last_checked_at   timestamptz,
+  created_by        uuid REFERENCES people (id) ON DELETE SET NULL,
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  updated_at        timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS platform_llm_providers_name_key ON platform_llm_providers (lower(name));
+CREATE UNIQUE INDEX IF NOT EXISTS platform_llm_providers_one_default
+  ON platform_llm_providers ((is_default)) WHERE is_default;
+
+DROP TRIGGER IF EXISTS trg_platform_llm_providers_updated_at ON platform_llm_providers;
+CREATE TRIGGER trg_platform_llm_providers_updated_at BEFORE UPDATE ON platform_llm_providers
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- What a new org's owner picks at /onboarding (see lib/project-types.ts's
+-- COMPANY_TYPES) — for reference only, since seeding project_types already
+-- happened by the time this is read back. Nullable since an org created
+-- before this existed has none recorded. (`projects`/`project_types` and the
+-- rest of the former "jobs" naming live in the Customers & projects section
+-- above — this used to be a separate rename migration, folded in once every
+-- environment had run it.)
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS company_type text;
+
+/* ── Executive Assistant chat attachments ─────────────────────
+   An image or document a user attached in the assistant chat (see
+   lib/assistant.ts, lib/document-extract.ts). Bytes live on disk under
+   UPLOADS_DIR (lib/storage.ts) like project photos/files do — this row is
+   the pointer, streamed back through /api/assistant/attachments/[id],
+   gated by the message's own conversation/org check.
+*/
+CREATE TABLE IF NOT EXISTS agent_message_attachments (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  message_id   uuid NOT NULL REFERENCES agent_messages (id) ON DELETE CASCADE,
+  file_path    text NOT NULL,
+  file_name    text NOT NULL,
+  content_type text NOT NULL,
+  sort_order   integer NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS agent_message_attachments_message_idx
+  ON agent_message_attachments (message_id, sort_order);
+
+-- Archiving a conversation hides it from the switcher's default list without
+-- deleting anything — see lib/assistant.ts's archiveConversation/listConversations.
+ALTER TABLE agent_conversations ADD COLUMN IF NOT EXISTS archived_at timestamptz;
+
+-- A third per-org LLM assignment, alongside "default" and "email analyzer":
+-- which provider the Executive Assistant chat uses (lib/assistant.ts's
+-- chatLlmProvider) — falls back to the org's default when unset, same
+-- one-statement "at most one" pattern as the other two assignments.
+ALTER TABLE llm_providers ADD COLUMN IF NOT EXISTS is_chat_provider boolean NOT NULL DEFAULT false;
+CREATE UNIQUE INDEX IF NOT EXISTS llm_providers_one_chat_provider_per_org
+  ON llm_providers (org_id) WHERE is_chat_provider;
+
+-- A provider's own `model` is its general-purpose default; email analysis and
+-- chat can each pin a different model from that same provider (e.g. a
+-- cheaper one for email triage, a stronger one for chat) — null means "use
+-- the provider's own default model" for that feature.
+ALTER TABLE llm_providers ADD COLUMN IF NOT EXISTS email_model text;
+ALTER TABLE llm_providers ADD COLUMN IF NOT EXISTS chat_model text;

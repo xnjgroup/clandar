@@ -13,6 +13,7 @@ import {
   type Column,
 } from "@/components/ui";
 import { count, firstParam, money0, pageInfo, pageParam, pagerHrefs } from "@/lib/data";
+import { requireSession } from "@/lib/auth";
 import { listLocations, locationStats } from "@/lib/queries";
 
 const PAGE_SIZE = 12;
@@ -29,10 +30,11 @@ export default async function LocationsPage({ searchParams }: PageProps<"/locati
   const params = await searchParams;
   const search = firstParam(params.q);
   const page = pageParam(params.page);
+  const { org } = await requireSession();
 
   const [stats, { rows, total }] = await Promise.all([
-    locationStats(),
-    listLocations({ search, page, size: PAGE_SIZE }),
+    locationStats(org.id),
+    listLocations(org.id, { search, page, size: PAGE_SIZE }),
   ]);
 
   const info = pageInfo(total, page, PAGE_SIZE);

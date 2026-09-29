@@ -1,0 +1,119 @@
+import { NextResponse } from "next/server";
+import { requireSession } from "@/lib/auth";
+import { askAssistant, getConversation, listConversations, setConversationArchived } from "@/lib/assistant";
+import { extractDocumentText } from "@/lib/document-extract";
+
+/**
+ * The floating assistant panel's data, fetched client-side so it works from
+ * any page without a dedicated /messages route:
+ *   GET  ?conversationId=<id>     → that conversation's turns
+ *   GET  ?archived=true           → archived conversations, for the switcher's "Archived" view
+ *   GET  (no query)               → the non-archived conversation list, for the switcher
+ *   POST  { conversationId?, question, attachments?, pageContext? } → asks
+ *     the assistant (creating a conversation first if conversationId is
+ *     omitted) and streams back newline-delimited JSON events as they
+ *     happen — {type:"tool_call"}, {type:"reply_delta"} (a slice of the
+ *     reply's text, for a word-by-word chat), {type:"error"}, and a final
+ *     {type:"conversation", conversation} with the authoritative saved
+ *     turns. Image attachments go to the vision model as-is; everything else
+ *     (markdown, PDF, Word, Excel, PowerPoint) is text-extracted server-side
+ *     first (lib/document-extract.ts).
+ *   PATCH { conversationId, archived } → archives/unarchives a conversation
+ *     without deleting it.
+ */
+export async function GET(request: Request) {
+  const { org } = await requireSession();
+  const params = new URL(request.url).searchParams;
+  const conversationId = params.get("conversationId");
+
+  if (conversationId) {
+    const conversation = await getConversation(conversationId, org.id);
+    if (!conversation) return NextResponse.json({ error: "Conversation not found" }, { status: 404 });
+    return NextResponse.json({ conversation });
+  }
+
+  const archived = params.get("archived") === "true";
+  const conversations = await listConversations(org.id, { includeArchived: archived });
+  return NextResponse.json({ conversations: archived ? conversations.filter((c) => c.archived) : conversations });
+}
+
+export async function PATCH(request: Request) {
+  const { org } = await requireSession();
+  const body = (await request.json()) as { conversationId?: string; archived?: boolean };
+  if (!body.conversationId || typeof body.archived !== "boolean") {
+    return NextResponse.json({ error: "conversationId and archived are required." }, { status: 400 });
+  }
+  await setConversationArchived(body.conversationId, org.id, body.archived);
+  return NextResponse.json({ ok: true });
+}
+
+type Attachment = { name: string; mimeType: string; dataUrl: string };
+
+function decodeDataUrl(dataUrl: string): Buffer {
+  const base64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
+  return Buffer.from(base64, "base64");
+}
+
+export async function POST(request: Request) {
+  const { org, person } = await requireSession();
+  const body = (await request.json()) as {
+    conversationId?: string;
+    question?: string;
+    attachments?: Attachment[];
+    pageContext?: string;
+  };
+  const question = body.question?.trim();
+  if (!question) return NextResponse.json({ error: "Type a question first." }, { status: 400 });
+
+  const attachments = body.attachments ?? [];
+  const images = attachments.filter((a) => a.mimeType.startsWith("image/")).map((a) => a.dataUrl);
+  const documents = attachments.filter((a) => !a.mimeType.startsWith("image/"));
+
+  let extraContext = "";
+  if (documents.length > 0) {
+    const extracted = await Promise.all(
+      documents.map((doc) => extractDocumentText(doc.name, doc.mimeType, decodeDataUrl(doc.dataUrl))),
+    );
+    const blocks = extracted.map((doc) =>
+      "text" in doc
+        ? `--- Attached: ${doc.name} ---\n${doc.text}`
+        : `--- Attached: ${doc.name} (could not read: ${doc.error}) ---`,
+    );
+    extraContext = blocks.join("\n\n");
+  }
+
+  const events = askAssistant(
+    org.id,
+    person.id,
+    body.conversationId ?? null,
+    question,
+    extraContext,
+    images,
+    attachments,
+    body.pageContext ?? null,
+  );
+
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const write = (data: unknown) => controller.enqueue(encoder.encode(`${JSON.stringify(data)}\n`));
+      try {
+        for await (const event of events) {
+          write(event);
+          if (event.type === "done") {
+            const conversation = await getConversation(event.conversationId, org.id);
+            write({ type: "conversation", conversation });
+          }
+        }
+      } catch (error) {
+        write({ type: "error", message: error instanceof Error ? error.message : "Something went wrong." });
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: { "content-type": "application/x-ndjson", "cache-control": "no-store" },
+  });
+}

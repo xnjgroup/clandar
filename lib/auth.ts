@@ -18,6 +18,8 @@ import { cache } from "react";
 import { SignJWT, jwtVerify } from "jose";
 import { query, queryOne, transaction } from "@/lib/db";
 import { googleCredentials } from "@/lib/connectors";
+import { seedProjectTypes } from "@/lib/project-types";
+import { deleteUpload } from "@/lib/storage";
 
 const SESSION_COOKIE = "clandar_session";
 const STATE_COOKIE = "clandar_oauth_state";
@@ -91,14 +93,14 @@ export async function signOut(): Promise<void> {
 export async function signOutAction() {
   "use server";
   await signOut();
-  redirect("/login");
+  redirect("/");
 }
 
 /* ── Session lookup (the DAL) ─────────────────────────────────────────── */
 
 export type SessionInfo = {
   person: { id: string; name: string; email: string; role: string; avatarUrl: string | null };
-  org: { id: string; name: string };
+  org: { id: string; name: string; onboarded: boolean };
 };
 
 type SessionRow = {
@@ -109,6 +111,7 @@ type SessionRow = {
   avatar_url: string | null;
   org_id: string;
   org_name: string;
+  org_onboarded: boolean;
 };
 
 /**
@@ -127,7 +130,7 @@ export const currentSession = cache(async (): Promise<SessionInfo | null> => {
 
   const row = await queryOne<SessionRow>(
     `SELECT p.id AS person_id, p.name, p.email, p.role, p.avatar_url,
-            o.id AS org_id, o.name AS org_name
+            o.id AS org_id, o.name AS org_name, o.onboarded AS org_onboarded
        FROM sessions s
        JOIN people p ON p.id = s.person_id
        JOIN organizations o ON o.id = p.org_id
@@ -144,7 +147,7 @@ export const currentSession = cache(async (): Promise<SessionInfo | null> => {
       role: row.role,
       avatarUrl: row.avatar_url,
     },
-    org: { id: row.org_id, name: row.org_name },
+    org: { id: row.org_id, name: row.org_name, onboarded: row.org_onboarded },
   };
 });
 
@@ -218,8 +221,31 @@ type GoogleProfile = {
 };
 
 /** The label a brand-new org gets when nobody named it yet — from the signer's email domain, e.g. "acme.com" → "Acme". */
+/** Free/personal email providers — the domain says nothing about the business, so guessing a name from it would be actively wrong (e.g. "Gmail"). */
+const PERSONAL_EMAIL_DOMAINS = new Set([
+  "gmail.com",
+  "googlemail.com",
+  "yahoo.com",
+  "ymail.com",
+  "outlook.com",
+  "hotmail.com",
+  "live.com",
+  "msn.com",
+  "icloud.com",
+  "me.com",
+  "mac.com",
+  "aol.com",
+  "protonmail.com",
+  "proton.me",
+  "gmx.com",
+  "yandex.com",
+  "mail.com",
+]);
+
+/** A starting guess for a brand-new org's name — the /onboarding form's pre-filled value, not the final name. */
 function orgNameFromEmail(email: string): string {
-  const domain = email.split("@")[1] ?? "";
+  const domain = (email.split("@")[1] ?? "").toLowerCase();
+  if (!domain || PERSONAL_EMAIL_DOMAINS.has(domain)) return "My Company";
   const label = domain.split(".")[0] || "My Company";
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
@@ -389,4 +415,38 @@ export async function updateTeammateRole(orgId: string, personId: string, role: 
 
 export async function removeTeammate(orgId: string, personId: string): Promise<void> {
   await query(`DELETE FROM people WHERE id = $1 AND org_id = $2 AND role != 'owner'`, [personId, orgId]);
+}
+
+/** Renames the organization itself — shown in the sidebar and Settings, e.g. replacing the auto-generated "My Company"/email-domain default. */
+export async function updateOrgName(orgId: string, name: string): Promise<void> {
+  await query(`UPDATE organizations SET name = $2 WHERE id = $1`, [orgId, name]);
+}
+
+/** The one-time first-sign-in step: names the org and clears the flag that sends its owner to /onboarding. */
+export async function completeOnboarding(orgId: string, name: string, companyType: string): Promise<void> {
+  await query(`UPDATE organizations SET name = $2, company_type = $3, onboarded = true WHERE id = $1`, [
+    orgId,
+    name,
+    companyType,
+  ]);
+  await seedProjectTypes(orgId, companyType);
+}
+
+/**
+ * Permanently deletes an org and everything in it — every table with an
+ * `org_id` column cascades from the `organizations` row (see db/schema.sql),
+ * so the only thing that needs doing by hand first is the actual bytes on
+ * disk for project photos/files, which live outside Postgres (lib/storage.ts)
+ * and would otherwise be orphaned forever. Irreversible; callers must confirm
+ * with the owner before calling this.
+ */
+export async function deleteOrganization(orgId: string): Promise<void> {
+  const paths = await query<{ file_path: string }>(
+    `SELECT pp.file_path FROM project_photos pp JOIN projects j ON j.id = pp.project_id WHERE j.org_id = $1
+     UNION ALL
+     SELECT pf.file_path FROM project_files pf JOIN projects j ON j.id = pf.project_id WHERE j.org_id = $1`,
+    [orgId],
+  );
+  await query(`DELETE FROM organizations WHERE id = $1`, [orgId]);
+  await Promise.all(paths.map((p) => deleteUpload(p.file_path)));
 }

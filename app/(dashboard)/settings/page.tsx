@@ -13,14 +13,18 @@ import { relativeTime, type Tone } from "@/lib/data";
 import { listLlmProviders, type ProviderStatus } from "@/lib/llm-providers";
 import { listPendingInvites, listTeam, requireSession } from "@/lib/auth";
 import { AddLlmForm } from "./add-llm-form";
+import { DeleteCompanyForm } from "./delete-company-form";
 import { InviteForm } from "./invite-form";
+import { RenameOrgForm } from "./rename-org-form";
+import { FeatureProviderForm } from "./feature-provider-form";
 import {
   cancelInvite,
   changeTeammateRole,
   makeDefaultProvider,
-  makeEmailAnalyzer,
   removeLlmProvider,
   removeTeammateAction,
+  selectChatProvider,
+  selectEmailProvider,
   setLlmModel,
   testLlmProvider,
   toggleLlmProvider,
@@ -58,6 +62,15 @@ export default async function SettingsPage() {
 
   return (
     <PageBody>
+      <Card className="flex flex-col gap-[13px]">
+        <CardTitle>Company</CardTitle>
+        {isOwner ? (
+          <RenameOrgForm currentName={org.name} />
+        ) : (
+          <span className="text-[12.5px] text-body-soft">{org.name}</span>
+        )}
+      </Card>
+
       <Card>
         <AddLlmForm hasAny={providers.length > 0} />
       </Card>
@@ -97,6 +110,11 @@ export default async function SettingsPage() {
                     email analyzer
                   </span>
                 ) : null}
+                {p.isChatProvider ? (
+                  <span className="shrink-0 rounded-full bg-ok-bg px-2 py-[2px] font-mono text-[9.5px] text-ok-fg">
+                    chat
+                  </span>
+                ) : null}
               </span>
               <span className="truncate text-[11px] text-muted">
                 <span className="font-mono">{p.baseUrl}</span>
@@ -133,19 +151,6 @@ export default async function SettingsPage() {
                     className="rounded-full border border-line px-3 py-[6px] text-[11.5px] font-medium enabled:cursor-pointer disabled:opacity-40"
                   >
                     Make default
-                  </button>
-                </form>
-              )}
-              {p.isEmailAnalyzer ? null : (
-                <form action={makeEmailAnalyzer}>
-                  <input type="hidden" name="id" value={p.id} />
-                  <button
-                    type="submit"
-                    disabled={!p.enabled || !p.model}
-                    title={!p.model ? "Test the connection first so a model is selected" : undefined}
-                    className="rounded-full border border-line px-3 py-[6px] text-[11.5px] font-medium enabled:cursor-pointer disabled:opacity-40"
-                  >
-                    Use for email analysis
                   </button>
                 </form>
               )}
@@ -202,9 +207,39 @@ export default async function SettingsPage() {
         ))}
       </TableCard>
 
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+        <Card className="flex flex-col gap-[10px]">
+          <CardTitle>Email</CardTitle>
+          <p className="m-0 text-[11.5px] leading-[1.55] text-muted">
+            The provider (and, optionally, a specific model of its own) the Gmail cleanup worker uses to judge and
+            summarize messages.
+          </p>
+          <FeatureProviderForm
+            action={selectEmailProvider}
+            providers={providers.map((p) => ({ id: p.id, name: p.name, availableModels: p.availableModels }))}
+            initialProviderId={providers.find((p) => p.isEmailAnalyzer)?.id ?? ""}
+            initialModel={providers.find((p) => p.isEmailAnalyzer)?.emailModel ?? ""}
+          />
+        </Card>
+
+        <Card className="flex flex-col gap-[10px]">
+          <CardTitle>Chat</CardTitle>
+          <p className="m-0 text-[11.5px] leading-[1.55] text-muted">
+            The provider (and, optionally, a specific model of its own) the Executive Assistant chat uses to answer
+            questions and run its tools.
+          </p>
+          <FeatureProviderForm
+            action={selectChatProvider}
+            providers={providers.map((p) => ({ id: p.id, name: p.name, availableModels: p.availableModels }))}
+            initialProviderId={providers.find((p) => p.isChatProvider)?.id ?? ""}
+            initialModel={providers.find((p) => p.isChatProvider)?.chatModel ?? ""}
+          />
+        </Card>
+      </div>
+
       <Card className="flex flex-col gap-[13px]">
         <div className="flex flex-wrap items-center gap-[10px]">
-          <CardTitle>Team — {org.name}</CardTitle>
+          <CardTitle>Team</CardTitle>
           <span className="text-[11.5px] text-muted">
             Invite crew or office staff by email; they join by signing in with that Google account.
           </span>
@@ -295,6 +330,13 @@ export default async function SettingsPage() {
           </div>
         ))}
       </TableCard>
+
+      {isOwner ? (
+        <Card className="flex flex-col gap-[13px]">
+          <CardTitle>Danger zone</CardTitle>
+          <DeleteCompanyForm orgName={org.name} />
+        </Card>
+      ) : null}
     </PageBody>
   );
 }

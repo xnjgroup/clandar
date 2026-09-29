@@ -2,6 +2,10 @@
  * Every read the pages make. Each function returns a shape the UI can render
  * directly; no page talks to `pg` itself.
  *
+ * Every function here (except `categoryNames`, a shared reference taxonomy)
+ * takes `orgId` and filters by it — these are org-scoped tables, and this is
+ * the only place that reads them.
+ *
  * `date` columns are cast to text so they arrive as plain `YYYY-MM-DD` strings
  * instead of Dates in the server's timezone. `numeric` columns come back as
  * strings from node-postgres and are converted with `num()`.
@@ -11,14 +15,16 @@ import { num, query, queryOne } from "@/lib/db";
 import type { InvoiceStatus } from "@/lib/data";
 
 /** Counts the sidebar badges show, kept small because every page renders it. */
-export const navCounts = cache(async () => {
+export const navCounts = cache(async (orgId: string) => {
   const row = await queryOne<{ fraud: string; approvals: string }>(
-    `SELECT (SELECT count(*) FROM fraud_flags WHERE status IN ('open', 'investigating')) AS fraud,
-            (SELECT count(*) FROM invoices WHERE status IN ('pending_review', 'flagged')) AS approvals`,
+    `SELECT (SELECT count(*) FROM fraud_flags WHERE org_id = $1 AND status IN ('open', 'investigating')) AS fraud,
+            (SELECT count(*) FROM invoices WHERE org_id = $1 AND status IN ('pending_review', 'flagged')) AS approvals`,
+    [orgId],
   );
   return { "/fraud": num(row?.fraud), "/approvals": num(row?.approvals) } as Record<string, number>;
 });
 
+/** Shared across every org — a fixed taxonomy, not business data. */
 export const categoryNames = cache(async () => {
   const rows = await query<{ name: string }>(
     `SELECT name FROM categories ORDER BY sort_order, name`,
@@ -40,30 +46,32 @@ export type OverviewStats = {
   recurringVendors: number;
 };
 
-export async function overviewStats(): Promise<OverviewStats> {
+export async function overviewStats(orgId: string): Promise<OverviewStats> {
   const row = await queryOne<Record<string, string>>(
     `WITH this_month AS (
        SELECT coalesce(sum(amount), 0) AS total, count(*) AS invoices
          FROM invoices
-        WHERE invoice_date >= date_trunc('month', current_date)
+        WHERE org_id = $1
+          AND invoice_date >= date_trunc('month', current_date)
           AND status <> 'rejected'
      ),
      last_month AS (
        SELECT coalesce(sum(amount), 0) AS total
          FROM invoices
-        WHERE invoice_date >= date_trunc('month', current_date) - interval '1 month'
+        WHERE org_id = $1
+          AND invoice_date >= date_trunc('month', current_date) - interval '1 month'
           AND invoice_date <  date_trunc('month', current_date)
           AND status <> 'rejected'
      ),
      pending AS (
        SELECT coalesce(sum(amount), 0) AS total, count(*) AS invoices
-         FROM invoices WHERE status IN ('pending_review', 'flagged')
+         FROM invoices WHERE org_id = $1 AND status IN ('pending_review', 'flagged')
      ),
-     flagged AS (SELECT count(*) AS invoices FROM invoices WHERE status = 'flagged'),
-     fraud AS (SELECT count(*) AS open FROM fraud_flags WHERE status = 'open'),
+     flagged AS (SELECT count(*) AS invoices FROM invoices WHERE org_id = $1 AND status = 'flagged'),
+     fraud AS (SELECT count(*) AS open FROM fraud_flags WHERE org_id = $1 AND status = 'open'),
      recurring AS (
        SELECT coalesce(sum(amount), 0) AS total, count(DISTINCT vendor_id) AS vendors
-         FROM recurring_charges
+         FROM recurring_charges WHERE org_id = $1
      )
      SELECT this_month.total     AS month_total,
             this_month.invoices  AS month_invoices,
@@ -75,6 +83,7 @@ export async function overviewStats(): Promise<OverviewStats> {
             recurring.total      AS recurring_total,
             recurring.vendors    AS recurring_vendors
        FROM this_month, last_month, pending, flagged, fraud, recurring`,
+    [orgId],
   );
 
   return {
@@ -92,16 +101,18 @@ export async function overviewStats(): Promise<OverviewStats> {
 
 export type CategorySlice = { name: string; total: number };
 
-export async function spendByCategory(): Promise<CategorySlice[]> {
+export async function spendByCategory(orgId: string): Promise<CategorySlice[]> {
   const rows = await query<{ name: string; total: string }>(
     `SELECT c.name, coalesce(sum(i.amount), 0) AS total
        FROM categories c
        LEFT JOIN invoices i
               ON i.category = c.name
+             AND i.org_id = $1
              AND i.invoice_date >= date_trunc('month', current_date)
              AND i.status <> 'rejected'
       GROUP BY c.name, c.sort_order
       ORDER BY c.sort_order`,
+    [orgId],
   );
   return rows.map((r) => ({ name: r.name, total: num(r.total) }));
 }
@@ -115,7 +126,7 @@ export type AttentionItem = {
 };
 
 /** Open risk flags first, then whatever is sitting in the review and approval queues. */
-export async function needsAttention(): Promise<AttentionItem[]> {
+export async function needsAttention(orgId: string): Promise<AttentionItem[]> {
   const items: AttentionItem[] = [];
 
   const risks = await query<{
@@ -131,9 +142,10 @@ export async function needsAttention(): Promise<AttentionItem[]> {
        FROM fraud_flags f
        LEFT JOIN invoices i ON i.id = f.invoice_id
        LEFT JOIN vendors v ON v.id = i.vendor_id
-      WHERE f.status IN ('open', 'investigating')
+      WHERE f.org_id = $1 AND f.status IN ('open', 'investigating')
       ORDER BY CASE f.severity WHEN 'high' THEN 0 WHEN 'med' THEN 1 ELSE 2 END, f.opened_at DESC
       LIMIT 2`,
+    [orgId],
   );
 
   for (const risk of risks) {
@@ -150,9 +162,10 @@ export async function needsAttention(): Promise<AttentionItem[]> {
     `SELECT count(*) AS invoices,
             min(i.ocr_confidence) AS confidence,
             (SELECT v.name FROM invoices j JOIN vendors v ON v.id = j.vendor_id
-              WHERE j.status = 'pending_review'
+              WHERE j.org_id = $1 AND j.status = 'pending_review'
               ORDER BY j.ocr_confidence NULLS LAST LIMIT 1) AS vendor
-       FROM invoices i WHERE i.status = 'pending_review'`,
+       FROM invoices i WHERE i.org_id = $1 AND i.status = 'pending_review'`,
+    [orgId],
   );
 
   if (num(review?.invoices) > 0) {
@@ -172,7 +185,8 @@ export async function needsAttention(): Promise<AttentionItem[]> {
   const approvals = await queryOne<{ invoices: string; total: string; oldest_days: string | null }>(
     `SELECT count(*) AS invoices, coalesce(sum(amount), 0) AS total,
             max(current_date - invoice_date) AS oldest_days
-       FROM invoices WHERE status IN ('pending_review', 'flagged')`,
+       FROM invoices WHERE org_id = $1 AND status IN ('pending_review', 'flagged')`,
+    [orgId],
   );
 
   if (num(approvals?.invoices) > 0) {
@@ -189,10 +203,15 @@ export async function needsAttention(): Promise<AttentionItem[]> {
   return items.slice(0, 3);
 }
 
-/** The newest thing the expense agent said, for the overview teaser. */
-export async function latestAgentLine() {
+/** The newest thing the assistant said, for the overview teaser. */
+export async function latestAgentLine(orgId: string) {
   const row = await queryOne<{ body: string }>(
-    `SELECT body FROM agent_messages WHERE role = 'assistant' ORDER BY created_at DESC LIMIT 1`,
+    `SELECT m.body
+       FROM agent_messages m
+       JOIN agent_conversations c ON c.id = m.conversation_id
+      WHERE c.org_id = $1 AND m.role = 'assistant'
+      ORDER BY m.created_at DESC LIMIT 1`,
+    [orgId],
   );
   return row?.body ?? null;
 }
@@ -220,12 +239,10 @@ const TAB_STATUSES: Record<InvoiceStatusTab, InvoiceStatus[] | null> = {
   Approved: ["approved"],
 };
 
-export async function listInvoices(options: {
-  tab: InvoiceStatusTab;
-  search: string;
-  page: number;
-  size: number;
-}): Promise<{ rows: InvoiceListRow[]; total: number }> {
+export async function listInvoices(
+  orgId: string,
+  options: { tab: InvoiceStatusTab; search: string; page: number; size: number },
+): Promise<{ rows: InvoiceListRow[]; total: number }> {
   const statuses = TAB_STATUSES[options.tab];
   const rows = await query<{
     id: string;
@@ -242,14 +259,15 @@ export async function listInvoices(options: {
             i.amount, i.status, i.page_count, count(*) OVER () AS total
        FROM invoices i
        JOIN vendors v ON v.id = i.vendor_id
-      WHERE ($1::text[] IS NULL OR i.status = ANY ($1))
-        AND ($2 = '' OR v.name ILIKE '%' || $2 || '%'
-                     OR i.account_number ILIKE '%' || $2 || '%'
-                     OR i.category ILIKE '%' || $2 || '%'
-                     OR i.amount::text LIKE $2 || '%')
+      WHERE i.org_id = $1
+        AND ($2::text[] IS NULL OR i.status = ANY ($2))
+        AND ($3 = '' OR v.name ILIKE '%' || $3 || '%'
+                     OR i.account_number ILIKE '%' || $3 || '%'
+                     OR i.category ILIKE '%' || $3 || '%'
+                     OR i.amount::text LIKE $3 || '%')
       ORDER BY i.invoice_date DESC, i.created_at DESC
-      LIMIT $3 OFFSET $4`,
-    [statuses, options.search, options.size, options.page * options.size],
+      LIMIT $4 OFFSET $5`,
+    [orgId, statuses, options.search, options.size, options.page * options.size],
   );
 
   return {
@@ -267,7 +285,7 @@ export async function listInvoices(options: {
   };
 }
 
-export async function recentInvoices(limit = 5): Promise<InvoiceListRow[]> {
+export async function recentInvoices(orgId: string, limit = 5): Promise<InvoiceListRow[]> {
   const rows = await query<{
     id: string;
     vendor: string;
@@ -282,9 +300,10 @@ export async function recentInvoices(limit = 5): Promise<InvoiceListRow[]> {
             i.amount, i.status, i.page_count
        FROM invoices i
        JOIN vendors v ON v.id = i.vendor_id
+      WHERE i.org_id = $1
       ORDER BY i.invoice_date DESC, i.created_at DESC
-      LIMIT $1`,
-    [limit],
+      LIMIT $2`,
+    [orgId, limit],
   );
   return rows.map((r) => ({
     id: r.id,
@@ -331,7 +350,7 @@ export type InvoiceDetail = {
  * The invoice behind `/invoices/<vendor-slug>`. `id` pins a specific document;
  * without it the vendor's most recent invoice is shown.
  */
-export async function invoiceDetail(slug: string, id?: string): Promise<InvoiceDetail | null> {
+export async function invoiceDetail(orgId: string, slug: string, id?: string): Promise<InvoiceDetail | null> {
   const invoice = await queryOne<{
     id: string;
     vendor: string;
@@ -363,10 +382,10 @@ export async function invoiceDetail(slug: string, id?: string): Promise<InvoiceD
        JOIN vendors v ON v.id = i.vendor_id
        LEFT JOIN locations l ON l.id = i.location_id
        LEFT JOIN people p ON p.id = i.approver_id
-      WHERE v.slug = $1 AND ($2::uuid IS NULL OR i.id = $2::uuid)
+      WHERE i.org_id = $1 AND v.slug = $2 AND ($3::uuid IS NULL OR i.id = $3::uuid)
       ORDER BY i.invoice_date DESC
       LIMIT 1`,
-    [slug, id ?? null],
+    [orgId, slug, id ?? null],
   );
   if (!invoice) return null;
 
@@ -438,7 +457,7 @@ export type VendorSpendRow = {
   lastMonth: number;
 };
 
-export async function vendorSpend(): Promise<VendorSpendRow[]> {
+export async function vendorSpend(orgId: string): Promise<VendorSpendRow[]> {
   const rows = await query<{
     vendor: string;
     category: string;
@@ -456,9 +475,11 @@ export async function vendorSpend(): Promise<VendorSpendRow[]> {
               ON i.vendor_id = v.id
              AND i.status <> 'rejected'
              AND i.invoice_date >= date_trunc('month', current_date) - interval '1 month'
+      WHERE v.org_id = $1
       GROUP BY v.name, v.category
      HAVING coalesce(sum(i.amount), 0) > 0
       ORDER BY this_month DESC, v.name`,
+    [orgId],
   );
   return rows.map((r) => ({
     vendor: r.vendor,
@@ -475,7 +496,7 @@ export type CategorySpendRow = {
   lastMonth: number;
 };
 
-export async function categorySpend(): Promise<CategorySpendRow[]> {
+export async function categorySpend(orgId: string): Promise<CategorySpendRow[]> {
   const rows = await query<{
     category: string;
     vendors: string;
@@ -490,10 +511,12 @@ export async function categorySpend(): Promise<CategorySpendRow[]> {
               WHERE i.invoice_date >= date_trunc('month', current_date) - interval '1 month'
                 AND i.invoice_date <  date_trunc('month', current_date)), 0) AS last_month
        FROM invoices i
-      WHERE i.status <> 'rejected'
+      WHERE i.org_id = $1
+        AND i.status <> 'rejected'
         AND i.invoice_date >= date_trunc('month', current_date) - interval '1 month'
       GROUP BY i.category
       ORDER BY this_month DESC`,
+    [orgId],
   );
   return rows.map((r) => ({
     category: r.category,
@@ -505,16 +528,17 @@ export async function categorySpend(): Promise<CategorySpendRow[]> {
 
 export type MonthSpendRow = { month: string; total: number; invoices: number };
 
-export async function monthlySpend(months = 6): Promise<MonthSpendRow[]> {
+export async function monthlySpend(orgId: string, months = 6): Promise<MonthSpendRow[]> {
   const rows = await query<{ month: string; total: string; invoices: string }>(
     `SELECT to_char(date_trunc('month', invoice_date), 'Mon YYYY') AS month,
             sum(amount) AS total, count(*) AS invoices
        FROM invoices
-      WHERE status <> 'rejected'
-        AND invoice_date >= date_trunc('month', current_date) - make_interval(months => $1::int - 1)
+      WHERE org_id = $1
+        AND status <> 'rejected'
+        AND invoice_date >= date_trunc('month', current_date) - make_interval(months => $2::int - 1)
       GROUP BY date_trunc('month', invoice_date)
       ORDER BY date_trunc('month', invoice_date)`,
-    [months],
+    [orgId, months],
   );
   return rows.map((r) => ({ month: r.month, total: num(r.total), invoices: num(r.invoices) }));
 }
@@ -530,7 +554,7 @@ export type RecurringStats = {
   avgIncreasePct: number;
 };
 
-export async function recurringStats(): Promise<RecurringStats> {
+export async function recurringStats(orgId: string): Promise<RecurringStats> {
   const row = await queryOne<Record<string, string | null>>(
     `WITH totals AS (
        SELECT count(*) AS subscriptions,
@@ -538,17 +562,17 @@ export async function recurringStats(): Promise<RecurringStats> {
               count(*) FILTER (WHERE next_due <= current_date + interval '7 days') AS due_soon,
               coalesce(sum(amount) FILTER (
                 WHERE next_due <= current_date + interval '7 days'), 0) AS due_soon_total
-         FROM recurring_charges
+         FROM recurring_charges WHERE org_id = $1
      ),
      paired AS (
        SELECT (SELECT i.amount FROM invoices i
-                WHERE i.vendor_id = r.vendor_id AND i.status <> 'rejected'
+                WHERE i.vendor_id = r.vendor_id AND i.org_id = $1 AND i.status <> 'rejected'
                 ORDER BY i.invoice_date DESC LIMIT 1) AS latest,
               (SELECT i.amount FROM invoices i
-                WHERE i.vendor_id = r.vendor_id AND i.status <> 'rejected'
+                WHERE i.vendor_id = r.vendor_id AND i.org_id = $1 AND i.status <> 'rejected'
                   AND i.invoice_date < date_trunc('year', current_date)
                 ORDER BY i.invoice_date DESC LIMIT 1) AS prior
-         FROM recurring_charges r
+         FROM recurring_charges r WHERE r.org_id = $1
      ),
      movement AS (
        SELECT count(*) AS increases,
@@ -557,6 +581,7 @@ export async function recurringStats(): Promise<RecurringStats> {
         WHERE prior IS NOT NULL AND prior > 0 AND latest > prior * 1.01
      )
      SELECT * FROM totals, movement`,
+    [orgId],
   );
   return {
     subscriptions: num(row?.subscriptions),
@@ -577,7 +602,7 @@ export type RecurringCharge = {
   rising: boolean;
 };
 
-export async function recurringCharges(): Promise<RecurringCharge[]> {
+export async function recurringCharges(orgId: string): Promise<RecurringCharge[]> {
   const rows = await query<{
     vendor: string;
     category: string;
@@ -589,7 +614,9 @@ export async function recurringCharges(): Promise<RecurringCharge[]> {
     `SELECT v.name AS vendor, r.category, r.amount, r.cadence, r.next_due::text, r.is_rising
        FROM recurring_charges r
        JOIN vendors v ON v.id = r.vendor_id
+      WHERE r.org_id = $1
       ORDER BY r.amount DESC`,
+    [orgId],
   );
   return rows.map((r) => ({
     vendor: r.vendor,
@@ -611,7 +638,7 @@ export type FraudStats = {
   avgResolveDays: number | null;
 };
 
-export async function fraudStats(): Promise<FraudStats> {
+export async function fraudStats(orgId: string): Promise<FraudStats> {
   const row = await queryOne<Record<string, string | null>>(
     `SELECT count(*) FILTER (WHERE status = 'open') AS open_count,
             count(*) FILTER (WHERE status = 'open' AND severity = 'high') AS high_count,
@@ -620,7 +647,8 @@ export async function fraudStats(): Promise<FraudStats> {
             avg(extract(epoch FROM (resolved_at - opened_at)) / 86400) FILTER (
               WHERE resolved_at IS NOT NULL
                 AND opened_at >= current_date - interval '90 days') AS avg_resolve_days
-       FROM fraud_flags`,
+       FROM fraud_flags WHERE org_id = $1`,
+    [orgId],
   );
   return {
     openCount: num(row?.open_count),
@@ -641,7 +669,7 @@ export type FraudFlag = {
   invoiceId: string | null;
 };
 
-export async function openFraudFlags(): Promise<FraudFlag[]> {
+export async function openFraudFlags(orgId: string): Promise<FraudFlag[]> {
   const rows = await query<{
     id: string;
     title: string;
@@ -655,8 +683,9 @@ export async function openFraudFlags(): Promise<FraudFlag[]> {
        FROM fraud_flags f
        LEFT JOIN invoices i ON i.id = f.invoice_id
        LEFT JOIN vendors v ON v.id = i.vendor_id
-      WHERE f.status IN ('open', 'investigating')
+      WHERE f.org_id = $1 AND f.status IN ('open', 'investigating')
       ORDER BY CASE f.severity WHEN 'high' THEN 0 WHEN 'med' THEN 1 ELSE 2 END, f.opened_at DESC`,
+    [orgId],
   );
   return rows.map((r) => ({
     id: r.id,
@@ -691,7 +720,7 @@ export type ApprovalRow = {
   flags: number;
 };
 
-export async function listApprovals(tab: ApprovalTab, limit = 40): Promise<ApprovalRow[]> {
+export async function listApprovals(orgId: string, tab: ApprovalTab, limit = 40): Promise<ApprovalRow[]> {
   const rows = await query<{
     id: string;
     vendor: string;
@@ -708,10 +737,10 @@ export async function listApprovals(tab: ApprovalTab, limit = 40): Promise<Appro
               WHERE f.invoice_id = i.id AND f.cleared_at IS NULL) AS flags
        FROM invoices i
        JOIN vendors v ON v.id = i.vendor_id
-      WHERE i.status = ANY ($1)
+      WHERE i.org_id = $1 AND i.status = ANY ($2)
       ORDER BY i.invoice_date DESC
-      LIMIT $2`,
-    [APPROVAL_STATUSES[tab], limit],
+      LIMIT $3`,
+    [orgId, APPROVAL_STATUSES[tab], limit],
   );
   return rows.map((r) => ({
     id: r.id,
@@ -729,17 +758,20 @@ export async function listApprovals(tab: ApprovalTab, limit = 40): Promise<Appro
 
 export type BudgetRow = { label: string; category: string | null; used: number; cap: number };
 
-export async function budgetUsage(): Promise<BudgetRow[]> {
+export async function budgetUsage(orgId: string): Promise<BudgetRow[]> {
   const rows = await query<{ label: string; category: string | null; used: string; cap: string }>(
     `SELECT b.label, b.category, b.monthly_cap AS cap,
             coalesce(sum(i.amount), 0) AS used
        FROM budgets b
        LEFT JOIN invoices i
               ON i.category = b.category
+             AND i.org_id = $1
              AND i.status <> 'rejected'
              AND i.invoice_date >= date_trunc('month', current_date)
+      WHERE b.org_id = $1
       GROUP BY b.id, b.label, b.category, b.monthly_cap, b.sort_order
       ORDER BY b.sort_order`,
+    [orgId],
   );
   return rows.map((r) => ({
     label: r.label,
@@ -757,7 +789,7 @@ export type AlertRule = {
   paused: boolean;
 };
 
-export async function alertRules(): Promise<AlertRule[]> {
+export async function alertRules(orgId: string): Promise<AlertRule[]> {
   const rows = await query<{
     id: string;
     label: string;
@@ -767,7 +799,8 @@ export async function alertRules(): Promise<AlertRule[]> {
     is_paused: boolean;
   }>(
     `SELECT id, label, threshold_kind, threshold_value, channels, is_paused
-       FROM alert_rules ORDER BY is_paused, created_at`,
+       FROM alert_rules WHERE org_id = $1 ORDER BY is_paused, created_at`,
+    [orgId],
   );
   return rows.map((r) => ({
     id: r.id,
@@ -783,11 +816,12 @@ export async function alertRules(): Promise<AlertRule[]> {
 
 export type AlertEvent = { id: string; message: string; icon: string; at: Date };
 
-export async function alertEvents(limit = 3): Promise<AlertEvent[]> {
+export async function alertEvents(orgId: string, limit = 3): Promise<AlertEvent[]> {
   const rows = await query<{ id: string; message: string; icon: string; occurred_at: Date }>(
     `SELECT id, message, icon, occurred_at FROM alert_events
-      ORDER BY occurred_at DESC LIMIT $1`,
-    [limit],
+      WHERE org_id = $1
+      ORDER BY occurred_at DESC LIMIT $2`,
+    [orgId, limit],
   );
   return rows.map((r) => ({ id: r.id, message: r.message, icon: r.icon, at: r.occurred_at }));
 }
@@ -803,7 +837,7 @@ export type VendorDirectoryRow = {
   invoices: number;
 };
 
-export async function vendorDirectory(): Promise<VendorDirectoryRow[]> {
+export async function vendorDirectory(orgId: string): Promise<VendorDirectoryRow[]> {
   const rows = await query<{
     vendor: string;
     slug: string;
@@ -818,8 +852,10 @@ export async function vendorDirectory(): Promise<VendorDirectoryRow[]> {
             count(i.id) AS invoices
        FROM vendors v
        LEFT JOIN invoices i ON i.vendor_id = v.id AND i.status <> 'rejected'
+      WHERE v.org_id = $1
       GROUP BY v.id, v.name, v.slug, v.category, v.customer_since
       ORDER BY monthly_avg DESC, v.name`,
+    [orgId],
   );
   return rows.map((r) => ({
     vendor: r.vendor,
@@ -852,14 +888,15 @@ export type AssetStats = {
   regions: number;
 };
 
-export async function assetStats(): Promise<AssetStats> {
+export async function assetStats(orgId: string): Promise<AssetStats> {
   const row = await queryOne<Record<string, string>>(
     `SELECT count(*) AS total,
             coalesce(sum(monthly_cost), 0) AS monthly_cost,
             count(*) FILTER (WHERE is_idle) AS idle,
-            (SELECT count(*) FROM locations) AS locations,
-            (SELECT count(DISTINCT region) FROM locations) AS regions
-       FROM assets`,
+            (SELECT count(*) FROM locations WHERE org_id = $1) AS locations,
+            (SELECT count(DISTINCT region) FROM locations WHERE org_id = $1) AS regions
+       FROM assets WHERE org_id = $1`,
+    [orgId],
   );
   return {
     total: num(row?.total),
@@ -870,9 +907,10 @@ export async function assetStats(): Promise<AssetStats> {
   };
 }
 
-export const assetRegions = cache(async () => {
+export const assetRegions = cache(async (orgId: string) => {
   const rows = await query<{ region: string }>(
-    `SELECT DISTINCT region FROM locations ORDER BY region`,
+    `SELECT DISTINCT region FROM locations WHERE org_id = $1 ORDER BY region`,
+    [orgId],
   );
   return ["All regions", ...rows.map((r) => r.region)];
 });
@@ -887,13 +925,10 @@ export type AssetRow = {
   idle: boolean;
 };
 
-export async function listAssets(options: {
-  type: AssetTypeTab;
-  region: string;
-  search: string;
-  page: number;
-  size: number;
-}): Promise<{ rows: AssetRow[]; total: number }> {
+export async function listAssets(
+  orgId: string,
+  options: { type: AssetTypeTab; region: string; search: string; page: number; size: number },
+): Promise<{ rows: AssetRow[]; total: number }> {
   const rows = await query<{
     label: string;
     identifier: string;
@@ -909,15 +944,17 @@ export async function listAssets(options: {
        FROM assets a
        JOIN vendors v ON v.id = a.vendor_id
        LEFT JOIN locations l ON l.id = a.location_id
-      WHERE ($1::text IS NULL OR a.kind = $1)
-        AND ($2::text IS NULL OR l.region = $2)
-        AND ($3 = '' OR a.label ILIKE '%' || $3 || '%'
-                     OR a.identifier ILIKE '%' || $3 || '%'
-                     OR v.name ILIKE '%' || $3 || '%'
-                     OR l.name ILIKE '%' || $3 || '%')
+      WHERE a.org_id = $1
+        AND ($2::text IS NULL OR a.kind = $2)
+        AND ($3::text IS NULL OR l.region = $3)
+        AND ($4 = '' OR a.label ILIKE '%' || $4 || '%'
+                     OR a.identifier ILIKE '%' || $4 || '%'
+                     OR v.name ILIKE '%' || $4 || '%'
+                     OR l.name ILIKE '%' || $4 || '%')
       ORDER BY a.kind, a.identifier
-      LIMIT $4 OFFSET $5`,
+      LIMIT $5 OFFSET $6`,
     [
+      orgId,
       TAB_TO_KIND[options.type],
       options.region === "All regions" ? null : options.region,
       options.search,
@@ -949,19 +986,21 @@ export type LocationStats = {
   monthlyCost: number;
 };
 
-export async function locationStats(): Promise<LocationStats> {
+export async function locationStats(orgId: string): Promise<LocationStats> {
   const row = await queryOne<Record<string, string>>(
     `WITH per_location AS (
        SELECT l.id, count(a.id) AS assets, coalesce(sum(a.monthly_cost), 0) AS cost
          FROM locations l LEFT JOIN assets a ON a.location_id = l.id
+        WHERE l.org_id = $1
         GROUP BY l.id
      )
      SELECT count(*) AS total,
-            (SELECT count(DISTINCT region) FROM locations) AS regions,
+            (SELECT count(DISTINCT region) FROM locations WHERE org_id = $1) AS regions,
             coalesce(round(avg(assets)), 0) AS avg_assets,
             coalesce(percentile_cont(0.5) WITHIN GROUP (ORDER BY assets), 0) AS median_assets,
             coalesce(sum(cost), 0) AS monthly_cost
        FROM per_location`,
+    [orgId],
   );
   return {
     total: num(row?.total),
@@ -980,11 +1019,10 @@ export type LocationRow = {
   cost: number;
 };
 
-export async function listLocations(options: {
-  search: string;
-  page: number;
-  size: number;
-}): Promise<{ rows: LocationRow[]; total: number }> {
+export async function listLocations(
+  orgId: string,
+  options: { search: string; page: number; size: number },
+): Promise<{ rows: LocationRow[]; total: number }> {
   const rows = await query<{
     name: string;
     region: string;
@@ -998,13 +1036,14 @@ export async function listLocations(options: {
             count(*) OVER () AS total
        FROM locations l
        LEFT JOIN assets a ON a.location_id = l.id
-      WHERE ($1 = '' OR l.name ILIKE '%' || $1 || '%'
-                     OR l.region ILIKE '%' || $1 || '%'
-                     OR l.address ILIKE '%' || $1 || '%')
+      WHERE l.org_id = $1
+        AND ($2 = '' OR l.name ILIKE '%' || $2 || '%'
+                     OR l.region ILIKE '%' || $2 || '%'
+                     OR l.address ILIKE '%' || $2 || '%')
       GROUP BY l.id, l.name, l.region, l.address
       ORDER BY length(l.name), l.name
-      LIMIT $2 OFFSET $3`,
-    [options.search, options.size, options.page * options.size],
+      LIMIT $3 OFFSET $4`,
+    [orgId, options.search, options.size, options.page * options.size],
   );
   return {
     total: rows.length > 0 ? num(rows[0].total) : 0,
@@ -1018,56 +1057,16 @@ export async function listLocations(options: {
   };
 }
 
-/* ── Expense agent ────────────────────────────────────────── */
-
-export type AgentTurn = {
-  id: string;
-  role: "user" | "assistant";
-  body: string;
-  toolCalls: { tool: string; detail: string }[];
-};
-
-export async function latestConversation(): Promise<{ title: string; turns: AgentTurn[] } | null> {
-  const conversation = await queryOne<{ id: string; title: string }>(
-    `SELECT id, title FROM agent_conversations ORDER BY created_at DESC LIMIT 1`,
-  );
-  if (!conversation) return null;
-
-  const messages = await query<{ id: string; role: "user" | "assistant"; body: string }>(
-    `SELECT id, role, body FROM agent_messages WHERE conversation_id = $1 ORDER BY created_at`,
-    [conversation.id],
-  );
-  const calls = await query<{ message_id: string; tool: string; detail: string }>(
-    `SELECT c.message_id, c.tool, c.detail
-       FROM agent_tool_calls c
-       JOIN agent_messages m ON m.id = c.message_id
-      WHERE m.conversation_id = $1
-      ORDER BY c.sort_order`,
-    [conversation.id],
-  );
-
-  return {
-    title: conversation.title,
-    turns: messages.map((m) => ({
-      id: m.id,
-      role: m.role,
-      body: m.body,
-      toolCalls: calls.filter((c) => c.message_id === m.id).map((c) => ({ tool: c.tool, detail: c.detail })),
-    })),
-  };
-}
-
 export type TrendSeries = { categories: string[]; series: { name: string; data: number[] }[] };
 
 /**
  * Monthly spend for the biggest vendors in the given categories — what the
- * expense agent's utilities answer is looking at.
+ * assistant's utilities answer is looking at.
  */
-export async function vendorTrend(options: {
-  categories: string[];
-  months?: number;
-  limit?: number;
-}): Promise<TrendSeries> {
+export async function vendorTrend(
+  orgId: string,
+  options: { categories: string[]; months?: number; limit?: number },
+): Promise<TrendSeries> {
   const months = options.months ?? 4;
   const limit = options.limit ?? 3;
 
@@ -1075,13 +1074,14 @@ export async function vendorTrend(options: {
     `WITH recent AS (
        SELECT i.vendor_id, i.invoice_date, i.amount
          FROM invoices i
-        WHERE i.status <> 'rejected'
-          AND i.category = ANY ($1)
-          AND i.invoice_date >= date_trunc('month', current_date) - make_interval(months => $2::int - 1)
+        WHERE i.org_id = $1
+          AND i.status <> 'rejected'
+          AND i.category = ANY ($2)
+          AND i.invoice_date >= date_trunc('month', current_date) - make_interval(months => $3::int - 1)
      ),
      top_vendors AS (
        SELECT vendor_id FROM recent
-        GROUP BY vendor_id ORDER BY sum(amount) DESC LIMIT $3
+        GROUP BY vendor_id ORDER BY sum(amount) DESC LIMIT $4
      )
      SELECT to_char(date_trunc('month', w.invoice_date), 'Mon') AS month,
             to_char(date_trunc('month', w.invoice_date), 'YYYY-MM') AS sort,
@@ -1092,7 +1092,7 @@ export async function vendorTrend(options: {
        JOIN vendors v ON v.id = w.vendor_id
       GROUP BY 1, 2, 3
       ORDER BY 2`,
-    [options.categories, months, limit],
+    [orgId, options.categories, months, limit],
   );
 
   const categories = [...new Set(rows.map((r) => r.month))];
