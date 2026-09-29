@@ -189,9 +189,11 @@ const TOOLS: { name: string; description: string; parameters: string }[] = [
   { name: "list_tasks", description: "List this org's open tasks.", parameters: "{}" },
   {
     name: "create_task",
-    description: "Create a to-do, shopping-list item, or permit reminder.",
+    description:
+      "Create a to-do (with optional checklist steps), a shopping list (with optional items), or a reminder.",
     parameters:
-      '{"title": "string, required", "kind": "optional: todo|shopping|permit, default todo", ' +
+      '{"title": "string, required", "kind": "optional: todo|shopping|reminder, default todo", ' +
+      '"notes": "optional", "items": "optional array of strings — checklist steps or shopping items", ' +
       '"dueDate": "optional YYYY-MM-DD", "projectTitle": "optional, matched case-insensitively"}',
   },
   {
@@ -349,9 +351,11 @@ async function runToolUnsafe(
         projectId,
         kind,
         title: title2,
+        notes: str(args.notes),
         dueDate: str(args.dueDate) || null,
         assignedTo: null,
         createdBy: personId,
+        items: Array.isArray(args.items) ? args.items.filter((i): i is string => typeof i === "string") : [],
       });
       return { summary: `Created ${kind} task "${title2}".`, data: { id, title: title2 } };
     }
@@ -372,7 +376,14 @@ async function runToolUnsafe(
           await addProjectPhoto({ projectId, fileName: a.fileName, contentType: a.contentType, bytes, uploadedBy: personId });
           photoCount++;
         } else {
-          await addProjectFile({ projectId, fileName: a.fileName, contentType: a.contentType, bytes, uploadedBy: personId });
+          await addProjectFile({
+            projectId,
+            folderId: null,
+            fileName: a.fileName,
+            contentType: a.contentType,
+            bytes,
+            uploadedBy: personId,
+          });
           fileCount++;
         }
       }

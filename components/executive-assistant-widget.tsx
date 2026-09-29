@@ -273,6 +273,7 @@ export function ExecutiveAssistantWidget({
     }
   }
 
+  // Floats bottom-right; the app shell pads the bottom of every page so content can scroll clear of it.
   if (!open) {
     return (
       <button

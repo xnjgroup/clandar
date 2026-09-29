@@ -295,7 +295,9 @@ export function AppShell({
       />
 
       <div className="flex min-w-0">
-        <main className="flex min-w-0 flex-1 flex-col gap-[14px] px-[14px] pt-4 pb-24 lg:gap-4 lg:px-[26px] lg:pt-[22px] lg:pb-10">
+        {/* Bottom padding lets the last row scroll clear of the floating assistant button
+            (components/executive-assistant-widget.tsx): 86px + 52px up on mobile, 24px + 52px on desktop. */}
+        <main className="flex min-w-0 flex-1 flex-col gap-[14px] px-[14px] pt-4 pb-[156px] lg:gap-4 lg:px-[26px] lg:pt-[22px] lg:pb-[96px]">
           <header className="flex min-w-0 items-center gap-[14px]">
             <button
               type="button"

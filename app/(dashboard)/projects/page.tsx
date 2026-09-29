@@ -3,7 +3,7 @@ import { Icon, iconName } from "@/components/icons";
 import { EmptyRow, IconTile, PageBody, Pill, TableCard, TableHeader, TableTitle } from "@/components/ui";
 import { count, firstParam, hrefWith, relativeTime, type Tone } from "@/lib/data";
 import { requireSession } from "@/lib/auth";
-import { PROJECT_STATUSES, projectCountsByStatus, listProjects, type ProjectStatus } from "@/lib/projects";
+import { PROJECT_STATUSES, describeDue, projectCountsByStatus, listProjects, type ProjectStatus } from "@/lib/projects";
 
 const STATUS_TONE: Record<ProjectStatus, Tone> = {
   lead: "idle",
@@ -15,6 +15,36 @@ const STATUS_TONE: Record<ProjectStatus, Tone> = {
 };
 
 const PATH = "/projects";
+
+function DueLine({ dueDate, status }: { dueDate: string | null; status: ProjectStatus }) {
+  const due = describeDue(dueDate, status);
+  if (!due) return null;
+  return (
+    <span className={`truncate text-[11px] ${due.overdue ? "font-medium text-bad-fg" : "text-faint"}`}>{due.label}</span>
+  );
+}
+
+/** Share of the project's tasks marked done — a bar plus the percentage; "No tasks" when there's nothing to measure. */
+function TaskProgress({ done, total }: { done: number; total: number }) {
+  if (total === 0) {
+    return <span className="w-[120px] shrink-0 text-right text-[11px] text-faint">No tasks</span>;
+  }
+  const pct = Math.round((done / total) * 100);
+  return (
+    <span
+      className="flex w-[120px] shrink-0 items-center gap-[8px]"
+      title={`${done} of ${total} task${total === 1 ? "" : "s"} done`}
+    >
+      <span className="h-[6px] flex-1 overflow-hidden rounded-full bg-line-soft">
+        <span
+          className={`block h-full rounded-full ${pct === 100 ? "bg-ok-fg" : "bg-ink"}`}
+          style={{ width: `${pct}%` }}
+        />
+      </span>
+      <span className="w-[34px] text-right font-mono text-[11px] font-semibold">{pct}%</span>
+    </span>
+  );
+}
 
 export default async function ProjectsPage({ searchParams }: PageProps<"/projects">) {
   const params = await searchParams;
@@ -98,6 +128,7 @@ export default async function ProjectsPage({ searchParams }: PageProps<"/project
                   {project.projectTypeName ? ` · ${project.projectTypeName}` : ""}
                 </span>
                 {project.address ? <span className="truncate text-[11px] text-faint">{project.address}</span> : null}
+                <DueLine dueDate={project.dueDate} status={project.status} />
               </div>
               {project.assignedName ? (
                 <span className="hidden shrink-0 items-center gap-[6px] rounded-full border border-line px-[10px] py-[5px] text-[11px] text-body-soft sm:flex">
@@ -105,6 +136,7 @@ export default async function ProjectsPage({ searchParams }: PageProps<"/project
                   {project.assignedName}
                 </span>
               ) : null}
+              <TaskProgress done={project.tasksDone} total={project.taskCount} />
               <Pill tone={STATUS_TONE[project.status]}>
                 {PROJECT_STATUSES.find((s) => s.id === project.status)?.label ?? project.status}
               </Pill>

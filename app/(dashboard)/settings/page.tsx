@@ -215,6 +215,7 @@ export default async function SettingsPage() {
             summarize messages.
           </p>
           <FeatureProviderForm
+            key={`${providers.find((p) => p.isEmailAnalyzer)?.id ?? ""}:${providers.find((p) => p.isEmailAnalyzer)?.emailModel ?? ""}`}
             action={selectEmailProvider}
             providers={providers.map((p) => ({ id: p.id, name: p.name, availableModels: p.availableModels }))}
             initialProviderId={providers.find((p) => p.isEmailAnalyzer)?.id ?? ""}
@@ -229,6 +230,7 @@ export default async function SettingsPage() {
             questions and run its tools.
           </p>
           <FeatureProviderForm
+            key={`${providers.find((p) => p.isChatProvider)?.id ?? ""}:${providers.find((p) => p.isChatProvider)?.chatModel ?? ""}`}
             action={selectChatProvider}
             providers={providers.map((p) => ({ id: p.id, name: p.name, availableModels: p.availableModels }))}
             initialProviderId={providers.find((p) => p.isChatProvider)?.id ?? ""}

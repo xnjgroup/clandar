@@ -101,7 +101,7 @@ const FEATURES: { icon: IconName; title: string; body: string; preview: ReactNod
   {
     icon: "clipboard",
     title: "Task management",
-    body: "To-dos, shopping lists, and permit reminders — nothing falls through the cracks.",
+    body: "To-dos, shopping lists, and reminders — nothing falls through the cracks.",
     preview: (
       <MiniScreen>
         <div className="flex items-center gap-[8px] rounded-[10px] bg-surface px-[9px] py-[7px]">

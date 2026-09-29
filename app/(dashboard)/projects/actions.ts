@@ -33,6 +33,7 @@ export async function addProject(_prev: FormState, form: FormData): Promise<Form
     projectTypeId: field(form, "projectTypeId") || null,
     address: field(form, "address"),
     notes: field(form, "notes"),
+    dueDate: field(form, "dueDate") || null,
     createdBy: session.person.id,
   });
 
@@ -48,6 +49,7 @@ export async function saveProject(form: FormData) {
     projectTypeId: field(form, "projectTypeId") || null,
     address: field(form, "address"),
     notes: field(form, "notes"),
+    dueDate: field(form, "dueDate") || null,
   });
   revalidatePath(`/projects/${id}`);
   revalidatePath("/projects");

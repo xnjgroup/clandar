@@ -551,6 +551,8 @@ CREATE TABLE IF NOT EXISTS projects (
 );
 CREATE INDEX IF NOT EXISTS jobs_org_idx ON projects (org_id, status, created_at DESC);
 CREATE INDEX IF NOT EXISTS jobs_customer_idx ON projects (customer_id);
+-- When the project should be finished; optional. Shown on the project page and list.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS due_date date;
 DROP TRIGGER IF EXISTS trg_jobs_updated_at ON projects;
 CREATE TRIGGER trg_jobs_updated_at BEFORE UPDATE ON projects
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
@@ -584,6 +586,37 @@ CREATE TABLE IF NOT EXISTS project_files (
   created_at   timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS job_files_job_idx ON project_files (project_id, created_at);
+
+-- Folders a project's files are organized into — nestable via `parent_id`
+-- (NULL = top level). A file with no `folder_id` sits at the top level.
+-- Only an empty folder can be deleted (the app enforces that), so the
+-- CASCADE / SET NULL below are just a backstop.
+CREATE TABLE IF NOT EXISTS project_folders (
+  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id uuid NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+  parent_id  uuid REFERENCES project_folders (id) ON DELETE CASCADE,
+  name       text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+-- One name per level; the sentinel uuid stands in for NULL (top level) so the
+-- uniqueness still applies there.
+CREATE UNIQUE INDEX IF NOT EXISTS project_folders_name_idx
+  ON project_folders (project_id, coalesce(parent_id, '00000000-0000-0000-0000-000000000000'::uuid), lower(name));
+ALTER TABLE project_files ADD COLUMN IF NOT EXISTS folder_id uuid REFERENCES project_folders (id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS project_files_folder_idx ON project_files (project_id, folder_id);
+-- Free-form labels ("permit", "signed", "receipt"), stored lowercased and
+-- deduplicated by the app; a tag filter spans every folder in the project.
+ALTER TABLE project_files ADD COLUMN IF NOT EXISTS tags text[] NOT NULL DEFAULT '{}';
+CREATE INDEX IF NOT EXISTS project_files_tags_idx ON project_files USING gin (tags);
+-- An uploaded invoice/receipt gets read by the LLM into an invoice record
+-- (lib/document-ingest.ts); `parse_status` tracks that (NULL = never parsed,
+-- which is every 'general' file) and `invoice_id` points at the result.
+ALTER TABLE project_files ADD COLUMN IF NOT EXISTS doc_type text NOT NULL DEFAULT 'general'
+  CHECK (doc_type IN ('general', 'invoice', 'receipt'));
+ALTER TABLE project_files ADD COLUMN IF NOT EXISTS parse_status text
+  CHECK (parse_status IN ('pending', 'done', 'failed'));
+ALTER TABLE project_files ADD COLUMN IF NOT EXISTS parse_error text;
+ALTER TABLE project_files ADD COLUMN IF NOT EXISTS invoice_id uuid REFERENCES invoices (id) ON DELETE SET NULL;
 
 -- Invoices can optionally be tied back to the project they were spent on, for
 -- the project record's "track invoices" view. Nullable — the personal-expense
@@ -651,7 +684,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id      uuid NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
   project_id  uuid REFERENCES projects (id) ON DELETE CASCADE,
-  kind        text NOT NULL DEFAULT 'todo' CHECK (kind IN ('todo', 'shopping', 'permit')),
+  kind        text NOT NULL DEFAULT 'todo' CHECK (kind IN ('todo', 'shopping', 'reminder')),
   title       text NOT NULL,
   due_date    date,
   assigned_to uuid REFERENCES people (id) ON DELETE SET NULL,
@@ -662,6 +695,35 @@ CREATE TABLE IF NOT EXISTS tasks (
 );
 CREATE INDEX IF NOT EXISTS tasks_org_idx ON tasks (org_id, is_done, due_date);
 CREATE INDEX IF NOT EXISTS tasks_job_idx ON tasks (project_id);
+
+-- 'permit' was too trade-specific for a built-in kind; it's now the generic 'reminder'.
+ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_kind_check;
+UPDATE tasks SET kind = 'reminder' WHERE kind = 'permit';
+ALTER TABLE tasks ADD CONSTRAINT tasks_kind_check CHECK (kind IN ('todo', 'shopping', 'reminder'));
+
+-- Per-kind details. `notes` is shared; `store` only means something on a
+-- shopping list; `remind_time`/`repeat` only on a reminder (`due_date` is the
+-- day it fires, and marking a repeating one done rolls that date forward).
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS notes text NOT NULL DEFAULT '';
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS store text NOT NULL DEFAULT '';
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS remind_time time;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS repeat text NOT NULL DEFAULT 'none'
+  CHECK (repeat IN ('none', 'daily', 'weekly', 'monthly', 'yearly'));
+
+-- A to-do's checklist steps and a shopping list's items. `quantity`/`unit`
+-- are only filled in for shopping items.
+CREATE TABLE IF NOT EXISTS task_items (
+  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  task_id    uuid NOT NULL REFERENCES tasks (id) ON DELETE CASCADE,
+  label      text NOT NULL,
+  quantity   numeric(12, 2),
+  unit       text NOT NULL DEFAULT '',
+  is_done    boolean NOT NULL DEFAULT false,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS task_items_task_idx ON task_items (task_id, created_at);
+-- An optional reference link on a step/item (a product page, a how-to), http(s) only.
+ALTER TABLE task_items ADD COLUMN IF NOT EXISTS url text;
 
 /* ── Org-scoping the legacy expense-tracking tables ──────────
    These predate multi-tenancy and were left global — every org shared the

@@ -5,9 +5,9 @@ import { Card, CardTitle, EmptyRow, PageBody, Pill, TableCard, TableHeader, Tabl
 import { count, money, relativeTime, type Tone } from "@/lib/data";
 import { listTeam, requireSession } from "@/lib/auth";
 import { getConnector, listGmailConnectors, hasGmailModifyScope } from "@/lib/connectors";
-import { PROJECT_STATUSES, getProject, type ProjectStatus } from "@/lib/projects";
+import { PROJECT_STATUSES, describeDue, getProject, type ProjectStatus } from "@/lib/projects";
 import { listProjectTypes } from "@/lib/project-types";
-import { listProjectFiles, listProjectPhotos } from "@/lib/project-photos";
+import { listProjectPhotos } from "@/lib/project-photos";
 import { listEstimates } from "@/lib/quoting";
 import { listSchedule } from "@/lib/schedule";
 import { listTasks } from "@/lib/tasks";
@@ -17,12 +17,15 @@ import { ScheduleForm } from "../../schedule/schedule-form";
 import { removeScheduleEntry } from "../../schedule/actions";
 import { changeProjectAssignee, changeProjectStatus, removeProject, saveProject } from "../actions";
 import { EstimateBuilder } from "./estimate-builder";
-import { FileUploadForm } from "./file-upload-form";
 import { PhotoLightbox } from "./photo-lightbox";
-import { PhotoUploadForm } from "./photo-upload-form";
-import { removeEstimate, removeFile, removePhoto } from "./actions";
+import { FilesSection } from "./files-section";
+import { UploadForm } from "./upload-form";
+import { removeEstimate, removePhoto } from "./actions";
 import { AutoSubmitSelect } from "./auto-submit-select";
 import { SendEstimateForm } from "./send-estimate-form";
+
+// Server actions here can parse an invoice/receipt after responding (`after`) — give that room.
+export const maxDuration = 120;
 
 const STATUS_TONE: Record<ProjectStatus, Tone> = {
   lead: "idle",
@@ -36,28 +39,23 @@ const STATUS_TONE: Record<ProjectStatus, Tone> = {
 const inputClass =
   "w-full rounded-[12px] border border-line bg-surface px-3 py-[10px] text-[12.5px] text-ink outline-none placeholder:text-faint focus:border-[#9aa78a]";
 
-function fileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-export default async function ProjectDetailPage({ params }: PageProps<"/projects/[id]">) {
+export default async function ProjectDetailPage({ params, searchParams }: PageProps<"/projects/[id]">) {
   const { id } = await params;
+  const query = await searchParams;
   const { org } = await requireSession();
   const project = await getProject(id, org.id);
   if (!project) notFound();
+  const due = describeDue(project.dueDate, project.status);
 
   const yearAgo = new Date();
   yearAgo.setFullYear(yearAgo.getFullYear() - 1);
   const yearAhead = new Date();
   yearAhead.setFullYear(yearAhead.getFullYear() + 1);
 
-  const [team, projectTypes, photos, files, estimates, schedule, tasks, gmailConnectors] = await Promise.all([
+  const [team, projectTypes, photos, estimates, schedule, tasks, gmailConnectors] = await Promise.all([
     listTeam(org.id),
     listProjectTypes(org.id),
     listProjectPhotos(project.id),
-    listProjectFiles(project.id),
     listEstimates(project.id),
     listSchedule(org.id, { from: yearAgo, to: yearAhead }, { projectId: project.id }),
     listTasks(org.id, { projectId: project.id, includeDone: true }),
@@ -81,6 +79,14 @@ export default async function ProjectDetailPage({ params }: PageProps<"/projects
           <Link href={`/customers/${project.customerId}`} className="text-[12px] font-medium underline">
             {project.customerName}
           </Link>
+          {due ? (
+            <span
+              className={`flex items-center gap-[5px] text-[12px] font-medium ${due.overdue ? "text-bad-fg" : "text-body-soft"}`}
+            >
+              <Icon name="calendar" size={13} />
+              {due.label}
+            </span>
+          ) : null}
           <Link href="/projects" className="ml-auto text-[11.5px] font-medium underline">
             All projects
           </Link>
@@ -137,9 +143,13 @@ export default async function ProjectDetailPage({ params }: PageProps<"/projects
               ))}
             </select>
           </label>
-          <label className="flex flex-col gap-[5px] lg:col-span-2">
+          <label className="flex flex-col gap-[5px]">
             <span className="text-[11px] text-muted">Project site address</span>
             <input name="address" defaultValue={project.address} className={inputClass} />
+          </label>
+          <label className="flex flex-col gap-[5px]">
+            <span className="text-[11px] text-muted">Due date</span>
+            <input name="dueDate" type="date" defaultValue={project.dueDate ?? ""} className={inputClass} />
           </label>
           <label className="flex flex-col gap-[5px] lg:col-span-2">
             <span className="text-[11px] text-muted">Notes</span>
@@ -168,7 +178,7 @@ export default async function ProjectDetailPage({ params }: PageProps<"/projects
           <span className="ml-auto font-mono text-[10.5px] text-faint">{count(photos.length)} photo{photos.length === 1 ? "" : "s"}</span>
         </TableHeader>
         <div className="flex flex-col gap-[12px] border-t border-line-soft px-[18px] py-[14px]">
-          <PhotoUploadForm projectId={project.id} />
+          <UploadForm endpoint={`/api/projects/${project.id}/photos`} accept="image/*" />
           <PhotoLightbox
             projectId={project.id}
             removePhoto={removePhoto}
@@ -279,39 +289,7 @@ export default async function ProjectDetailPage({ params }: PageProps<"/projects
       </TableCard>
 
       {/* Project records: files */}
-      <TableCard>
-        <TableHeader>
-          <TableTitle>Files</TableTitle>
-        </TableHeader>
-        <div className="border-t border-line-soft px-[18px] py-[13px]">
-          <FileUploadForm projectId={project.id} />
-        </div>
-        {files.length === 0 ? (
-          <EmptyRow>No files yet — permits, contracts, receipts.</EmptyRow>
-        ) : (
-          files.map((file) => (
-            <div key={file.id} className="flex min-h-[52px] items-center gap-3 border-t border-line-soft px-[18px] py-[11px]">
-              <Icon name="doc" size={16} className="shrink-0 text-body-soft" />
-              <a
-                href={`/api/projects/${project.id}/files/${file.id}`}
-                target="_blank"
-                rel="noreferrer"
-                className="min-w-0 flex-1 truncate text-[12.5px] font-medium underline"
-              >
-                {file.fileName}
-              </a>
-              <span className="shrink-0 font-mono text-[11px] text-faint">{fileSize(file.sizeBytes)}</span>
-              <form action={removeFile}>
-                <input type="hidden" name="projectId" value={project.id} />
-                <input type="hidden" name="fileId" value={file.id} />
-                <button type="submit" aria-label="Remove" className="cursor-pointer text-faint hover:text-bad-fg">
-                  <Icon name="close" size={14} />
-                </button>
-              </form>
-            </div>
-          ))
-        )}
-      </TableCard>
+      <FilesSection projectId={project.id} params={query} />
     </PageBody>
   );
 }

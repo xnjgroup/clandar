@@ -3,7 +3,7 @@
  * scheduling, project records, tasks) hangs a record off. Scoped to one org.
  */
 import { query, queryOne } from "@/lib/db";
-import { PROJECT_STATUSES, type ProjectStatus } from "@/lib/data";
+import { PROJECT_STATUSES, shortDate, type ProjectStatus } from "@/lib/data";
 import { deleteUpload } from "@/lib/storage";
 
 // Re-exported so existing `from "@/lib/projects"` imports keep working — the
@@ -28,6 +28,11 @@ export type Project = {
   customerPhone: string | null;
   assignedTo: string | null;
   assignedName: string | null;
+  /** "YYYY-MM-DD", or null when no due date is set. */
+  dueDate: string | null;
+  /** The project's tasks, and how many are marked done — its progress. */
+  taskCount: number;
+  tasksDone: number;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -47,6 +52,9 @@ type ProjectRow = {
   customer_phone: string | null;
   assigned_to: string | null;
   assigned_name: string | null;
+  due_date: string | null;
+  task_count: number;
+  tasks_done: number;
   created_at: Date;
   updated_at: Date;
 };
@@ -67,15 +75,20 @@ function toProject(row: ProjectRow): Project {
     customerPhone: row.customer_phone,
     assignedTo: row.assigned_to,
     assignedName: row.assigned_name,
+    dueDate: row.due_date,
+    taskCount: row.task_count,
+    tasksDone: row.tasks_done,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
 const SELECT = `SELECT j.id, j.title, j.project_type_id, pt.name AS project_type_name, pt.icon AS project_type_icon,
-       j.address, j.status, j.notes, j.created_at, j.updated_at,
+       j.address, j.status, j.notes, j.due_date::text AS due_date, j.created_at, j.updated_at,
        c.id AS customer_id, c.name AS customer_name, c.email AS customer_email, c.phone AS customer_phone,
-       p.id AS assigned_to, p.name AS assigned_name
+       p.id AS assigned_to, p.name AS assigned_name,
+       (SELECT count(*)::int FROM tasks t WHERE t.project_id = j.id) AS task_count,
+       (SELECT count(*)::int FROM tasks t WHERE t.project_id = j.id AND t.is_done) AS tasks_done
   FROM projects j
   JOIN customers c ON c.id = j.customer_id
   LEFT JOIN people p ON p.id = j.assigned_to
@@ -128,11 +141,12 @@ export async function createProject(input: {
   projectTypeId: string | null;
   address: string;
   notes: string;
+  dueDate?: string | null;
   createdBy: string | null;
 }): Promise<string> {
   const row = await queryOne<{ id: string }>(
-    `INSERT INTO projects (org_id, customer_id, title, project_type_id, address, notes, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+    `INSERT INTO projects (org_id, customer_id, title, project_type_id, address, notes, due_date, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
     [
       input.orgId,
       input.customerId,
@@ -140,6 +154,7 @@ export async function createProject(input: {
       input.projectTypeId,
       input.address,
       input.notes,
+      input.dueDate ?? null,
       input.createdBy,
     ],
   );
@@ -149,12 +164,33 @@ export async function createProject(input: {
 export async function updateProject(
   id: string,
   orgId: string,
-  input: { title: string; projectTypeId: string | null; address: string; notes: string },
+  input: { title: string; projectTypeId: string | null; address: string; notes: string; dueDate: string | null },
 ): Promise<void> {
   await query(
-    `UPDATE projects SET title = $3, project_type_id = $4, address = $5, notes = $6 WHERE id = $1 AND org_id = $2`,
-    [id, orgId, input.title, input.projectTypeId, input.address, input.notes],
+    `UPDATE projects SET title = $3, project_type_id = $4, address = $5, notes = $6, due_date = $7
+      WHERE id = $1 AND org_id = $2`,
+    [id, orgId, input.title, input.projectTypeId, input.address, input.notes, input.dueDate],
   );
+}
+
+/**
+ * "Due Oct 12 · in 3 days" / "Due today" / "Overdue by 2 days" for a project's
+ * due date — never overdue once the project is completed or cancelled.
+ */
+export function describeDue(
+  dueDate: string | null,
+  status: ProjectStatus,
+): { label: string; overdue: boolean } | null {
+  if (!dueDate) return null;
+  const due = new Date(`${dueDate}T00:00:00`);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const days = Math.round((due.getTime() - today.getTime()) / 86_400_000);
+  const date = shortDate(dueDate);
+  if (status === "completed" || status === "cancelled") return { label: `Due ${date}`, overdue: false };
+  if (days < 0) return { label: `Overdue by ${-days} day${days === -1 ? "" : "s"} · ${date}`, overdue: true };
+  if (days === 0) return { label: `Due today · ${date}`, overdue: false };
+  return { label: `Due ${date} · in ${days} day${days === 1 ? "" : "s"}`, overdue: false };
 }
 
 export async function setProjectStatus(id: string, orgId: string, status: ProjectStatus): Promise<void> {

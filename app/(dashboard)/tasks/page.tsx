@@ -7,7 +7,7 @@ import { listTasks, type TaskKind } from "@/lib/tasks";
 import { AddTaskForm } from "./add-task-form";
 import { TaskList } from "./task-list";
 
-const KIND_LABEL: Record<TaskKind, string> = { todo: "To-do", shopping: "Shopping list", permit: "Permit reminders" };
+const KIND_LABEL: Record<TaskKind, string> = { todo: "To-do", shopping: "Shopping list", reminder: "Reminders" };
 
 export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
   const params = await searchParams;

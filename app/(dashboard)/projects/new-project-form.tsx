@@ -70,9 +70,13 @@ export function NewProjectForm({
           <span className="text-[11px] text-muted">Project title</span>
           <input name="title" required placeholder="Repaint living room & hallway" className={inputClass} />
         </label>
-        <label className="flex flex-col gap-[5px] lg:col-span-2">
+        <label className="flex flex-col gap-[5px]">
           <span className="text-[11px] text-muted">Project site address</span>
           <input name="address" placeholder="Defaults to the customer's address if left blank" className={inputClass} />
+        </label>
+        <label className="flex flex-col gap-[5px]">
+          <span className="text-[11px] text-muted">Due date</span>
+          <input name="dueDate" type="date" className={inputClass} />
         </label>
         <label className="flex flex-col gap-[5px] lg:col-span-2">
           <span className="text-[11px] text-muted">Notes</span>

@@ -2,10 +2,26 @@ import Link from "next/link";
 import { Icon } from "@/components/icons";
 import { EmptyRow } from "@/components/ui";
 import { relativeTime } from "@/lib/data";
+import { REPEATS } from "@/lib/task-kinds";
 import type { Task } from "@/lib/tasks";
 import { removeTask, toggleTask } from "./actions";
 
-const KIND_ICON = { todo: "check2", shopping: "briefcase", permit: "clipboard" } as const;
+const KIND_ICON = { todo: "check2", shopping: "briefcase", reminder: "clipboard" } as const;
+
+/** The one-line summary of whatever the task's kind adds — checklist progress, store, reminder timing. */
+function kindSummary(task: Task): string {
+  const parts: string[] = [];
+  if (task.itemCount > 0) {
+    parts.push(`${task.itemsDone}/${task.itemCount} ${task.kind === "shopping" ? "items" : "steps"}`);
+  }
+  if (task.kind === "shopping" && task.store) parts.push(task.store);
+  if (task.kind === "reminder") {
+    if (task.remindTime) parts.push(`at ${task.remindTime}`);
+    if (task.repeat !== "none") parts.push(REPEATS.find((r) => r.id === task.repeat)?.label.toLowerCase() ?? "");
+  }
+  if (task.notes) parts.push(task.notes);
+  return parts.join(" · ");
+}
 
 /** Shared between /tasks (every task in the org) and a project hub page (one project's tasks). */
 export function TaskList({
@@ -25,6 +41,7 @@ export function TaskList({
     <>
       {tasks.map((task) => {
         const overdue = task.dueDate && !task.isDone && new Date(task.dueDate) < new Date();
+        const summary = kindSummary(task);
         return (
           <div
             key={task.id}
@@ -44,11 +61,15 @@ export function TaskList({
                 <Icon name="check2" size={13} />
               </button>
             </form>
-            <Icon name={KIND_ICON[task.kind]} size={15} className="shrink-0 text-body-soft" />
+            <Icon name={KIND_ICON[task.kind] ?? "check2"} size={15} className="shrink-0 text-body-soft" />
             <div className="flex min-w-0 flex-1 flex-col leading-[1.35]">
-              <span className={`truncate text-[13px] ${task.isDone ? "text-faint line-through" : "font-medium"}`}>
+              <Link
+                href={`/tasks/${task.id}`}
+                className={`truncate text-[13px] hover:underline ${task.isDone ? "text-faint line-through" : "font-medium"}`}
+              >
                 {task.title}
-              </span>
+              </Link>
+              {summary ? <span className="truncate text-[11px] text-muted">{summary}</span> : null}
               {showProject && task.projectTitle ? (
                 <Link href={`/projects/${task.projectId}`} className="truncate text-[11px] text-muted underline">
                   {task.projectTitle}

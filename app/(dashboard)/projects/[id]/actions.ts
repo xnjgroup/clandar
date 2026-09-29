@@ -1,13 +1,23 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
+import { DOC_TYPES, type DocType } from "@/lib/doc-types";
+import { markParsePending, parseProjectDocument } from "@/lib/document-ingest";
 import { requireSession } from "@/lib/auth";
 import { getConnectorForOrg, hasGmailModifyScope } from "@/lib/connectors";
 import { getProject } from "@/lib/projects";
 import {
-  addProjectFile,
-  addProjectPhoto,
   deleteProjectFile,
+  deleteProjectFolder,
+  ensureProjectFolder,
+  getProjectFile,
+  getProjectFolder,
+  moveProjectFile,
+  parseTags,
+  renameProjectFolder,
+  setProjectFileDocType,
+  setProjectFileTags,
   deleteProjectPhoto,
   listProjectPhotos,
 } from "@/lib/project-photos";
@@ -38,19 +48,6 @@ async function requireProject(id: string) {
 }
 
 /* ── Photos ───────────────────────────────────────────────── */
-
-export async function uploadPhoto(_prev: FormState, form: FormData): Promise<FormState> {
-  const projectId = field(form, "projectId");
-  const { session } = await requireProject(projectId);
-  const file = form.get("file");
-  if (!(file instanceof File) || file.size === 0) return { error: "Choose a photo first." };
-  if (!file.type.startsWith("image/")) return { error: "Only image files are supported." };
-
-  const bytes = Buffer.from(await file.arrayBuffer());
-  await addProjectPhoto({ projectId, fileName: file.name, contentType: file.type, bytes, uploadedBy: session.person.id });
-  revalidatePath(`/projects/${projectId}`);
-  return { ok: "Photo added." };
-}
 
 export async function removePhoto(form: FormData) {
   const projectId = field(form, "projectId");
@@ -139,27 +136,90 @@ export async function sendEstimate(_prev: FormState, form: FormData): Promise<Fo
 
 /* ── Files ────────────────────────────────────────────────── */
 
-export async function uploadFile(_prev: FormState, form: FormData): Promise<FormState> {
-  const projectId = field(form, "projectId");
-  const { session } = await requireProject(projectId);
-  const file = form.get("file");
-  if (!(file instanceof File) || file.size === 0) return { error: "Choose a file first." };
-
-  const bytes = Buffer.from(await file.arrayBuffer());
-  await addProjectFile({
-    projectId,
-    fileName: file.name,
-    contentType: file.type || "application/octet-stream",
-    bytes,
-    uploadedBy: session.person.id,
-  });
-  revalidatePath(`/projects/${projectId}`);
-  return { ok: "File added." };
-}
-
 export async function removeFile(form: FormData) {
   const projectId = field(form, "projectId");
   await requireProject(projectId);
   await deleteProjectFile(field(form, "fileId"), projectId);
+  revalidatePath(`/projects/${projectId}`);
+}
+
+/** Checks a folder id from a form belongs to the project; blank means the top level. */
+async function folderOrTop(projectId: string, folderId: string): Promise<string | null | undefined> {
+  if (!folderId) return null;
+  return (await getProjectFolder(folderId, projectId)) ? folderId : undefined;
+}
+
+export async function createFolder(_prev: FormState, form: FormData): Promise<FormState> {
+  const projectId = field(form, "projectId");
+  await requireProject(projectId);
+  const name = field(form, "name");
+  if (!name) return { error: "Name the folder." };
+  const parentId = await folderOrTop(projectId, field(form, "parentId"));
+  if (parentId === undefined) return { error: "That folder no longer exists." };
+  await ensureProjectFolder(projectId, parentId, name);
+  revalidatePath(`/projects/${projectId}`);
+  return { ok: "Folder added." };
+}
+
+export async function renameFolder(form: FormData) {
+  const projectId = field(form, "projectId");
+  await requireProject(projectId);
+  const name = field(form, "name").replace(/[/\\]/g, "-").slice(0, 120);
+  // A clash with a sibling's name trips the unique index; leave the old name in place then.
+  if (name) await renameProjectFolder(field(form, "folderId"), projectId, name).catch(() => {});
+  revalidatePath(`/projects/${projectId}`);
+}
+
+export async function removeFolder(form: FormData) {
+  const projectId = field(form, "projectId");
+  await requireProject(projectId);
+  await deleteProjectFolder(field(form, "folderId"), projectId);
+  revalidatePath(`/projects/${projectId}`);
+}
+
+export async function moveFile(form: FormData) {
+  const projectId = field(form, "projectId");
+  await requireProject(projectId);
+  const folderId = await folderOrTop(projectId, field(form, "folderId"));
+  if (folderId !== undefined) await moveProjectFile(field(form, "fileId"), projectId, folderId);
+  revalidatePath(`/projects/${projectId}`);
+}
+
+export async function tagFile(form: FormData) {
+  const projectId = field(form, "projectId");
+  await requireProject(projectId);
+  await setProjectFileTags(field(form, "fileId"), projectId, parseTags(field(form, "tags")));
+  revalidatePath(`/projects/${projectId}`);
+}
+
+/**
+ * Changes what a file is. Switching to invoice/receipt reads it into an
+ * invoice record in the background (unless one was already made from it).
+ */
+export async function changeFileDocType(form: FormData) {
+  const projectId = field(form, "projectId");
+  const { session } = await requireProject(projectId);
+  const fileId = field(form, "fileId");
+  const value = field(form, "docType");
+  if (!DOC_TYPES.some((d) => d.id === value)) return;
+  await setProjectFileDocType(fileId, projectId, value as DocType);
+  const file = await getProjectFile(fileId, projectId);
+  if (file && value !== "general" && !file.invoice) {
+    await markParsePending(fileId);
+    after(() => parseProjectDocument(fileId, projectId, session.org.id));
+  }
+  revalidatePath(`/projects/${projectId}`);
+}
+
+/** Retries a failed invoice/receipt parse. */
+export async function reparseFile(form: FormData) {
+  const projectId = field(form, "projectId");
+  const { session } = await requireProject(projectId);
+  const fileId = field(form, "fileId");
+  const file = await getProjectFile(fileId, projectId);
+  if (file && file.docType !== "general" && !file.invoice) {
+    await markParsePending(fileId);
+    after(() => parseProjectDocument(fileId, projectId, session.org.id));
+  }
   revalidatePath(`/projects/${projectId}`);
 }

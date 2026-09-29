@@ -363,14 +363,14 @@ export const TASK_PRESETS: TaskPreset[] = [
   },
   {
     name: "Follow-up reminders",
-    description: "Estimates sent with no response yet, plus overdue tasks and permits.",
+    description: "Estimates sent with no response yet, plus overdue tasks and reminders.",
     icon: "clipboard",
     frequency: "weekdays",
     runTime: "08:00",
     runWeekday: null,
     prompt:
       "List estimates that were sent more than 3 days ago with no reply yet, and any overdue tasks or " +
-      "permit reminders. For each, say how long it's been waiting.",
+      "reminders. For each, say how long it's been waiting.",
   },
   {
     name: "Inbox triage",

@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import { TASK_KINDS, type TaskKind } from "@/lib/task-kinds";
 import { addTask, type FormState } from "./actions";
 
 const inputClass =
@@ -15,7 +16,7 @@ export function AddTaskForm({
 }: {
   projectId?: string;
   redirectPath: string;
-  defaultKind?: "todo" | "shopping" | "permit";
+  defaultKind?: TaskKind;
   members?: { id: string; name: string }[];
 }) {
   const [state, action, pending] = useActionState<FormState, FormData>(addTask, {});
@@ -33,9 +34,11 @@ export function AddTaskForm({
       {projectId ? <input type="hidden" name="projectId" value={projectId} /> : null}
       <input type="hidden" name="redirectPath" value={redirectPath} />
       <select name="kind" defaultValue={defaultKind} className={inputClass}>
-        <option value="todo">To-do</option>
-        <option value="shopping">Shopping list</option>
-        <option value="permit">Permit reminder</option>
+        {TASK_KINDS.map((k) => (
+          <option key={k.id} value={k.id}>
+            {k.label}
+          </option>
+        ))}
       </select>
       <input
         name="title"
