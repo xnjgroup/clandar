@@ -1,14 +1,18 @@
-"use client";
+import Link from "next/link";
 
-export function TabList<T extends string>({
+/**
+ * Tabs that navigate. The selected tab lives in the URL, so the page stays a
+ * Server Component and reads its filter straight from `searchParams`.
+ */
+export function TabLinks<T extends string>({
   options,
   value,
-  onChange,
+  href,
   label,
 }: {
   options: readonly T[];
   value: T;
-  onChange: (next: T) => void;
+  href: (option: T) => string;
   label: string;
 }) {
   return (
@@ -16,18 +20,17 @@ export function TabList<T extends string>({
       {options.map((option) => {
         const on = option === value;
         return (
-          <button
+          <Link
             key={option}
-            type="button"
+            href={href(option)}
             role="tab"
             aria-selected={on}
-            onClick={() => onChange(option)}
-            className={`cursor-pointer rounded-full px-[15px] py-[9px] text-[12.5px] font-medium whitespace-nowrap ${
+            className={`rounded-full px-[15px] py-[9px] text-[12.5px] font-medium whitespace-nowrap ${
               on ? "bg-ink text-bg" : "border border-line bg-surface text-body"
             }`}
           >
             {option}
-          </button>
+          </Link>
         );
       })}
     </div>

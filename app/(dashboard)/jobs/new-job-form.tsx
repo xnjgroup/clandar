@@ -1,0 +1,92 @@
+"use client";
+
+import { useActionState } from "react";
+import Link from "next/link";
+import { TRADES } from "@/lib/data";
+import { addJob, type FormState } from "./actions";
+
+const inputClass =
+  "w-full rounded-[12px] border border-line bg-surface px-3 py-[10px] text-[12.5px] text-ink outline-none placeholder:text-faint focus:border-[#9aa78a]";
+
+export function NewJobForm({
+  customers,
+  defaultCustomerId,
+}: {
+  customers: { id: string; name: string }[];
+  defaultCustomerId?: string;
+}) {
+  const [state, action, pending] = useActionState<FormState, FormData>(addJob, {});
+
+  if (customers.length === 0) {
+    return (
+      <p className="m-0 rounded-[12px] bg-warn-bg px-3 py-[10px] text-[12.5px] leading-[1.6] text-warn-fg">
+        Add a customer first —{" "}
+        <Link href="/customers" className="underline">
+          go to Customers
+        </Link>
+        .
+      </p>
+    );
+  }
+
+  return (
+    <form action={action} className="flex flex-col gap-[13px]">
+      <div className="grid grid-cols-1 gap-[10px] lg:grid-cols-2">
+        <label className="flex flex-col gap-[5px]">
+          <span className="text-[11px] text-muted">Customer</span>
+          <select name="customerId" required defaultValue={defaultCustomerId ?? ""} className={inputClass}>
+            <option value="" disabled>
+              Select a customer…
+            </option>
+            {customers.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-[5px]">
+          <span className="text-[11px] text-muted">Trade</span>
+          <select name="trade" defaultValue={TRADES[0].id} className={inputClass}>
+            {TRADES.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-[5px] lg:col-span-2">
+          <span className="text-[11px] text-muted">Job title</span>
+          <input name="title" required placeholder="Repaint living room & hallway" className={inputClass} />
+        </label>
+        <label className="flex flex-col gap-[5px] lg:col-span-2">
+          <span className="text-[11px] text-muted">Job site address</span>
+          <input name="address" placeholder="Defaults to the customer's address if left blank" className={inputClass} />
+        </label>
+        <label className="flex flex-col gap-[5px] lg:col-span-2">
+          <span className="text-[11px] text-muted">Notes</span>
+          <textarea name="notes" rows={3} placeholder="Scope, access notes, anything the crew should know" className={inputClass} />
+        </label>
+      </div>
+
+      <div className="flex items-center gap-[9px]">
+        <button
+          type="submit"
+          disabled={pending}
+          className="rounded-full bg-ink px-4 py-[9px] text-[12.5px] font-semibold text-bg enabled:cursor-pointer disabled:opacity-50"
+        >
+          {pending ? "Creating…" : "Create job"}
+        </button>
+        <Link href="/jobs" className="text-[11.5px] font-medium underline">
+          Cancel
+        </Link>
+      </div>
+
+      {state.error ? (
+        <p className="m-0 rounded-[12px] bg-bad-bg px-3 py-2 text-[12px] leading-[1.5] text-bad-fg">
+          {state.error}
+        </p>
+      ) : null}
+    </form>
+  );
+}

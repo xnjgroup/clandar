@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local file storage for job photos/files (lib/storage.ts)
+/.uploads
+
+# env files (can opt-in for committing if needed)
+!.env.example

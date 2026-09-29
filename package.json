@@ -6,17 +6,25 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "db:setup": "node --env-file-if-exists=.env.local db/setup.mts",
+    "db:seed": "node --env-file-if-exists=.env.local db/seed.mts",
+    "db:reset": "npm run db:setup && npm run db:seed"
   },
   "dependencies": {
     "apexcharts": "^3.54.1",
+    "bullmq": "^6.3.9",
+    "ioredis": "^6.0.0",
+    "jose": "^6.2.12",
     "next": "16.3.6",
+    "pg": "^8.23.0",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",

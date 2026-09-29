@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { ReactNode } from "react";
 import { Icon, type IconName } from "@/components/icons";
 import { TONE_CLASS, categoryStyle, type Tone } from "@/lib/data";
@@ -121,23 +122,51 @@ export function CategoryTile({
 }
 
 /**
- * Search affordances are presentational in the source design — they show the
- * shape and placeholder without a wired query.
+ * Search that actually filters: a GET form whose `q` lands in `searchParams`.
+ * Other filters already in the URL ride along as hidden fields so searching
+ * does not drop the current tab or region.
  */
-export function SearchBox({
+export function SearchForm({
+  action,
   placeholder,
+  defaultValue = "",
+  keep = {},
   className = "",
 }: {
+  action: string;
   placeholder: string;
+  defaultValue?: string;
+  keep?: Record<string, string | undefined>;
   className?: string;
 }) {
   return (
-    <div
+    <form
+      action={action}
+      method="get"
+      role="search"
       className={`flex min-w-0 items-center gap-2 rounded-[14px] border border-line bg-surface px-[13px] py-[9px] ${className}`}
     >
-      <Icon name="search" size={16} className="text-muted" />
-      <span className="truncate text-[12.5px] text-faint">{placeholder}</span>
-    </div>
+      {Object.entries(keep).map(([name, value]) =>
+        value ? <input key={name} type="hidden" name={name} value={value} /> : null,
+      )}
+      <label className="flex min-w-0 flex-1 items-center gap-2">
+        <Icon name="search" size={16} className="shrink-0 text-muted" />
+        <span className="sr-only">{placeholder}</span>
+        <input
+          type="search"
+          name="q"
+          defaultValue={defaultValue}
+          placeholder={placeholder}
+          className="min-w-0 flex-1 bg-transparent text-[12.5px] text-ink outline-none placeholder:text-faint"
+        />
+      </label>
+      <button
+        type="submit"
+        className="shrink-0 cursor-pointer rounded-full border border-line px-[10px] py-[3px] text-[11px] font-medium text-body-soft"
+      >
+        Search
+      </button>
+    </form>
   );
 }
 
@@ -201,30 +230,47 @@ export function DataTable({
 
 export function Pager({
   label,
-  onPrev,
-  onNext,
-  disablePrev,
-  disableNext,
+  prevHref,
+  nextHref,
 }: {
   label: string;
-  onPrev: () => void;
-  onNext: () => void;
-  disablePrev: boolean;
-  disableNext: boolean;
+  prevHref: string | null;
+  nextHref: string | null;
 }) {
-  const btn =
-    "rounded-full border border-line bg-surface px-[14px] py-[6px] text-[11.5px] font-medium enabled:cursor-pointer disabled:opacity-40";
+  const base =
+    "rounded-full border border-line bg-surface px-[14px] py-[6px] text-[11.5px] font-medium";
   return (
     <div className="flex flex-wrap items-center gap-[10px] border-t border-line-soft px-[18px] py-[11px]">
       <span className="font-mono text-[11px] text-muted">{label}</span>
       <div className="ml-auto flex gap-[6px]">
-        <button type="button" className={btn} onClick={onPrev} disabled={disablePrev}>
-          Prev
-        </button>
-        <button type="button" className={btn} onClick={onNext} disabled={disableNext}>
-          Next
-        </button>
+        {prevHref ? (
+          <Link href={prevHref} className={base} rel="prev">
+            Prev
+          </Link>
+        ) : (
+          <span className={`${base} opacity-40`} aria-disabled>
+            Prev
+          </span>
+        )}
+        {nextHref ? (
+          <Link href={nextHref} className={base} rel="next">
+            Next
+          </Link>
+        ) : (
+          <span className={`${base} opacity-40`} aria-disabled>
+            Next
+          </span>
+        )}
       </div>
+    </div>
+  );
+}
+
+/** Shown in place of rows when a query comes back empty. */
+export function EmptyRow({ children }: { children: ReactNode }) {
+  return (
+    <div className="border-t border-line-soft px-[18px] py-9 text-center text-[12.5px] text-muted">
+      {children}
     </div>
   );
 }
