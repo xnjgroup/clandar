@@ -9,7 +9,7 @@
 import ExcelJS from "exceljs";
 import JSZip from "jszip";
 import mammoth from "mammoth";
-import { PDFParse } from "pdf-parse";
+import { installDomMatrixPolyfill } from "@/lib/dom-matrix-polyfill";
 
 const MAX_CHARS = 12_000;
 
@@ -18,7 +18,14 @@ function truncate(text: string): string {
   return trimmed.length > MAX_CHARS ? `${trimmed.slice(0, MAX_CHARS)}\n…(truncated)` : trimmed;
 }
 
+/**
+ * pdf-parse is loaded on first use, not at import: its pdfjs core needs a
+ * DOMMatrix to even load, so the polyfill has to be in place first — and if it
+ * still can't load, only PDF reading fails, not every route that imports this file.
+ */
 async function extractPdf(buffer: Buffer): Promise<string> {
+  installDomMatrixPolyfill();
+  const { PDFParse } = await import("pdf-parse");
   const parser = new PDFParse({ data: buffer });
   try {
     const result = await parser.getText();

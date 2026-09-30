@@ -14,6 +14,15 @@ const nextConfig: NextConfig = {
    * Loading both straight from node_modules keeps that file where pdfjs looks.
    */
   serverExternalPackages: ["pdf-parse", "pdfjs-dist"],
+  /**
+   * Loaded as external modules, pdf-parse's native helper (@napi-rs/canvas, which
+   * supplies DOMMatrix to pdfjs) is required dynamically, so file tracing can miss
+   * its platform binary on Vercel. Ship it explicitly; lib/dom-matrix-polyfill.ts
+   * covers the case where it still isn't there.
+   */
+  outputFileTracingIncludes: {
+    "/**": ["./node_modules/@napi-rs/canvas/**", "./node_modules/@napi-rs/canvas-linux-x64-gnu/**"],
+  },
 };
 
 export default nextConfig;
