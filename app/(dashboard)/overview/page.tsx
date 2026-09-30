@@ -34,11 +34,6 @@ const QUICK_ASKS: { group: "Ask" | "Do"; label: string; prompt: string }[] = [
   { group: "Do", label: "Set a reminder", prompt: "Set a reminder for me. Ask me what it's for and when." },
   {
     group: "Do",
-    label: "Schedule a job",
-    prompt: "Add a job to the calendar. Ask me which project, the date and time, and who's working it.",
-  },
-  {
-    group: "Do",
     label: "Plan a trip",
     prompt: "Help me plan a trip. Ask me where, when and what it's for, then write out a plan.",
   },
