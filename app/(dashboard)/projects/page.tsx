@@ -1,8 +1,11 @@
 import Link from "next/link";
 import { Icon, iconName } from "@/components/icons";
-import { EmptyRow, IconTile, PageBody, Pill, TableCard, TableHeader, TableTitle } from "@/components/ui";
+import { HeaderActions } from "@/components/header-actions";
+import { EmptyRow, headerIconClass, IconTile, PageBody, Pill, TableCard, TableHeader, TableTitle } from "@/components/ui";
 import { count, firstParam, hrefWith, money, relativeTime, type Tone } from "@/lib/data";
 import { requireSession } from "@/lib/auth";
+import { listCustomers } from "@/lib/customers";
+import { listProjectTypes } from "@/lib/project-types";
 import {
   PROJECT_STATUSES,
   describeDue,
@@ -11,6 +14,7 @@ import {
   type Project,
   type ProjectStatus,
 } from "@/lib/projects";
+import { NewProjectDialog } from "./new-project-form";
 
 const STATUS_TONE: Record<ProjectStatus, Tone> = {
   lead: "idle",
@@ -100,54 +104,47 @@ export default async function ProjectsPage({ searchParams }: PageProps<"/project
   const statusFilter = firstParam(params.status) as ProjectStatus | "";
   const { org } = await requireSession();
 
-  const [projects, counts] = await Promise.all([
+  const [projects, counts, customers, projectTypes] = await Promise.all([
     listProjects(org.id, statusFilter ? { status: statusFilter } : {}),
     projectCountsByStatus(org.id),
+    listCustomers(org.id),
+    listProjectTypes(org.id),
   ]);
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
 
   return (
     <PageBody>
-      {/* Phones: the status filters are one sideways-scrolling row, with the buttons on their own line below.
-          Desktop: filters wrap beside the buttons. */}
-      <div className="flex flex-col gap-[9px] lg:flex-row lg:items-center">
-        <div className="-mx-[14px] flex min-w-0 gap-[7px] overflow-x-auto px-[14px] pb-[2px] [scrollbar-width:none] lg:mx-0 lg:flex-1 lg:flex-wrap lg:overflow-visible lg:px-0 lg:pb-0">
+      <HeaderActions>
+        <Link href="/projects/types" aria-label="Project types" title="Project types" className={headerIconClass}>
+          <Icon name="settings" size={17} />
+        </Link>
+        <NewProjectDialog
+          customers={customers.map((c) => ({ id: c.id, name: c.name }))}
+          projectTypes={projectTypes.map((t) => ({ id: t.id, name: t.name }))}
+        />
+      </HeaderActions>
+
+      {/* Status filters: one sideways-scrolling row on phones, wrapping on desktop. */}
+      <div className="-mx-[14px] flex min-w-0 gap-[7px] overflow-x-auto px-[14px] pb-[2px] [scrollbar-width:none] lg:mx-0 lg:flex-wrap lg:overflow-visible lg:px-0 lg:pb-0">
+        <Link
+          href={hrefWith(PATH, params, { status: null })}
+          className={`shrink-0 whitespace-nowrap rounded-full px-[14px] py-[8px] text-[12.5px] font-medium ${
+            !statusFilter ? "bg-ink text-bg" : "border border-line bg-surface text-body"
+          }`}
+        >
+          All ({count(total)})
+        </Link>
+        {PROJECT_STATUSES.map((s) => (
           <Link
-            href={hrefWith(PATH, params, { status: null })}
+            key={s.id}
+            href={hrefWith(PATH, params, { status: s.id })}
             className={`shrink-0 whitespace-nowrap rounded-full px-[14px] py-[8px] text-[12.5px] font-medium ${
-              !statusFilter ? "bg-ink text-bg" : "border border-line bg-surface text-body"
+              statusFilter === s.id ? "bg-ink text-bg" : "border border-line bg-surface text-body"
             }`}
           >
-            All ({count(total)})
+            {s.label} ({count(counts[s.id])})
           </Link>
-          {PROJECT_STATUSES.map((s) => (
-            <Link
-              key={s.id}
-              href={hrefWith(PATH, params, { status: s.id })}
-              className={`shrink-0 whitespace-nowrap rounded-full px-[14px] py-[8px] text-[12.5px] font-medium ${
-                statusFilter === s.id ? "bg-ink text-bg" : "border border-line bg-surface text-body"
-              }`}
-            >
-              {s.label} ({count(counts[s.id])})
-            </Link>
-          ))}
-        </div>
-        <div className="flex shrink-0 items-center gap-[9px]">
-          <Link
-            href="/projects/types"
-            className="flex shrink-0 items-center gap-[7px] rounded-full border border-line bg-surface px-4 py-[9px] text-[12.5px] font-medium text-body"
-          >
-            <Icon name="settings" size={15} />
-            Project types
-          </Link>
-          <Link
-            href="/projects/new"
-            className="flex shrink-0 items-center gap-[7px] rounded-full bg-ink px-4 py-[9px] text-[12.5px] font-semibold text-bg"
-          >
-            <Icon name="briefcase" size={15} />
-            New project
-          </Link>
-        </div>
+        ))}
       </div>
 
       <TableCard>

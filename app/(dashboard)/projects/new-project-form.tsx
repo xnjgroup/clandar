@@ -2,6 +2,9 @@
 
 import { useActionState } from "react";
 import Link from "next/link";
+import { Icon } from "@/components/icons";
+import { ModalDialog } from "@/components/modal-dialog";
+import { headerIconClass } from "@/components/ui";
 import { addProject, type FormState } from "./actions";
 
 const inputClass =
@@ -11,10 +14,13 @@ export function NewProjectForm({
   customers,
   projectTypes,
   defaultCustomerId,
+  inModal = false,
 }: {
   customers: { id: string; name: string }[];
   projectTypes: { id: string; name: string }[];
   defaultCustomerId?: string;
+  /** In the Projects page's "New project" modal: one column, no Cancel link (the modal has ✕). */
+  inModal?: boolean;
 }) {
   const [state, action, pending] = useActionState<FormState, FormData>(addProject, {});
 
@@ -32,7 +38,7 @@ export function NewProjectForm({
 
   return (
     <form action={action} className="flex flex-col gap-[13px]">
-      <div className="grid grid-cols-1 gap-[10px] lg:grid-cols-2">
+      <div className={`grid grid-cols-1 gap-[10px] ${inModal ? "" : "lg:grid-cols-2"}`}>
         <label className="flex flex-col gap-[5px]">
           <span className="text-[11px] text-muted">Customer</span>
           <select name="customerId" required defaultValue={defaultCustomerId ?? ""} className={inputClass}>
@@ -88,13 +94,17 @@ export function NewProjectForm({
         <button
           type="submit"
           disabled={pending}
-          className="rounded-full bg-ink px-4 py-[9px] text-[12.5px] font-semibold text-bg enabled:cursor-pointer disabled:opacity-50"
+          className={`rounded-full bg-ink px-4 py-[9px] text-[12.5px] font-semibold text-bg enabled:cursor-pointer disabled:opacity-50 ${
+            inModal ? "h-[42px] w-full" : ""
+          }`}
         >
           {pending ? "Creating…" : "Create project"}
         </button>
-        <Link href="/projects" className="text-[11.5px] font-medium underline">
-          Cancel
-        </Link>
+        {inModal ? null : (
+          <Link href="/projects" className="text-[11.5px] font-medium underline">
+            Cancel
+          </Link>
+        )}
       </div>
 
       {state.error ? (
@@ -103,5 +113,27 @@ export function NewProjectForm({
         </p>
       ) : null}
     </form>
+  );
+}
+
+/** The Projects page's "+" (in the page header) — the New project form in a modal; creating opens the project. */
+export function NewProjectDialog({
+  customers,
+  projectTypes,
+}: {
+  customers: { id: string; name: string }[];
+  projectTypes: { id: string; name: string }[];
+}) {
+  return (
+    <ModalDialog
+      title="New project"
+      trigger={(open) => (
+        <button type="button" onClick={open} aria-label="New project" title="New project" className={headerIconClass}>
+          <Icon name="plus" size={18} />
+        </button>
+      )}
+    >
+      {() => <NewProjectForm customers={customers} projectTypes={projectTypes} inModal />}
+    </ModalDialog>
   );
 }
