@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Instrument_Sans, JetBrains_Mono } from "next/font/google";
 import { redirect } from "next/navigation";
 import "../globals.css";
+import { SiteAnalytics } from "@/components/site-analytics";
 import { AppShell } from "@/components/app-shell";
 import { isAdminEmail } from "@/lib/admin";
 import { requireSession, signOutAction } from "@/lib/auth";
@@ -68,6 +69,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
           {children}
         </AppShell>
       </body>
+      <SiteAnalytics />
     </html>
   );
 }

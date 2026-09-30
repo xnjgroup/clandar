@@ -5,7 +5,7 @@ export const metadata: Metadata = { title: "Privacy Policy — Clandar" };
 
 export default function PrivacyPage() {
   return (
-    <LegalDoc title="Privacy Policy" updated="September 29, 2026">
+    <LegalDoc title="Privacy Policy" updated="September 30, 2026">
       <p>
         This policy describes what Clandar (&ldquo;the app,&rdquo; &ldquo;we&rdquo;) collects, why, and how it&rsquo;s
         used, for the account holder and anyone they invite to their organization&rsquo;s workspace.
@@ -38,7 +38,17 @@ export default function PrivacyPage() {
         </li>
         <li>
           <strong>Session data.</strong> A signed, httpOnly cookie identifies your session. We don&rsquo;t use
-          advertising cookies, third-party analytics, or tracking pixels.
+          advertising cookies or tracking pixels.
+        </li>
+        <li>
+          <strong>Usage analytics.</strong> We use Google Analytics to count visits and see which parts of the app
+          are used. It sets cookies and receives your IP address, browser details and which pages you view. We only
+          send page names with record ids removed (for example &ldquo;/projects/:id&rdquo;) — never search terms,
+          filters, or any of your customers, jobs, email or other business data. You can opt out with Google&rsquo;s{" "}
+          <a href="https://tools.google.com/dlpage/gaoptout" className="underline">
+            opt-out browser add-on
+          </a>{" "}
+          or by blocking cookies for clandar.com.
         </li>
       </ul>
 
@@ -68,7 +78,8 @@ export default function PrivacyPage() {
       <h2>Sharing</h2>
       <p>
         We don&rsquo;t sell personal data. Data is shared only with: Google (to authenticate you and, if you connect
-        it, to read/send mail or calendar events on your behalf), the AI provider your org configures, and other
+        it, to read/send mail or calendar events on your behalf; and Google Analytics for page-view statistics,
+        as described above), the AI provider your org configures, and other
         members of your own organization (customers, jobs, invoices, etc. are visible to your teammates by design).
       </p>
 

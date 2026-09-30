@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Instrument_Sans, JetBrains_Mono } from "next/font/google";
 import "../globals.css";
+import { SiteAnalytics } from "@/components/site-analytics";
 
 const instrumentSans = Instrument_Sans({
   variable: "--font-instrument-sans",
@@ -36,6 +37,7 @@ export default function AuthLayout({ children }: LayoutProps<"/">) {
       className={`${instrumentSans.variable} ${jetbrainsMono.variable} h-full antialiased`}
     >
       <body className="min-h-full bg-bg font-sans">{children}</body>
+      <SiteAnalytics />
     </html>
   );
 }
