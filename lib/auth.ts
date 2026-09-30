@@ -100,7 +100,7 @@ export async function signOutAction() {
 
 export type SessionInfo = {
   person: { id: string; name: string; email: string; role: string; avatarUrl: string | null };
-  /** assistantName: what the team calls its assistant (Aide unless renamed in Settings). */
+  /** assistantName: what the team calls its assistant (Hermes unless renamed in Settings). */
   org: { id: string; name: string; onboarded: boolean; assistantName: string };
 };
 

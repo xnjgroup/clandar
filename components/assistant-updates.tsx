@@ -15,11 +15,11 @@ function ago(iso: string) {
 
 /**
  * The chat panel's Updates (the bell in its header): notifications (due reminders, lead digests …)
- * shown as messages from Aide, newest at the bottom like a chat.
+ * shown as messages from the assistant, newest at the bottom like a chat.
  * Viewing them marks them read; the ones that were new stay highlighted
  * until the tab is closed. The browser-push switch for this device sits below.
  */
-export function AideUpdates({
+export function AssistantUpdates({
   notifications,
   onNavigate,
 }: {

@@ -29,7 +29,7 @@ export type LlmProvider = {
   isDefault: boolean;
   /** The provider the Gmail cleanup worker uses to judge/explain messages. */
   isEmailAnalyzer: boolean;
-  /** The provider Aide, the assistant chat, uses. */
+  /** The provider the assistant chat uses. */
   isChatProvider: boolean;
   /** Overrides `model` for email analysis specifically — null means use the provider's own default model. */
   emailModel: string | null;
@@ -157,7 +157,7 @@ export async function emailAnalyzerProvider(orgId: string): Promise<LlmProvider 
   return builtInProvider(orgId);
 }
 
-/** The provider Aide, the assistant chat, calls (lib/assistant.ts) — "Built-in" (the platform provider) if none is assigned. */
+/** The provider the assistant chat calls (lib/assistant.ts) — "Built-in" (the platform provider) if none is assigned. */
 export async function chatLlmProvider(orgId: string): Promise<LlmProvider | null> {
   const row = await queryOne<ProviderRow>(
     `SELECT ${SELECT_COLUMNS} FROM llm_providers WHERE org_id = $1 AND is_chat_provider AND is_enabled`,
@@ -238,7 +238,7 @@ export async function setEmailAnalyzerProvider(id: string | null, model: string 
 
 /**
  * Assigns exactly this provider (and, optionally, a specific model override)
- * to Aide (the assistant chat) — same one-statement pattern as
+ * to the assistant chat — same one-statement pattern as
  * `setDefaultLlmProvider`. `id: null` clears the assignment — the "Built-in"
  * choice in the Chat section on /settings (Clandar's platform provider).
  */

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Icon } from "@/components/icons";
 import { SpendByCategoryChart } from "@/components/charts";
 import { InvoiceListRow } from "@/components/invoice-row";
-import { OpenAideButton } from "@/components/open-aide-button";
+import { OpenAssistantButton } from "@/components/open-assistant-button";
 import { Card, CardTitle, EmptyRow, PageBody, Pill, StatCard, StatRow, TableCard } from "@/components/ui";
 import { count, delta, money0 } from "@/lib/data";
 import { requireSession } from "@/lib/auth";
@@ -184,13 +184,13 @@ export default async function OverviewPage() {
                     <span className="text-[10.5px] font-semibold tracking-[0.06em] text-[#3f4b28] uppercase">{group}</span>
                     <div className="flex flex-wrap gap-[6px]">
                       {QUICK_ASKS.filter((q) => q.group === group).map((q) => (
-                        <OpenAideButton
+                        <OpenAssistantButton
                           key={q.label}
                           prompt={q.prompt}
                           className="cursor-pointer rounded-full bg-ink px-[13px] py-[7px] text-left text-[12px] font-semibold text-bg hover:bg-ink/85"
                         >
                           {q.label}
-                        </OpenAideButton>
+                        </OpenAssistantButton>
                       ))}
                     </div>
                   </div>

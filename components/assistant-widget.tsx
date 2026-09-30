@@ -5,7 +5,7 @@ import Link from "next/link";
 import { createParser } from "eventsource-parser";
 import { usePathname, useSearchParams } from "next/navigation";
 import { ChatMarkdown } from "@/components/chat-markdown";
-import { AideUpdates } from "@/components/aide-updates";
+import { AssistantUpdates } from "@/components/assistant-updates";
 import { Icon } from "@/components/icons";
 import type { Notifications } from "@/components/use-notifications";
 import type { AgentAttachment, AgentTurn, ConversationSummary } from "@/lib/assistant";
@@ -58,7 +58,7 @@ const DOCUMENT_ACCEPT =
   "image/*";
 
 /**
- * A real, org-scoped chat with Aide (the assistant, lib/assistant.ts) — docked on the
+ * A real, org-scoped chat with the assistant (lib/assistant.ts; named in Settings → Chat) — docked on the
  * right and pushing page content left when open (see components/app-shell.tsx,
  * which owns `open` and renders this as a flex sibling of `<main>`). Knows
  * what page the user is on (`pageContext`) and can carry multiple switchable
@@ -88,7 +88,7 @@ const EMAIL_QUICK_ACTIONS: { label: string; prompt: string }[] = [
   },
 ];
 
-export function AideWidget({
+export function AssistantWidget({
   open,
   onOpenChange,
   tab,
@@ -97,7 +97,7 @@ export function AideWidget({
   name,
   pageContext,
 }: {
-  /** What the team calls its assistant (Settings → Chat), "Aide" by default. */
+  /** What the team calls its assistant (Settings → Chat), "Hermes" by default. */
   name: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -179,7 +179,7 @@ export function AideWidget({
       .catch(() => setTurns([]));
   }
 
-  // A question handed over by an "Ask the assistant" button elsewhere (OpenAideButton's `prompt`):
+  // A question handed over by an "Ask the assistant" button elsewhere (OpenAssistantButton's `prompt`):
   // asked in a fresh conversation as soon as the panel is open and its history has loaded.
   const [queuedPrompt, setQueuedPrompt] = useState<string | null>(null);
   useEffect(() => {
@@ -187,8 +187,8 @@ export function AideWidget({
       const prompt = (e as CustomEvent<{ prompt?: string }>).detail?.prompt;
       if (prompt) setQueuedPrompt(prompt);
     };
-    window.addEventListener("clandar:open-aide", onOpen);
-    return () => window.removeEventListener("clandar:open-aide", onOpen);
+    window.addEventListener("clandar:open-assistant", onOpen);
+    return () => window.removeEventListener("clandar:open-assistant", onOpen);
   }, []);
   const sendRef = useRef(send);
   sendRef.current = send;
@@ -544,9 +544,9 @@ export function AideWidget({
         ) : null}
       </div>
 
-      {/* Updates (the bell in the header): notifications — due reminders, lead digests … — posted by Aide. */}
+      {/* Updates (the bell in the header): notifications — due reminders, lead digests … — posted by the assistant. */}
       {tab === "updates" ? (
-        <AideUpdates notifications={notifications} onNavigate={closeOnMobileNavigate} />
+        <AssistantUpdates notifications={notifications} onNavigate={closeOnMobileNavigate} />
       ) : (
         <>
 
