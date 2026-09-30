@@ -385,7 +385,9 @@ export async function runTrashLabel(
   connectorId: string,
   label: string,
   onProgress?: (trashed: number, total: number) => void,
-): Promise<{ trashed: number; total: number }> {
+  /** Called before each message; resolves "cancel" to stop early (it may wait while paused). */
+  checkpoint?: (trashed: number, total: number) => Promise<"continue" | "cancel">,
+): Promise<{ trashed: number; total: number; cancelled: boolean }> {
   const connector = await getConnector(connectorId);
   if (!connector) throw new Error("Connector not found");
   if (!hasGmailModifyScope(connector)) {
@@ -402,10 +404,11 @@ export async function runTrashLabel(
 
   for await (const page of scanMail(connectorId, connector.orgId, searchQuery, BULK_TRASH_CAP)) {
     for (const message of page) {
+      if (checkpoint && (await checkpoint(trashed, total)) === "cancel") return { trashed, total, cancelled: true };
       await trashMail(message.id, connector.orgId, connectorId);
       trashed++;
       onProgress?.(trashed, total);
     }
   }
-  return { trashed, total };
+  return { trashed, total, cancelled: false };
 }

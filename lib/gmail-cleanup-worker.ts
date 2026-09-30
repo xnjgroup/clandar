@@ -16,7 +16,7 @@
  */
 import { Worker, type Job } from "bullmq";
 import { createRedisConnection } from "@/lib/redis";
-import { GMAIL_CLEANUP_QUEUE, type GmailWorkerJob } from "@/lib/queue";
+import { GMAIL_CLEANUP_QUEUE, getJobControl, setJobControl, type GmailWorkerJob } from "@/lib/queue";
 import { BULK_TRASH_LABELS, runInboxScan, runTrashLabel } from "@/lib/gmail-cleanup";
 import { getConnector } from "@/lib/connectors";
 import { queryOne } from "@/lib/db";
@@ -32,7 +32,7 @@ async function notifyTrashDone(
   connectorId: string,
   label: string,
   requestedBy: string | undefined,
-  result: { trashed: number } | { error: string },
+  result: { trashed: number; cancelled?: boolean } | { error: string },
 ) {
   try {
     const connector = await getConnector(connectorId);
@@ -44,14 +44,19 @@ async function notifyTrashDone(
     if (!connector || !personId) return;
     const name = (BULK_TRASH_LABELS.find((l) => l.id === label)?.label ?? label).toLowerCase();
     const account = connector.accountLabel ?? connector.name;
+    const count = "error" in result ? "" : `${result.trashed.toLocaleString("en-US")} ${name} email${result.trashed === 1 ? "" : "s"}`;
     const title =
       "error" in result
         ? `Trashing ${name} stopped`
-        : `Trashed ${result.trashed.toLocaleString("en-US")} ${name} email${result.trashed === 1 ? "" : "s"}`;
+        : result.cancelled
+          ? `Stopped trashing ${name}`
+          : `Trashed ${count}`;
     const body =
       "error" in result
         ? `${account}: ${result.error}`
-        : `${account} — they're in Gmail's Trash for 30 days if you need anything back.`;
+        : result.cancelled
+          ? `${account} — you cancelled it after ${count} went to Trash (kept there for 30 days).`
+          : `${account} — they're in Gmail's Trash for 30 days if you need anything back.`;
     const link = `/email?account=${connectorId}`;
     await createNotification({ orgId: connector.orgId, personId, title, body, link }).catch(() => {});
     await pushToPerson(personId, { title, body, link }).catch(() => {});
@@ -75,9 +80,29 @@ export function startGmailCleanupWorker() {
         await runInboxScan(job.data.connectorId, job.data.maxMessages, job.data.label, job.id, onProgress);
       } else {
         const { connectorId, label, requestedBy } = job.data;
+        const jobId = job.id!;
+        // Pause / cancel (set from the assistant's Updates): checked before each message.
+        // While paused it waits here, reporting `paused` so the progress card can say so.
+        const checkpoint = async (done: number, total: number) => {
+          let paused = false;
+          for (;;) {
+            const control = await getJobControl(jobId).catch(() => null);
+            if (control === "cancel") return "cancel" as const;
+            if (control !== "pause") {
+              if (paused) await job.updateProgress({ done, total, paused: false });
+              return "continue" as const;
+            }
+            if (!paused) {
+              paused = true;
+              await job.updateProgress({ done, total, paused: true });
+            }
+            await new Promise((r) => setTimeout(r, 2000));
+          }
+        };
         try {
-          const { trashed } = await runTrashLabel(connectorId, label, onProgress);
-          await notifyTrashDone(connectorId, label, requestedBy, { trashed });
+          const { trashed, cancelled } = await runTrashLabel(connectorId, label, onProgress, checkpoint);
+          await setJobControl(jobId, null).catch(() => {});
+          await notifyTrashDone(connectorId, label, requestedBy, cancelled ? { trashed, cancelled } : { trashed });
         } catch (error) {
           await notifyTrashDone(connectorId, label, requestedBy, {
             error: error instanceof Error ? error.message : "Unknown error",

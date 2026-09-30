@@ -1,7 +1,26 @@
 import type { NextRequest } from "next/server";
 import { requireSession } from "@/lib/auth";
 import { getConnectorForOrg } from "@/lib/connectors";
-import { gmailQueueEvents, jobConnectorId, jobStatus, type JobStatus } from "@/lib/queue";
+import { gmailQueueEvents, jobConnectorId, jobStatus, setJobControl, type JobStatus } from "@/lib/queue";
+
+/** Only jobs on the viewer's own org's Gmail accounts. */
+async function ownsJob(jobId: string): Promise<boolean> {
+  const { org } = await requireSession();
+  const connectorId = await jobConnectorId(jobId);
+  return Boolean(connectorId && (await getConnectorForOrg(connectorId, org.id)));
+}
+
+/** POST { action: "pause" | "resume" | "cancel" } → controls a running bulk trash (the worker picks it up before its next message). */
+export async function POST(request: NextRequest, { params }: { params: Promise<{ jobId: string }> }) {
+  const { jobId } = await params;
+  if (!(await ownsJob(jobId))) return Response.json({ error: "Not found" }, { status: 404 });
+  const { action } = (await request.json().catch(() => ({}))) as { action?: string };
+  if (action !== "pause" && action !== "resume" && action !== "cancel") {
+    return Response.json({ error: "action must be pause, resume or cancel" }, { status: 400 });
+  }
+  await setJobControl(jobId, action === "resume" ? null : action);
+  return Response.json({ ok: true });
+}
 
 export const dynamic = "force-dynamic";
 
@@ -16,12 +35,7 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(request: NextRequest, { params }: { params: Promise<{ jobId: string }> }) {
   const { jobId } = await params;
-  // Only for jobs on the viewer's own org's Gmail accounts.
-  const { org } = await requireSession();
-  const connectorId = await jobConnectorId(jobId);
-  if (!connectorId || !(await getConnectorForOrg(connectorId, org.id))) {
-    return new Response("Not found", { status: 404 });
-  }
+  if (!(await ownsJob(jobId))) return new Response("Not found", { status: 404 });
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -36,8 +50,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
       const onProgress = (args: { jobId: string; data: unknown }) => {
         if (args.jobId !== jobId) return;
-        const data = args.data as { done: number; total: number };
-        send({ state: "active", done: data.done ?? 0, total: data.total ?? 0, error: null });
+        const data = args.data as { done: number; total: number; paused?: boolean };
+        send({ state: "active", done: data.done ?? 0, total: data.total ?? 0, error: null, paused: data.paused ?? false });
       };
       const onCompleted = (args: { jobId: string }) => {
         if (args.jobId !== jobId) return;

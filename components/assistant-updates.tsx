@@ -6,28 +6,87 @@ import { Icon } from "@/components/icons";
 import type { Notifications, RunningJob } from "@/components/use-notifications";
 import { useJobProgress } from "@/app/(dashboard)/email/use-job-progress";
 
-/** A running job as a live message: title, count and progress bar, pushed over SSE. When it ends, `onFinished` refreshes Updates (its "done" notification). */
+/**
+ * A running job as a live message: title, count and progress bar, pushed over
+ * SSE, with pause/resume and cancel. When it ends, `onFinished` refreshes
+ * Updates (its "done" notification arrives there).
+ */
 function JobCard({ job, onFinished }: { job: RunningJob; onFinished: () => void }) {
   const status = useJobProgress(job.jobId, job.status) ?? job.status;
+  // What was just asked for, until the worker's next progress report confirms it.
+  const [requested, setRequested] = useState<"pause" | "resume" | "cancel" | null>(null);
   const finished = status.state === "completed" || status.state === "failed";
   useEffect(() => {
     if (finished) onFinished();
   }, [finished, onFinished]);
+
+  const [seenPaused, setSeenPaused] = useState(status.paused);
+  if (status.paused !== seenPaused) {
+    setSeenPaused(status.paused);
+    if (requested !== "cancel") setRequested(null);
+  }
+  const paused = requested === "pause" || (status.paused && requested !== "resume");
+  const cancelling = requested === "cancel";
+
+  async function control(action: "pause" | "resume" | "cancel") {
+    setRequested(action);
+    const res = await fetch(`/api/gmail-jobs/${job.jobId}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action }),
+    }).catch(() => null);
+    if (!res?.ok) setRequested(null);
+  }
+
   const pct = status.total > 0 ? Math.round((status.done / status.total) * 100) : 0;
+  const iconButton =
+    "flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-full border border-line text-body-soft hover:text-ink disabled:cursor-default disabled:opacity-40";
   return (
     <div className="flex w-[92%] flex-col gap-[6px] self-start rounded-[16px] border border-line bg-surface px-[12px] py-[10px]">
       <span className="flex items-center gap-[8px] text-[13px] font-semibold sm:text-[12.5px]">
-        <span className="size-[7px] shrink-0 animate-pulse rounded-full bg-meter-ok" />
+        <span
+          className={`size-[7px] shrink-0 rounded-full ${paused || cancelling ? "bg-warn-fg" : "animate-pulse bg-meter-ok"}`}
+        />
         <span className="min-w-0 flex-1 truncate">{job.title}</span>
-        <span className="shrink-0 font-mono text-[11px] font-normal text-faint">
+        <button
+          type="button"
+          onClick={() => void control(paused ? "resume" : "pause")}
+          disabled={cancelling}
+          aria-label={paused ? "Resume" : "Pause"}
+          title={paused ? "Resume" : "Pause"}
+          className={iconButton}
+        >
+          <Icon name={paused ? "play" : "pause"} size={12} />
+        </button>
+        <button
+          type="button"
+          onClick={() => void control("cancel")}
+          disabled={cancelling}
+          aria-label="Cancel"
+          title="Cancel — stop here; what's already trashed stays in Trash"
+          className={`${iconButton} hover:text-bad-fg`}
+        >
+          <Icon name="close" size={12} />
+        </button>
+      </span>
+      <div className="h-[6px] overflow-hidden rounded-[3px] bg-line-soft">
+        <div
+          className={`h-full rounded-[3px] transition-[width] ${paused || cancelling ? "bg-warn-fg" : "bg-meter-ok"}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <span className="flex items-center gap-[6px] text-[11px] text-muted">
+        <span className="font-mono">
           {status.done.toLocaleString("en-US")}
           {status.total > 0 ? ` / ${status.total.toLocaleString("en-US")}` : ""}
         </span>
+        ·{" "}
+        {cancelling
+          ? "Stopping…"
+          : paused
+            ? "Paused — resume any time."
+            : "Running in the background — I\u2019ll let you know when it\u2019s done."}
       </span>
-      <div className="h-[6px] overflow-hidden rounded-[3px] bg-line-soft">
-        <div className="h-full rounded-[3px] bg-meter-ok transition-[width]" style={{ width: `${pct}%` }} />
-      </div>
-      <span className="text-[11px] text-muted">Running in the background — I&rsquo;ll let you know when it&rsquo;s done.</span>
     </div>
   );
 }

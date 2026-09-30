@@ -28,7 +28,7 @@ export type PushState = "unsupported" | "off" | "on" | "blocked" | "busy";
 export type RunningJob = {
   jobId: string;
   title: string;
-  status: { state: string; done: number; total: number; error: string | null };
+  status: { state: string; done: number; total: number; error: string | null; paused?: boolean };
 };
 
 /** Dispatch after starting a background job, so Updates picks it up right away instead of on the next poll. */

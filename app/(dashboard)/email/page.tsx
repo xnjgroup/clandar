@@ -31,11 +31,9 @@ import {
   mailboxView,
   type LabelCount,
 } from "@/lib/gmail";
-import { bulkTrashJobId, bulkTrashStatus } from "@/lib/queue";
 import { LeadsView } from "./leads-view";
 import { MailboxNav, type MailboxNavHeading, type MailboxNavItem } from "./mailbox-nav";
 import { TrashLabelButton } from "./trash-label-button";
-import { TrashProgressPanel } from "./trash-progress-panel";
 
 /** Which labels get a "Trash all X" button, and where — matches BULK_TRASH_LABELS' ids. */
 const QUICK_TRASH_LABELS = ["SPAM", "CATEGORY_PROMOTIONS"];
@@ -255,9 +253,8 @@ export default async function EmailPage({ searchParams }: PageProps<"/email">) {
 
   let mailbox;
   let labelTotal = 0;
-  let trashJobs: (Awaited<ReturnType<typeof bulkTrashStatus>>)[] = [];
   try {
-    [mailbox, labelTotal, trashJobs] = await Promise.all([
+    [mailbox, labelTotal] = await Promise.all([
       listMail({
         orgId: org.id,
         connectorId: account.id,
@@ -269,9 +266,6 @@ export default async function EmailPage({ searchParams }: PageProps<"/email">) {
       }),
       // The label being viewed, for its "Trash all" button's count (already loaded for the side column).
       Promise.resolve(viewingLabel ? (totalOf(viewingLabel) ?? 0) : 0),
-      // Checked regardless of which view is open — a bulk trash keeps running
-      // in the background no matter where you navigate within /email.
-      Promise.all(QUICK_TRASH_LABELS.map((id) => bulkTrashStatus(account.id, id))),
     ]);
   } catch (error) {
     const gmail = error instanceof GmailError ? error : null;
@@ -309,19 +303,7 @@ export default async function EmailPage({ searchParams }: PageProps<"/email">) {
         </p>
       ) : null}
 
-      {QUICK_TRASH_LABELS.map((id, i) => {
-        const status = trashJobs[i];
-        if (!status) return null;
-        const name = BULK_TRASH_LABELS.find((l) => l.id === id)?.label ?? id;
-        return (
-          <TrashProgressPanel
-            key={id}
-            jobId={bulkTrashJobId(account.id, id)}
-            labelName={name}
-            initial={status}
-          />
-        );
-      })}
+      {/* A running "Trash all" shows its progress — and a note when it's done — in the assistant's Updates. */}
 
       {layout(
       <TableCard>

@@ -12,6 +12,8 @@ export type JobProgress = {
   done: number;
   total: number;
   error: string | null;
+  /** A bulk trash the person paused from the assistant's Updates. */
+  paused?: boolean;
 };
 
 /**

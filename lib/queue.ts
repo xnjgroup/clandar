@@ -94,6 +94,7 @@ export async function enqueueTrashLabel(connectorId: string, label: string, requ
     if (state !== "completed" && state !== "failed") return existing;
     await existing.remove();
   }
+  await setJobControl(jobId, null);
   return queueRef.add("trash-label", { kind: "trash-label", connectorId, label, requestedBy }, { jobId });
 }
 
@@ -102,19 +103,40 @@ export type JobStatus = {
   done: number;
   total: number;
   error: string | null;
+  /** A bulk trash the person paused (it resumes where it stopped). */
+  paused?: boolean;
 };
+
+/**
+ * Pause / cancel for a running bulk trash. BullMQ can't pause one job, so it's
+ * a flag in Redis the worker checks before each message (lib/gmail-cleanup-worker.ts):
+ * "pause" holds it where it is, "cancel" stops it, no flag carries on.
+ */
+export type JobControl = "pause" | "cancel";
+const controlKey = (jobId: string) => `clandar:job-control:${jobId}`;
+
+export async function setJobControl(jobId: string, control: JobControl | null): Promise<void> {
+  if (control) await redis().set(controlKey(jobId), control, "EX", 86_400);
+  else await redis().del(controlKey(jobId));
+}
+
+export async function getJobControl(jobId: string): Promise<JobControl | null> {
+  const value = await redis().get(controlKey(jobId));
+  return value === "pause" || value === "cancel" ? value : null;
+}
 
 /** A job's current state and progress by its raw BullMQ id — what the SSE route sends on first connect, and what a page reads for its initial server-rendered paint. */
 export async function jobStatus(jobId: string): Promise<JobStatus | null> {
   const job = await gmailCleanupQueue().getJob(jobId);
   if (!job) return null;
   const state = await job.getState();
-  const progress = job.progress as { done: number; total: number } | undefined;
+  const progress = job.progress as { done: number; total: number; paused?: boolean } | undefined;
   return {
     state,
     done: progress?.done ?? 0,
     total: progress?.total ?? 0,
     error: state === "failed" ? (job.failedReason ?? "Unknown error") : null,
+    paused: progress?.paused ?? false,
   };
 }
 
