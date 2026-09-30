@@ -112,15 +112,17 @@ export async function POST(request: Request) {
     images,
     attachments,
     body.pageContext ?? null,
-    { email, emailAttachments, timeZone },
+    // request.signal aborts when the browser drops the stream — the chat's Stop button.
+    { email, emailAttachments, timeZone, signal: request.signal },
   );
 
   // Server-Sent Events: `data: <json>` frames. text/event-stream is what proxies/CDNs (Vercel's
   // included) know not to buffer or compress, so reply text reaches the browser as it's generated.
   const encoder = new TextEncoder();
+  // Shared by start() and cancel(): once the browser has gone (Stop), nothing more is written.
+  let closed = false;
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      let closed = false;
       const send = (chunk: string) => {
         if (!closed) controller.enqueue(encoder.encode(chunk));
       };
@@ -139,9 +141,15 @@ export async function POST(request: Request) {
         write({ type: "error", message: error instanceof Error ? error.message : "Something went wrong." });
       } finally {
         clearInterval(heartbeat);
-        closed = true;
-        controller.close();
+        if (!closed) {
+          closed = true;
+          controller.close();
+        }
       }
+    },
+    // Stopped by the browser: stop writing (the turn itself winds down via request.signal and is still saved).
+    cancel() {
+      closed = true;
     },
   });
 

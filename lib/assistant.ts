@@ -57,6 +57,8 @@ export type AssistantContext = {
   /** What was loaded from the email's attachments for the model to see/read (lib/email-context.ts). */
   emailAttachments?: EmailAttachmentContent;
   timeZone: string;
+  /** Aborted when the person presses Stop (the browser drops the request): the turn ends where it is. */
+  signal?: AbortSignal;
 };
 
 export type AgentAttachment = { id: string; fileName: string; contentType: string };
@@ -1239,6 +1241,7 @@ function decodeDataUrl(dataUrl: string): Buffer {
 /** Progress events streamed to the client as they happen (see app/api/assistant/route.ts): a tool finishing, a slice of the final reply arriving, or the whole turn wrapping up. */
 export type AssistantEvent =
   | { type: "tool_call"; tool: string; detail: string }
+  | { type: "started"; conversationId: string }
   | { type: "reply_delta"; text: string }
   | { type: "done"; conversationId: string }
   | { type: "error"; message: string; conversationId?: string };
@@ -1262,6 +1265,8 @@ export async function* askAssistant(
   }
 
   const convId = conversationId ?? (await createConversation(orgId, personId));
+  // Up front, so a turn stopped before it finishes still leaves the browser on the right conversation.
+  yield { type: "started", conversationId: convId };
 
   const priorRows = await query<{ role: "user" | "assistant"; body: string; sender_name: string | null }>(
     `SELECT m.role, m.body, p.name AS sender_name
@@ -1368,22 +1373,36 @@ export async function* askAssistant(
   const toolCalls: { tool: string; detail: string }[] = [];
   const replyParts: string[] = [];
   let finalReply: string;
+  // Stop: what was written so far is kept, marked as stopped, and saved like any reply.
+  const stopped = () => [...replyParts, "_Stopped._"].join("\n\n");
   try {
     let steps = 0;
     for (;;) {
+      if (context.signal?.aborted) {
+        finalReply = stopped();
+        break;
+      }
       const stepStarted = Date.now();
       let text = "";
       let calls: ModelToolCall[] = [];
-      for await (const event of chatStreamWithTools(provider.id, messages, tools, {
-        timeoutMs: 120_000,
-        model: provider.chatModel ?? undefined,
-      })) {
-        if (event.type === "text") {
-          text += event.text;
-          yield { type: "reply_delta", text: event.text };
-        } else if (event.type === "tool_calls") {
-          calls = event.calls;
+      try {
+        for await (const event of chatStreamWithTools(provider.id, messages, tools, {
+          timeoutMs: 120_000,
+          model: provider.chatModel ?? undefined,
+          signal: context.signal,
+        })) {
+          if (event.type === "text") {
+            text += event.text;
+            yield { type: "reply_delta", text: event.text };
+          } else if (event.type === "tool_calls") {
+            calls = event.calls;
+          }
         }
+      } catch (error) {
+        if (!context.signal?.aborted) throw error;
+        if (text.trim()) replyParts.push(text.trim());
+        finalReply = stopped();
+        break;
       }
       const modelMs = Date.now() - stepStarted;
       if (text.trim()) replyParts.push(text.trim());
@@ -1410,6 +1429,8 @@ export async function* askAssistant(
         tool_calls: calls.map((c) => ({ id: c.id, type: "function", function: { name: c.name, arguments: c.arguments } })),
       });
       for (const call of calls) {
+        // Stop between tools — one already running finishes, the rest don't start.
+        if (context.signal?.aborted) break;
         const toolStarted = Date.now();
         let args: Record<string, unknown> = {};
         let result: ToolResult;

@@ -467,7 +467,7 @@ export async function* chatStreamWithTools(
   providerId: string,
   messages: ToolChatMessage[],
   tools: ToolDefinition[],
-  options: { temperature?: number; timeoutMs?: number; model?: string } = {},
+  options: { temperature?: number; timeoutMs?: number; model?: string; signal?: AbortSignal } = {},
 ): AsyncGenerator<ToolStreamEvent> {
   const provider = await getLlmProvider(providerId);
   if (!provider) throw new Error("LLM provider not found");
@@ -494,7 +494,10 @@ export async function* chatStreamWithTools(
         : {}),
     }),
     cache: "no-store",
-    signal: AbortSignal.timeout(options.timeoutMs ?? 120_000),
+    // The caller's signal too: the chat's Stop button ends the request mid-stream.
+    signal: options.signal
+      ? AbortSignal.any([AbortSignal.timeout(options.timeoutMs ?? 120_000), options.signal])
+      : AbortSignal.timeout(options.timeoutMs ?? 120_000),
   }).catch((error: unknown) => {
     throw new Error(`Could not reach ${provider.name}: ${error instanceof Error ? error.message : "unknown error"}`);
   });

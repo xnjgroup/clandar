@@ -123,6 +123,8 @@ export function AssistantWidget({
   const [question, setQuestion] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [pending, setPending] = useState(false);
+  // Aborts the reply being streamed — the Stop button (the server keeps what was written, marked stopped).
+  const stopRef = useRef<AbortController | null>(null);
   // Whether the panel is open right now — read when a reply finishes, which can be long after sending.
   const openRef = useRef(open);
   useEffect(() => {
@@ -339,8 +341,11 @@ export function AssistantWidget({
       setTurns((prev) => (prev ?? []).map((t) => (t.id === "streaming" ? patch(t) : t)));
     }
 
+    const controller = new AbortController();
+    stopRef.current = controller;
     try {
       const res = await fetch("/api/assistant", {
+        signal: controller.signal,
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -362,6 +367,7 @@ export function AssistantWidget({
       // The reply streams back as Server-Sent Events (see app/api/assistant/route.ts), parsed with
       // eventsource-parser; fetch rather than EventSource because this is a POST with a body.
       type StreamEvent =
+        | { type: "started"; conversationId: string }
         | { type: "tool_call"; tool: string; detail: string }
         | { type: "reply_delta"; text: string }
         | { type: "done"; conversationId: string }
@@ -371,7 +377,9 @@ export function AssistantWidget({
       // and the panel switches there once the reply is done.
       let startedTrash = false;
       const handle = (event: StreamEvent) => {
-        if (event.type === "tool_call") {
+        if (event.type === "started") {
+          setConversationId(event.conversationId);
+        } else if (event.type === "tool_call") {
           if (event.tool === "trash_email_search" && event.detail.startsWith("Started")) {
             startedTrash = true;
             window.dispatchEvent(new Event(JOBS_CHANGED_EVENT));
@@ -406,9 +414,25 @@ export function AssistantWidget({
       }
       if (startedTrash) onTabChange("updates");
     } catch {
-      setError(`Could not reach ${name} — try again.`);
-      setTurns((prev) => prev?.filter((t) => t.id !== "pending" && t.id !== "streaming") ?? prev);
+      if (controller.signal.aborted) {
+        // Stopped: keep the question and whatever was written, marked like the saved copy.
+        const stamp = Date.now();
+        setTurns(
+          (prev) =>
+            prev?.map((t) =>
+              t.id === "pending"
+                ? { ...t, id: `stopped-q-${stamp}` }
+                : t.id === "streaming"
+                  ? { ...t, id: `stopped-a-${stamp}`, body: [t.body.trim(), "_Stopped._"].filter(Boolean).join("\n\n") }
+                  : t,
+            ) ?? prev,
+        );
+      } else {
+        setError(`Could not reach ${name} — try again.`);
+        setTurns((prev) => prev?.filter((t) => t.id !== "pending" && t.id !== "streaming") ?? prev);
+      }
     } finally {
+      stopRef.current = null;
       setPending(false);
       onActivity(openRef.current ? "idle" : "replied");
     }
@@ -800,14 +824,42 @@ export function AssistantWidget({
             placeholder="Ask anything, or attach a file…"
             className="min-w-0 flex-1 rounded-full border border-line bg-bg px-[13px] py-[8px] text-[12.5px] text-ink outline-none placeholder:text-faint focus:border-[#9aa78a]"
           />
-          <button
-            type="button"
-            onClick={() => send()}
-            disabled={pending || !question.trim()}
-            className="shrink-0 cursor-pointer rounded-full bg-ink px-[14px] py-[9px] text-[11.5px] font-semibold text-lime enabled:cursor-pointer disabled:opacity-40"
-          >
-            Send
-          </button>
+          {pending ? (
+            // Working: a spinning progress ring around a stop square — press to stop the reply.
+            <button
+              type="button"
+              onClick={() => stopRef.current?.abort()}
+              aria-label="Stop"
+              title="Stop"
+              className="relative flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-ink text-lime"
+            >
+              <svg viewBox="0 0 36 36" className="absolute inset-0 size-9 animate-spin" aria-hidden>
+                <circle cx="18" cy="18" r="15" fill="none" stroke="currentColor" strokeOpacity="0.25" strokeWidth="2.5" />
+                <circle
+                  cx="18"
+                  cy="18"
+                  r="15"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeDasharray="28 66"
+                />
+              </svg>
+              <span className="size-[10px] rounded-[2px] bg-lime" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => send()}
+              disabled={!question.trim()}
+              aria-label="Send"
+              title="Send"
+              className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-ink text-lime disabled:cursor-default disabled:opacity-40"
+            >
+              <Icon name="arrowUp" size={17} />
+            </button>
+          )}
         </div>
         {error ? <span className="text-[11px] text-bad-fg">{error}</span> : null}
       </div>
