@@ -1105,3 +1105,13 @@ CREATE TABLE IF NOT EXISTS email_leads (
 );
 CREATE INDEX IF NOT EXISTS email_leads_org_idx ON email_leads (org_id, status, received_at DESC);
 
+-- A person's arrangement of a dashboard's widgets (components/dashboard-grid.tsx),
+-- per page: [{ i, x, y, w, h }] on a 12-column grid. Missing = the default layout.
+CREATE TABLE IF NOT EXISTS dashboard_layouts (
+  person_id  uuid NOT NULL REFERENCES people (id) ON DELETE CASCADE,
+  page       text NOT NULL,
+  layout     jsonb NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (person_id, page)
+);
+

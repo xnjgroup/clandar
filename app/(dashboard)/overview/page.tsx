@@ -6,6 +6,9 @@ import { OpenAssistantButton } from "@/components/open-assistant-button";
 import { Card, CardTitle, EmptyRow, PageBody, Pill, StatCard, StatRow, TableCard } from "@/components/ui";
 import { count, delta, money0 } from "@/lib/data";
 import { requireSession } from "@/lib/auth";
+import { DashboardGrid, type DashboardWidget } from "@/components/dashboard-grid";
+import { getDashboardLayout, type Placement } from "@/lib/dashboard-layout";
+import { saveOverviewLayout } from "./actions";
 import { PROJECT_STATUSES, describeDue, listProjects, projectOverview } from "@/lib/projects";
 import {
   needsAttention,
@@ -22,8 +25,19 @@ const QUICK_QUESTIONS = [
   "Any invoices waiting for review?",
 ];
 
+/** Where each widget starts (12-column grid, 30px rows) — also what "Reset layout" restores. */
+const DEFAULT_LAYOUT: Placement[] = [
+  { i: "project-stats", x: 0, y: 0, w: 12, h: 3, minW: 6, minH: 3 },
+  { i: "active-projects", x: 0, y: 3, w: 8, h: 7, minW: 4, minH: 4 },
+  { i: "assistant", x: 8, y: 3, w: 4, h: 7, minW: 3, minH: 5 },
+  { i: "finance-stats", x: 0, y: 10, w: 12, h: 3, minW: 6, minH: 3 },
+  { i: "spend", x: 0, y: 13, w: 6, h: 10, minW: 4, minH: 6 },
+  { i: "attention", x: 6, y: 13, w: 6, h: 10, minW: 4, minH: 5 },
+  { i: "invoices", x: 0, y: 23, w: 12, h: 9, minW: 4, minH: 4 },
+];
+
 export default async function OverviewPage() {
-  const { org } = await requireSession();
+  const { org, person } = await requireSession();
   const [projectStats, activeProjects, stats, slices, attention, invoices] = await Promise.all([
     projectOverview(org.id),
     listProjects(org.id),
@@ -84,157 +98,191 @@ export default async function OverviewPage() {
     },
   ];
 
+  const widgets: DashboardWidget[] = [
+    {
+      id: "project-stats",
+      title: "Project stats",
+      node: (
+        <StatRow>
+                {projectCards.map((s) => (
+                  <StatCard key={s.label} {...s} />
+                ))}
+              </StatRow>
+      ),
+    },
+    {
+      id: "active-projects",
+      title: "Active projects",
+      node: (
+        <TableCard>
+                <div className="flex items-center gap-[10px] px-[18px] py-[12px]">
+                  <CardTitle>Active projects</CardTitle>
+                  <Link href="/projects" className="ml-auto text-[12px] font-medium underline">
+                    All projects
+                  </Link>
+                </div>
+                {current.length === 0 ? (
+                  <EmptyRow>No projects scheduled or in progress.</EmptyRow>
+                ) : (
+                  current.map((p) => {
+                    const due = describeDue(p.dueDate, p.status);
+                    const pct = p.taskCount ? Math.round((p.tasksDone / p.taskCount) * 100) : null;
+                    return (
+                      <Link
+                        key={p.id}
+                        href={`/projects/${p.id}`}
+                        className="flex min-w-0 items-center gap-3 border-t border-line-soft px-[18px] py-[8px] hover:bg-[#fafbf9]"
+                      >
+                        <span className="min-w-0 flex-1 truncate text-[12.5px]">
+                          <span className="font-semibold">{p.title}</span>
+                          <span className="text-muted"> · {p.customerName}</span>
+                          {due ? <span className={due.overdue ? "font-medium text-bad-fg" : "text-faint"}> · {due.label}</span> : null}
+                        </span>
+                        {pct !== null ? (
+                          <span className="hidden w-[64px] shrink-0 items-center gap-[5px] sm:flex" title={`${p.tasksDone} of ${p.taskCount} tasks done`}>
+                            <span className="h-[4px] flex-1 overflow-hidden rounded-full bg-line-soft">
+                              <span className={`block h-full rounded-full ${pct === 100 ? "bg-ok-fg" : "bg-ink"}`} style={{ width: `${pct}%` }} />
+                            </span>
+                            <span className="font-mono text-[10.5px] text-muted">{pct}%</span>
+                          </span>
+                        ) : null}
+                        <Pill tone={p.status === "in_progress" ? "ok" : "warn"}>
+                          {PROJECT_STATUSES.find((s) => s.id === p.status)?.label ?? p.status}
+                        </Pill>
+                      </Link>
+                    );
+                  })
+                )}
+              </TableCard>
+      ),
+    },
+    {
+      id: "assistant",
+      title: "Executive Assistant",
+      node: (
+        <div className="flex min-w-0 flex-col gap-3 rounded-[22px] bg-lime p-[18px]">
+                <div className="flex items-center gap-[10px]">
+                  <Icon name="bot" size={18} />
+                  <CardTitle>Executive Assistant</CardTitle>
+                </div>
+                <div className="flex flex-col gap-[7px]">
+                  {QUICK_QUESTIONS.map((q) => (
+                    <OpenAssistantButton
+                      key={q}
+                      prompt={q}
+                      className="cursor-pointer rounded-full bg-ink px-[15px] py-[9px] text-left text-[12.5px] font-semibold text-bg hover:bg-ink/85"
+                    >
+                      {q}
+                    </OpenAssistantButton>
+                  ))}
+                </div>
+              </div>
+      ),
+    },
+    {
+      id: "finance-stats",
+      title: "Spending stats",
+      node: (
+        <StatRow>
+                {cards.map((s) => (
+                  <StatCard key={s.label} {...s} />
+                ))}
+              </StatRow>
+      ),
+    },
+    {
+      id: "spend",
+      title: "Spend by category",
+      node: (
+        <Card className="flex flex-col gap-[13px]">
+                <div className="flex flex-wrap items-center gap-[10px]">
+                  <CardTitle>Spend by category</CardTitle>
+                  <span className="ml-auto font-mono text-[10.5px] text-faint">This month</span>
+                </div>
+                <SpendByCategoryChart slices={slices} />
+              </Card>
+      ),
+    },
+    {
+      id: "attention",
+      title: "Needs attention",
+      node: (
+        <Card className="flex flex-col gap-[13px]">
+                <div className="flex items-center gap-[10px]">
+                  <CardTitle>Needs attention</CardTitle>
+                  <span className="ml-auto shrink-0 rounded-full bg-bad-bg px-[9px] py-1 font-mono text-[10.5px] text-bad-fg">
+                    {attention.length} open
+                  </span>
+                </div>
+
+                {attention.length === 0 ? (
+                  <span className="py-4 text-center text-[12.5px] text-muted">
+                    Nothing waiting — no open flags, reviews or approvals.
+                  </span>
+                ) : null}
+
+                {attention.map((a) => {
+                  const high = a.severity === "high";
+                  return (
+                    <Link
+                      key={a.title}
+                      href={a.href}
+                      className="group flex min-w-0 items-stretch gap-[10px]"
+                    >
+                      <span
+                        className={`w-[3px] shrink-0 self-stretch rounded-[3px] ${
+                          high ? "bg-meter-bad" : "bg-meter-warn"
+                        }`}
+                      />
+                      <span
+                        className={`flex size-[34px] shrink-0 items-center justify-center rounded-[12px] ${
+                          high ? "bg-bad-bg text-bad-fg" : "bg-warn-bg text-warn-fg"
+                        }`}
+                      >
+                        <Icon name={a.icon} size={16} />
+                      </span>
+                      <span className="flex min-w-0 flex-1 flex-col gap-[3px] py-px">
+                        <span className="flex min-w-0 items-start gap-[10px]">
+                          <span className="min-w-0 flex-1 text-[12.5px] leading-[1.35] font-semibold">
+                            {a.title}
+                          </span>
+                          <span className="shrink-0 text-[11.5px] font-medium underline">
+                            {high ? "Review" : "Open"}
+                          </span>
+                        </span>
+                        <span className="text-[11px] leading-[1.45] text-muted">{a.note}</span>
+                      </span>
+                    </Link>
+                  );
+                })}
+              </Card>
+      ),
+    },
+    {
+      id: "invoices",
+      title: "Recent invoices",
+      node: (
+        <TableCard>
+                <div className="flex items-center gap-[10px] px-[18px] py-4">
+                  <CardTitle>Recent invoices</CardTitle>
+                  <Link href="/invoices" className="ml-auto text-[12.5px] font-medium underline">
+                    See all
+                  </Link>
+                </div>
+                {invoices.length === 0 ? (
+                  <EmptyRow>No invoices yet — upload one to get started.</EmptyRow>
+                ) : (
+                  invoices.map((row) => <InvoiceListRow key={row.id} row={row} />)
+                )}
+              </TableCard>
+      ),
+    },
+  ];
+  const layout = await getDashboardLayout(person.id, "overview", DEFAULT_LAYOUT);
+
   return (
     <PageBody>
-      <StatRow>
-        {projectCards.map((s) => (
-          <StatCard key={s.label} {...s} />
-        ))}
-      </StatRow>
-
-      <div className="grid min-w-0 grid-cols-1 items-start gap-3 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
-        <TableCard>
-          <div className="flex items-center gap-[10px] px-[18px] py-[12px]">
-            <CardTitle>Active projects</CardTitle>
-            <Link href="/projects" className="ml-auto text-[12px] font-medium underline">
-              All projects
-            </Link>
-          </div>
-          {current.length === 0 ? (
-            <EmptyRow>No projects scheduled or in progress.</EmptyRow>
-          ) : (
-            current.map((p) => {
-              const due = describeDue(p.dueDate, p.status);
-              const pct = p.taskCount ? Math.round((p.tasksDone / p.taskCount) * 100) : null;
-              return (
-                <Link
-                  key={p.id}
-                  href={`/projects/${p.id}`}
-                  className="flex min-w-0 items-center gap-3 border-t border-line-soft px-[18px] py-[8px] hover:bg-[#fafbf9]"
-                >
-                  <span className="min-w-0 flex-1 truncate text-[12.5px]">
-                    <span className="font-semibold">{p.title}</span>
-                    <span className="text-muted"> · {p.customerName}</span>
-                    {due ? <span className={due.overdue ? "font-medium text-bad-fg" : "text-faint"}> · {due.label}</span> : null}
-                  </span>
-                  {pct !== null ? (
-                    <span className="hidden w-[64px] shrink-0 items-center gap-[5px] sm:flex" title={`${p.tasksDone} of ${p.taskCount} tasks done`}>
-                      <span className="h-[4px] flex-1 overflow-hidden rounded-full bg-line-soft">
-                        <span className={`block h-full rounded-full ${pct === 100 ? "bg-ok-fg" : "bg-ink"}`} style={{ width: `${pct}%` }} />
-                      </span>
-                      <span className="font-mono text-[10.5px] text-muted">{pct}%</span>
-                    </span>
-                  ) : null}
-                  <Pill tone={p.status === "in_progress" ? "ok" : "warn"}>
-                    {PROJECT_STATUSES.find((s) => s.id === p.status)?.label ?? p.status}
-                  </Pill>
-                </Link>
-              );
-            })
-          )}
-        </TableCard>
-
-        <div className="flex min-w-0 flex-col gap-3 rounded-[22px] bg-lime p-[18px]">
-          <div className="flex items-center gap-[10px]">
-            <Icon name="bot" size={18} />
-            <CardTitle>Executive Assistant</CardTitle>
-          </div>
-          <div className="flex flex-col gap-[7px]">
-            {QUICK_QUESTIONS.map((q) => (
-              <OpenAssistantButton
-                key={q}
-                prompt={q}
-                className="cursor-pointer rounded-full bg-ink px-[15px] py-[9px] text-left text-[12.5px] font-semibold text-bg hover:bg-ink/85"
-              >
-                {q}
-              </OpenAssistantButton>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <StatRow>
-        {cards.map((s) => (
-          <StatCard key={s.label} {...s} />
-        ))}
-      </StatRow>
-
-      <div className="grid min-w-0 grid-cols-1 items-start gap-3 lg:grid-cols-2">
-        <Card className="flex flex-col gap-[13px]">
-          <div className="flex flex-wrap items-center gap-[10px]">
-            <CardTitle>Spend by category</CardTitle>
-            <span className="ml-auto font-mono text-[10.5px] text-faint">This month</span>
-          </div>
-          <SpendByCategoryChart slices={slices} />
-        </Card>
-
-        <Card className="flex flex-col gap-[13px]">
-          <div className="flex items-center gap-[10px]">
-            <CardTitle>Needs attention</CardTitle>
-            <span className="ml-auto shrink-0 rounded-full bg-bad-bg px-[9px] py-1 font-mono text-[10.5px] text-bad-fg">
-              {attention.length} open
-            </span>
-          </div>
-
-          {attention.length === 0 ? (
-            <span className="py-4 text-center text-[12.5px] text-muted">
-              Nothing waiting — no open flags, reviews or approvals.
-            </span>
-          ) : null}
-
-          {attention.map((a) => {
-            const high = a.severity === "high";
-            return (
-              <Link
-                key={a.title}
-                href={a.href}
-                className="group flex min-w-0 items-stretch gap-[10px]"
-              >
-                <span
-                  className={`w-[3px] shrink-0 self-stretch rounded-[3px] ${
-                    high ? "bg-meter-bad" : "bg-meter-warn"
-                  }`}
-                />
-                <span
-                  className={`flex size-[34px] shrink-0 items-center justify-center rounded-[12px] ${
-                    high ? "bg-bad-bg text-bad-fg" : "bg-warn-bg text-warn-fg"
-                  }`}
-                >
-                  <Icon name={a.icon} size={16} />
-                </span>
-                <span className="flex min-w-0 flex-1 flex-col gap-[3px] py-px">
-                  <span className="flex min-w-0 items-start gap-[10px]">
-                    <span className="min-w-0 flex-1 text-[12.5px] leading-[1.35] font-semibold">
-                      {a.title}
-                    </span>
-                    <span className="shrink-0 text-[11.5px] font-medium underline">
-                      {high ? "Review" : "Open"}
-                    </span>
-                  </span>
-                  <span className="text-[11px] leading-[1.45] text-muted">{a.note}</span>
-                </span>
-              </Link>
-            );
-          })}
-        </Card>
-      </div>
-
-      <div className="min-w-0">
-        <TableCard>
-          <div className="flex items-center gap-[10px] px-[18px] py-4">
-            <CardTitle>Recent invoices</CardTitle>
-            <Link href="/invoices" className="ml-auto text-[12.5px] font-medium underline">
-              See all
-            </Link>
-          </div>
-          {invoices.length === 0 ? (
-            <EmptyRow>No invoices yet — upload one to get started.</EmptyRow>
-          ) : (
-            invoices.map((row) => <InvoiceListRow key={row.id} row={row} />)
-          )}
-        </TableCard>
-
-      </div>
+      <DashboardGrid widgets={widgets} layout={layout} defaultLayout={DEFAULT_LAYOUT} onSave={saveOverviewLayout} />
     </PageBody>
   );
 }
