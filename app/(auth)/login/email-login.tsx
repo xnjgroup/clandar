@@ -21,6 +21,7 @@ export function EmailLogin() {
     return (
       <form action={sendAction} className="flex w-full flex-col gap-[10px]">
         <input
+          id="login-email"
           name="email"
           type="email"
           required

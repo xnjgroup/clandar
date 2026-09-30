@@ -6,6 +6,7 @@ import { Icon, type IconName } from "@/components/icons";
 import { currentSession } from "@/lib/auth";
 import { firstParam } from "@/lib/data";
 import { LoginCard } from "./login/login-card";
+import { SignInLink } from "./login/sign-in-link";
 
 export const metadata: Metadata = {
   title: "Clandar — the AI assistant for business owners who do it all",
@@ -205,12 +206,9 @@ export default async function LandingPage({ searchParams }: PageProps<"/">) {
         >
           What it does
         </a>
-        <a
-          href="#signin"
-          className="shrink-0 rounded-full bg-ink px-[16px] py-[9px] text-[12.5px] font-semibold text-bg max-sm:ml-auto"
-        >
+        <SignInLink className="shrink-0 rounded-full bg-ink px-[16px] py-[9px] text-[12.5px] font-semibold text-bg max-sm:ml-auto">
           Sign in
-        </a>
+        </SignInLink>
       </header>
 
       {/* First screen: sign in (left) beside a preview of the product (right); phones stack them. */}
@@ -358,12 +356,9 @@ export default async function LandingPage({ searchParams }: PageProps<"/">) {
           <p className="m-0 text-[13.5px] leading-[1.6] text-[#b7bcb2]">
             Sign in and your workspace is ready — no setup, nothing to install.
           </p>
-          <a
-            href="#signin"
-            className="flex items-center gap-[10px] rounded-full bg-lime px-[22px] py-[13px] text-[14px] font-semibold text-ink"
-          >
+          <SignInLink className="flex items-center gap-[10px] rounded-full bg-lime px-[22px] py-[13px] text-[14px] font-semibold text-ink">
             Get started
-          </a>
+          </SignInLink>
         </div>
       </section>
 
