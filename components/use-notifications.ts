@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export type NotificationItem = {
   id: string;
@@ -45,6 +45,10 @@ export function useNotifications() {
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [unread, setUnread] = useState(0);
   const [jobs, setJobs] = useState<RunningJob[]>([]);
+  // Bumped whenever a new notification arrives (the unread count goes up after the first load) —
+  // the assistant's icons use it as a key to replay their "ring" animation.
+  const [ring, setRing] = useState(0);
+  const lastUnread = useRef<number | null>(null);
   const [push, setPush] = useState<PushState>("unsupported");
   const [pushError, setPushError] = useState<string | null>(null);
 
@@ -55,6 +59,8 @@ export function useNotifications() {
     setItems(data.items);
     setUnread(data.unread);
     setJobs(data.jobs ?? []);
+    if (lastUnread.current !== null && data.unread > lastUnread.current) setRing((n) => n + 1);
+    lastUnread.current = data.unread;
   }, []);
 
   // Every minute — every 10s while a job is running, so its "done" notification lands promptly.
@@ -156,7 +162,7 @@ export function useNotifications() {
     }
   }, [push]);
 
-  return { items, unread, jobs, reload: load, markRead, dismiss, push, pushError, togglePush };
+  return { items, unread, jobs, ring, reload: load, markRead, dismiss, push, pushError, togglePush };
 }
 
 export type Notifications = ReturnType<typeof useNotifications>;

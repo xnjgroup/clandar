@@ -149,3 +149,59 @@ body {
   box-shadow: 0 8px 24px rgba(16, 18, 17, 0.16);
   font-family: inherit;
 }
+
+/* A new notification: the assistant's icon rings like a bell and its badge pops
+   (components/app-shell.tsx, assistant-widget.tsx — replayed by re-keying on `ring`). */
+@keyframes bell-ring {
+  0%, 100% { transform: rotate(0); }
+  10% { transform: rotate(16deg); }
+  20% { transform: rotate(-14deg); }
+  30% { transform: rotate(12deg); }
+  40% { transform: rotate(-10deg); }
+  50% { transform: rotate(7deg); }
+  60% { transform: rotate(-5deg); }
+  70% { transform: rotate(3deg); }
+  80% { transform: rotate(-1deg); }
+}
+@keyframes badge-pop {
+  0% { transform: scale(0.4); }
+  55% { transform: scale(1.35); }
+  100% { transform: scale(1); }
+}
+.ring-once {
+  display: inline-flex;
+  transform-origin: 50% 10%;
+  animation: bell-ring 1.1s ease-in-out 2;
+}
+.pop-once {
+  animation: badge-pop 0.45s ease-out;
+}
+/* A chat reply finished while the panel was closed: the assistant's button bounces
+   (three hops, again every few seconds) until it's opened. While it's still working, a soft pulse. */
+@keyframes reply-bounce {
+  0%, 30%, 100% { transform: translateY(0); }
+  6% { transform: translateY(-10px); }
+  12% { transform: translateY(0); }
+  17% { transform: translateY(-6px); }
+  22% { transform: translateY(0); }
+  26% { transform: translateY(-3px); }
+}
+.reply-bounce {
+  animation: reply-bounce 3.5s ease-out infinite;
+}
+@keyframes working-pulse {
+  0% { box-shadow: 0 6px 20px rgba(16, 18, 17, 0.28), 0 0 0 0 rgba(216, 243, 106, 0.55); }
+  70% { box-shadow: 0 6px 20px rgba(16, 18, 17, 0.28), 0 0 0 12px rgba(216, 243, 106, 0); }
+  100% { box-shadow: 0 6px 20px rgba(16, 18, 17, 0.28), 0 0 0 0 rgba(216, 243, 106, 0); }
+}
+.working-pulse {
+  animation: working-pulse 1.6s ease-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ring-once,
+  .pop-once,
+  .reply-bounce,
+  .working-pulse {
+    animation: none;
+  }
+}

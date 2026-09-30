@@ -96,9 +96,18 @@ export function AssistantWidget({
   notifications,
   name,
   pageContext,
+  onActivity,
+  activity,
 }: {
   /** What the team calls its assistant (Settings → Chat), "Hermes" by default. */
   name: string;
+  /**
+   * The chat keeps working when the panel is closed. It reports "working" while a reply is being
+   * written, and "replied" when one finishes with the panel closed — the app shell then bounces
+   * the assistant's button (and passes `activity` back for the desktop one) until it's opened.
+   */
+  onActivity: (activity: "idle" | "working" | "replied") => void;
+  activity: "idle" | "working" | "replied";
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Chat, or Updates — the notifications, posted by the assistant. */
@@ -114,6 +123,11 @@ export function AssistantWidget({
   const [question, setQuestion] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [pending, setPending] = useState(false);
+  // Whether the panel is open right now — read when a reply finishes, which can be long after sending.
+  const openRef = useRef(open);
+  useEffect(() => {
+    openRef.current = open;
+  }, [open]);
   const [error, setError] = useState<string | null>(null);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [copiedId, setCopiedId] = useState(false);
@@ -292,6 +306,7 @@ export function AssistantWidget({
     const q = (text ?? question).trim();
     if (!q || pending) return;
     setPending(true);
+    onActivity("working");
     setError(null);
     setQuestion("");
     const sentAttachments = attachments;
@@ -395,6 +410,7 @@ export function AssistantWidget({
       setTurns((prev) => prev?.filter((t) => t.id !== "pending" && t.id !== "streaming") ?? prev);
     } finally {
       setPending(false);
+      onActivity(openRef.current ? "idle" : "replied");
     }
   }
 
@@ -407,13 +423,26 @@ export function AssistantWidget({
         onClick={() => onOpenChange(true)}
         aria-label={`Open ${name}`}
         title={`Open ${name}`}
-        className="fixed right-6 bottom-6 z-40 hidden size-[52px] shrink-0 cursor-pointer items-center justify-center rounded-full bg-ink text-lime shadow-[0_6px_20px_rgba(16,18,17,0.28)] lg:flex"
+        className={`fixed right-6 bottom-6 z-40 hidden size-[52px] shrink-0 cursor-pointer items-center justify-center rounded-full bg-ink text-lime shadow-[0_6px_20px_rgba(16,18,17,0.28)] lg:flex ${
+          activity === "replied" ? "reply-bounce" : activity === "working" ? "working-pulse" : ""
+        }`}
       >
-        <Icon name="bot" size={22} />
+        {/* Re-keyed on each new notification so the ring (and badge pop) replays. */}
+        <span key={notifications.ring} className={notifications.ring ? "ring-once" : "inline-flex"}>
+          <Icon name="bot" size={22} />
+        </span>
+        {activity === "replied" && notifications.unread === 0 ? (
+          // A reply finished while the panel was closed.
+          <span
+            aria-label="New reply"
+            className="absolute -top-[2px] -right-[2px] size-[13px] rounded-full border-2 border-surface bg-lime"
+          />
+        ) : null}
         {notifications.unread > 0 ? (
           <span
+            key={`badge-${notifications.ring}`}
             aria-label={`${notifications.unread} new update${notifications.unread === 1 ? "" : "s"}`}
-            className="absolute -top-[3px] -right-[3px] flex h-[19px] min-w-[19px] items-center justify-center rounded-full border-2 border-surface bg-bad-fg px-[4px] text-[10px] font-bold text-white"
+            className={`absolute -top-[3px] -right-[3px] flex h-[19px] min-w-[19px] items-center justify-center rounded-full border-2 border-surface bg-bad-fg px-[4px] text-[10px] font-bold text-white ${notifications.ring ? "pop-once" : ""}`}
           >
             {notifications.unread > 99 ? "99+" : notifications.unread}
           </span>
@@ -457,7 +486,9 @@ export function AssistantWidget({
             tab === "updates" ? "bg-ink text-lime" : "text-faint hover:text-body"
           }`}
         >
-          <Icon name="bellSm" size={15} />
+          <span key={notifications.ring} className={notifications.ring ? "ring-once" : "inline-flex"}>
+            <Icon name="bellSm" size={15} />
+          </span>
           {notifications.jobs.length > 0 && notifications.unread === 0 ? (
             // Something's running (e.g. an email trash) — its progress is in Updates.
             <span className="absolute -top-[2px] -right-[2px] size-[8px] animate-pulse rounded-full bg-meter-ok" />

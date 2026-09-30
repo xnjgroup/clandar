@@ -244,9 +244,13 @@ export function AppShell({
   const notifications = useNotifications();
   const [assistantTab, setAssistantTab] = useState<"chat" | "updates">("chat");
   function openAssistant(tab?: "chat" | "updates") {
-    setAssistantTab(tab ?? (notifications.unread > 0 ? "updates" : "chat"));
+    // A reply that finished while it was closed wins: open on the chat to show it.
+    setAssistantTab(tab ?? (assistantActivity === "replied" ? "chat" : notifications.unread > 0 ? "updates" : "chat"));
     setAssistantOpen(true);
+    if (assistantActivity === "replied") setAssistantActivity("idle");
   }
+  // The chat keeps working while closed: "working" pulses its button, "replied" bounces it until opened.
+  const [assistantActivity, setAssistantActivity] = useState<"idle" | "working" | "replied">("idle");
 
   // A navigation ends the visit that opened the drawer — close it so the next
   // page doesn't render underneath an open overlay. Adjusting state during
@@ -355,6 +359,8 @@ export function AppShell({
           onTabChange={setAssistantTab}
           notifications={notifications}
           name={assistantName}
+          activity={assistantActivity}
+          onActivity={setAssistantActivity}
           pageContext={`${title} (${pathname})`}
         />
       </div>
@@ -393,10 +399,23 @@ export function AppShell({
             assistantOpen ? "bg-ink text-lime" : "text-[#8b918a]"
           }`}
         >
-          <span className="relative">
-            <Icon name="bot" size={21} />
+          <span
+            className={`relative ${
+              assistantOpen ? "" : assistantActivity === "replied" ? "reply-bounce" : assistantActivity === "working" ? "animate-pulse" : ""
+            }`}
+          >
+            {!assistantOpen && assistantActivity === "replied" && notifications.unread === 0 ? (
+              <span aria-label="New reply" className="absolute -top-[4px] -right-[6px] size-[10px] rounded-full border-2 border-surface bg-lime" />
+            ) : null}
+            {/* Re-keyed on each new notification so the ring (and badge pop) replays. */}
+            <span key={notifications.ring} className={notifications.ring ? "ring-once" : "inline-flex"}>
+              <Icon name="bot" size={21} />
+            </span>
             {notifications.unread > 0 ? (
-              <span className="absolute -top-[6px] -right-[9px] flex h-[16px] min-w-[16px] items-center justify-center rounded-full bg-bad-fg px-[4px] text-[9.5px] font-bold text-white">
+              <span
+                key={`badge-${notifications.ring}`}
+                className={`absolute -top-[6px] -right-[9px] flex h-[16px] min-w-[16px] items-center justify-center rounded-full bg-bad-fg px-[4px] text-[9.5px] font-bold text-white ${notifications.ring ? "pop-once" : ""}`}
+              >
                 {notifications.unread > 99 ? "99+" : notifications.unread}
               </span>
             ) : null}
