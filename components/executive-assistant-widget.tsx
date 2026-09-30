@@ -519,7 +519,7 @@ export function ExecutiveAssistantWidget({
                   </div>
                 ) : null}
                 {turn.body ? (
-                  <p className="m-0 rounded-[16px] bg-ink px-[12px] py-[8px] text-[12.5px] leading-[1.5] whitespace-pre-wrap text-bg">
+                  <p className="m-0 rounded-[16px] bg-ink px-[12px] py-[8px] text-[15px] leading-[1.5] sm:text-[12.5px] whitespace-pre-wrap text-bg">
                     {renderMessageBody(turn.body, closeOnMobileNavigate)}
                   </p>
                 ) : null}
@@ -544,7 +544,7 @@ export function ExecutiveAssistantWidget({
                   </details>
                 ) : null}
                 {turn.body ? (
-                  <div className="rounded-[16px] bg-bg px-[12px] py-[9px] text-[12.5px] leading-[1.55] text-body">
+                  <div className="rounded-[16px] bg-bg px-[12px] py-[9px] text-[15px] leading-[1.55] sm:text-[12.5px] text-body">
                     <ChatMarkdown text={turn.body} onNavigate={closeOnMobileNavigate} />
                   </div>
                 ) : null}

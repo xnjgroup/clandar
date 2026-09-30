@@ -28,10 +28,10 @@ export function ChatMarkdown({ text, onNavigate }: { text: string; onNavigate: (
       ),
     img: ({ alt }) => (alt ? <span className="text-muted">[{alt}]</span> : null),
     p: ({ children }) => <p className="m-0 [&:not(:first-child)]:mt-[8px]">{children}</p>,
-    h1: ({ children }) => <h3 className="m-0 mt-[10px] text-[14px] font-bold first:mt-0">{children}</h3>,
-    h2: ({ children }) => <h3 className="m-0 mt-[10px] text-[13.5px] font-bold first:mt-0">{children}</h3>,
-    h3: ({ children }) => <h4 className="m-0 mt-[8px] text-[13px] font-semibold first:mt-0">{children}</h4>,
-    h4: ({ children }) => <h4 className="m-0 mt-[8px] text-[12.5px] font-semibold first:mt-0">{children}</h4>,
+    h1: ({ children }) => <h3 className="m-0 mt-[10px] text-[1.12em] font-bold first:mt-0">{children}</h3>,
+    h2: ({ children }) => <h3 className="m-0 mt-[10px] text-[1.08em] font-bold first:mt-0">{children}</h3>,
+    h3: ({ children }) => <h4 className="m-0 mt-[8px] text-[1.04em] font-semibold first:mt-0">{children}</h4>,
+    h4: ({ children }) => <h4 className="m-0 mt-[8px] text-[1em] font-semibold first:mt-0">{children}</h4>,
     ul: ({ children }) => <ul className="m-0 mt-[6px] flex list-disc flex-col gap-[3px] pl-[18px] first:mt-0">{children}</ul>,
     ol: ({ children }) => <ol className="m-0 mt-[6px] flex list-decimal flex-col gap-[3px] pl-[20px] first:mt-0">{children}</ol>,
     li: ({ children }) => <li className="pl-[2px] marker:text-muted">{children}</li>,
@@ -42,18 +42,18 @@ export function ChatMarkdown({ text, onNavigate }: { text: string; onNavigate: (
     hr: () => <hr className="my-[10px] border-0 border-t border-line" />,
     code: ({ className, children }) =>
       className ? (
-        <code className={`${className} font-mono text-[11.5px]`}>{children}</code>
+        <code className={`${className} font-mono text-[0.92em]`}>{children}</code>
       ) : (
-        <code className="rounded-[5px] bg-line-soft px-[4px] py-[1px] font-mono text-[11.5px]">{children}</code>
+        <code className="rounded-[5px] bg-line-soft px-[4px] py-[1px] font-mono text-[0.92em]">{children}</code>
       ),
     pre: ({ children }) => (
-      <pre className="m-0 mt-[8px] overflow-x-auto rounded-[10px] bg-ink px-[10px] py-[8px] text-[11.5px] leading-[1.5] text-bg first:mt-0 [&_code]:bg-transparent [&_code]:p-0">
+      <pre className="m-0 mt-[8px] overflow-x-auto rounded-[10px] bg-ink px-[10px] py-[8px] text-[0.92em] leading-[1.5] text-bg first:mt-0 [&_code]:bg-transparent [&_code]:p-0">
         {children}
       </pre>
     ),
     table: ({ children }) => (
       <div className="mt-[8px] max-w-full overflow-x-auto rounded-[10px] border border-line first:mt-0">
-        <table className="w-full border-collapse text-[11.5px]">{children}</table>
+        <table className="w-full border-collapse text-[0.92em]">{children}</table>
       </div>
     ),
     th: ({ children }) => (
