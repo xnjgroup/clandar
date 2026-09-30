@@ -2,6 +2,7 @@ import Link from "next/link";
 import { firstParam } from "@/lib/data";
 import { peekLoginLink } from "@/lib/email-login";
 import { confirmEmailLink } from "../actions";
+import { BrandMark } from "@/components/brand-mark";
 
 /**
  * Where an emailed sign-in link lands. Signing in takes a button press, not
@@ -14,9 +15,7 @@ export default async function EmailLinkPage({ searchParams }: PageProps<"/login/
   return (
     <div className="flex min-h-screen items-center justify-center px-4">
       <div className="flex w-full max-w-[380px] flex-col items-center gap-5 rounded-[20px] border border-line bg-surface px-8 py-10 text-center">
-        <span className="flex size-[46px] items-center justify-center rounded-[14px] bg-ink text-[20px] font-bold text-lime">
-          C.
-        </span>
+        <BrandMark size={34} />
         {email ? (
           <form action={confirmEmailLink} className="flex w-full flex-col items-center gap-4">
             <input type="hidden" name="token" value={token} />

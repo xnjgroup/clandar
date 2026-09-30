@@ -17,6 +17,8 @@ const jetbrainsMono = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "Sign in — Clandar",
   description: "Sign in to your company's Clandar workspace.",
+  // SVG only (brand/clandar-logo-v2/favicon.svg): a light tile, dark in dark-mode browsers.
+  icons: { icon: [{ url: "/favicon.svg", type: "image/svg+xml" }] },
 };
 
 export const dynamic = "force-dynamic";

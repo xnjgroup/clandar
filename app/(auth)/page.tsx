@@ -7,6 +7,7 @@ import { currentSession } from "@/lib/auth";
 import { firstParam } from "@/lib/data";
 import { LoginCard } from "./login/login-card";
 import { SignInLink } from "./login/sign-in-link";
+import { BrandLockup } from "@/components/brand-lockup";
 
 export const metadata: Metadata = {
   title: "Clandar — the AI assistant for business owners who do it all",
@@ -196,10 +197,7 @@ export default async function LandingPage({ searchParams }: PageProps<"/">) {
   return (
     <div className="flex min-h-screen flex-col">
       <header className="mx-auto flex w-full max-w-[1120px] items-center gap-[10px] px-5 py-5 lg:px-8">
-        <span className="flex size-[32px] shrink-0 items-center justify-center rounded-[9px] bg-ink text-[14px] font-bold text-lime">
-          C.
-        </span>
-        <span className="text-[16px] font-bold tracking-[-0.02em]">Clandar</span>
+        <BrandLockup />
         <a
           href="#features"
           className="ml-auto hidden shrink-0 px-[10px] py-[9px] text-[12.5px] font-medium text-body-soft hover:text-ink sm:block"

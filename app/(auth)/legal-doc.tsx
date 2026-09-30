@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { BrandLockup } from "@/components/brand-lockup";
 
 /** Shared chrome for /privacy and /terms — simple prose on the same off-white ground as the rest of the site. */
 export function LegalDoc({
@@ -13,14 +14,10 @@ export function LegalDoc({
 }) {
   return (
     <div className="mx-auto flex w-full max-w-[720px] flex-col gap-[22px] px-5 py-[40px] lg:px-8">
-      <div className="flex items-center gap-[10px]">
-        <Link
-          href="/"
-          className="flex size-[32px] shrink-0 items-center justify-center rounded-[9px] bg-ink text-[14px] font-bold text-lime"
-        >
-          C.
+      <div className="flex items-center gap-[8px]">
+        <Link href="/" aria-label="Clandar home" className="flex shrink-0">
+          <BrandLockup />
         </Link>
-        <span className="text-[16px] font-bold tracking-[-0.02em]">Clandar</span>
         <div className="ml-auto flex gap-[14px] text-[12.5px] font-medium">
           <Link href="/privacy" className="underline">
             Privacy

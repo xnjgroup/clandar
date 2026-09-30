@@ -9,6 +9,7 @@ import { HEADER_ACTIONS_ID } from "@/components/header-actions";
 import { playSound, unlockSoundOnInteraction } from "@/components/notification-sound";
 import { useNotifications } from "@/components/use-notifications";
 import { MOBILE_TABS, NAV_FOOTER, NAV_GROUPS, NAV_TOP, PAGE_TITLES, USER_MENU, greeting } from "@/lib/data";
+import { BrandLockup } from "@/components/brand-lockup";
 
 const ASSISTANT_OPEN_KEY = "clandar:assistant-open";
 
@@ -501,12 +502,9 @@ function MobileNav({
       />
 
       <aside className="absolute top-0 left-0 flex h-full w-[82vw] max-w-[300px] flex-col gap-[14px] overflow-y-auto border-r border-line bg-bg px-4 pt-[18px] pb-4 shadow-[0_0_40px_rgba(16,18,17,0.18)]">
-        <div className="flex items-center gap-[10px] px-1 pt-[2px] pb-2">
-          <span className="flex size-[30px] shrink-0 items-center justify-center rounded-[9px] bg-ink text-[14px] font-bold text-lime">
-            C.
-          </span>
-          <span className="min-w-0 flex-1 text-[16px] font-bold tracking-[-0.02em]">
-            Clandar
+        <div className="flex items-center gap-[8px] px-1 pt-[2px] pb-2">
+          <span className="min-w-0 flex-1">
+            <BrandLockup />
           </span>
           <button
             type="button"
@@ -561,11 +559,8 @@ function Sidebar({
 }) {
   return (
     <aside className="sticky top-0 hidden h-screen flex-col gap-[14px] border-r border-line bg-bg px-4 pt-[22px] pb-4 lg:flex">
-      <div className="flex items-center gap-[10px] px-1 pt-[2px] pb-2">
-        <span className="flex size-[30px] shrink-0 items-center justify-center rounded-[9px] bg-ink text-[14px] font-bold text-lime">
-          C.
-        </span>
-        <span className="text-[16px] font-bold tracking-[-0.02em]">Clandar</span>
+      <div className="flex items-center gap-[8px] px-1 pt-[2px] pb-2">
+        <BrandLockup />
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
