@@ -97,6 +97,8 @@ export function ExecutiveAssistantWidget({
 }) {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [turns, setTurns] = useState<DisplayTurn[] | null>(null);
+  /** Who's viewing — messages from anyone else in a shared conversation get their name shown. */
+  const [viewerId, setViewerId] = useState<string | null>(null);
   const [question, setQuestion] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [pending, setPending] = useState(false);
@@ -138,7 +140,8 @@ export function ExecutiveAssistantWidget({
     if (!open || turns !== null) return;
     fetch("/api/assistant")
       .then((r) => r.json())
-      .then((data: { conversations: ConversationSummary[] }) => {
+      .then((data: { conversations: ConversationSummary[]; viewerId?: string }) => {
+        if (data.viewerId) setViewerId(data.viewerId);
         setConversations(data.conversations);
         if (data.conversations.length > 0) loadConversation(data.conversations[0].id);
         else setTurns([]);
@@ -157,7 +160,10 @@ export function ExecutiveAssistantWidget({
     setConversationId(id);
     fetch(`/api/assistant?conversationId=${id}`)
       .then((r) => r.json())
-      .then((data: { conversation?: { turns: DisplayTurn[] } }) => setTurns(data.conversation?.turns ?? []))
+      .then((data: { conversation?: { turns: DisplayTurn[] }; viewerId?: string }) => {
+        if (data.viewerId) setViewerId(data.viewerId);
+        setTurns(data.conversation?.turns ?? []);
+      })
       .catch(() => setTurns([]));
   }
 
@@ -266,6 +272,8 @@ export function ExecutiveAssistantWidget({
         id: "pending",
         role: "user",
         body: q,
+        senderId: viewerId,
+        senderName: null,
         toolCalls: [],
         attachments: sentAttachments.map((a, i) => ({
           id: `pending-${i}`,
@@ -274,7 +282,7 @@ export function ExecutiveAssistantWidget({
           previewUrl: a.dataUrl,
         })),
       },
-      { id: "streaming", role: "assistant", body: "", toolCalls: [], attachments: [] },
+      { id: "streaming", role: "assistant", body: "", senderId: null, senderName: null, toolCalls: [], attachments: [] },
     ]);
 
     function updateStreamingTurn(patch: (t: DisplayTurn) => DisplayTurn) {
@@ -491,6 +499,9 @@ export function ExecutiveAssistantWidget({
             const turnAttachments = turn.attachments ?? [];
             return turn.role === "user" ? (
               <div key={turn.id} className="flex max-w-[85%] flex-col items-end gap-[6px] self-end">
+                {turn.senderName && viewerId && turn.senderId !== viewerId ? (
+                  <span className="px-[4px] text-[11px] font-medium text-muted">{turn.senderName}</span>
+                ) : null}
                 {turnAttachments.length > 0 ? (
                   <div className="flex flex-wrap justify-end gap-[6px]">
                     {turnAttachments.map((a) =>

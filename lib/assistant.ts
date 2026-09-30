@@ -62,6 +62,9 @@ export type AgentTurn = {
   id: string;
   role: "user" | "assistant";
   body: string;
+  /** Who sent a user message (several team members can share a conversation); null for the assistant. */
+  senderId: string | null;
+  senderName: string | null;
   toolCalls: { tool: string; detail: string }[];
   attachments: AgentAttachment[];
 };
@@ -117,8 +120,16 @@ export async function setConversationArchived(id: string, orgId: string, archive
 }
 
 async function turnsFor(conversationId: string): Promise<AgentTurn[]> {
-  const messages = await query<{ id: string; role: "user" | "assistant"; body: string }>(
-    `SELECT id, role, body FROM agent_messages WHERE conversation_id = $1 ORDER BY created_at`,
+  const messages = await query<{
+    id: string;
+    role: "user" | "assistant";
+    body: string;
+    person_id: string | null;
+    sender_name: string | null;
+  }>(
+    `SELECT m.id, m.role, m.body, m.person_id, p.name AS sender_name
+       FROM agent_messages m LEFT JOIN people p ON p.id = m.person_id
+      WHERE m.conversation_id = $1 ORDER BY m.created_at`,
     [conversationId],
   );
   const calls = await query<{ message_id: string; tool: string; detail: string }>(
@@ -141,6 +152,8 @@ async function turnsFor(conversationId: string): Promise<AgentTurn[]> {
     id: m.id,
     role: m.role,
     body: m.body,
+    senderId: m.person_id,
+    senderName: m.sender_name,
     toolCalls: calls.filter((c) => c.message_id === m.id).map((c) => ({ tool: c.tool, detail: c.detail })),
     attachments: attachments
       .filter((a) => a.message_id === m.id)
@@ -1026,7 +1039,11 @@ async function runToolUnsafe(
 
 const MAX_STEPS = 50;
 
-function systemPrompt(pageContext: string | null, context: AssistantContext): string {
+function systemPrompt(
+  pageContext: string | null,
+  context: AssistantContext,
+  sender: { name: string; email: string } | null = null,
+): string {
   return (
     "You are the Executive Assistant for a small business owner's operations app (Clandar). You can answer " +
     "questions and take real actions — creating customers, projects, project types, tasks, and draft quotes, and " +
@@ -1042,6 +1059,10 @@ function systemPrompt(pageContext: string | null, context: AssistantContext): st
     "the question. In replies, link to pages in the app with markdown links, e.g. " +
     '"[Project Types](/projects/types)" — the chat renders them as clickable links. Common pages: /projects, ' +
     "/projects/types, /projects/new, /customers, /schedule, /tasks, /settings." +
+    "\n\nSeveral team members can share this conversation: each user message starts with its sender's name in " +
+    "brackets, e.g. \"[Joy Wang] …\". Keep track of who asked for what, and when someone says \"me\", \"my\" or " +
+    "\"I\", it means that sender. Don't start your own replies with a bracketed name." +
+    (sender ? `\n\nThe latest message is from ${sender.name} (${sender.email}).` : "") +
     (pageContext ? `\n\nThe user is currently viewing: ${pageContext}.` : "") +
     `\n\nToday is ${new Date().toLocaleDateString("en-CA", { timeZone: context.timeZone })} in the user's time zone (${context.timeZone}).` +
     (context.email
@@ -1092,14 +1113,22 @@ export async function* askAssistant(
 
   const convId = conversationId ?? (await createConversation(orgId, personId));
 
-  const priorRows = await query<{ role: "user" | "assistant"; body: string }>(
-    `SELECT role, body FROM agent_messages WHERE conversation_id = $1 ORDER BY created_at`,
+  const priorRows = await query<{ role: "user" | "assistant"; body: string; sender_name: string | null }>(
+    `SELECT m.role, m.body, p.name AS sender_name
+       FROM agent_messages m LEFT JOIN people p ON p.id = m.person_id
+      WHERE m.conversation_id = $1 ORDER BY m.created_at`,
     [convId],
   );
+  const sender = personId
+    ? await queryOne<{ name: string; email: string }>(`SELECT name, email FROM people WHERE id = $1`, [personId])
+    : null;
+  // Several team members can share a conversation, so each user message reaches the model
+  // prefixed with its sender's name (the stored body stays as typed).
+  const from = (name: string | null | undefined, text: string) => (name ? `[${name}] ${text}` : text);
 
   const userRow = await queryOne<{ id: string }>(
-    `INSERT INTO agent_messages (conversation_id, role, body) VALUES ($1, 'user', $2) RETURNING id`,
-    [convId, question],
+    `INSERT INTO agent_messages (conversation_id, role, body, person_id) VALUES ($1, 'user', $2, $3) RETURNING id`,
+    [convId, question, personId],
   );
   let sortOrder = 0;
   const savedAttachments: { filePath: string; fileName: string; contentType: string }[] = [];
@@ -1121,7 +1150,7 @@ export async function* askAssistant(
     await query(`UPDATE agent_conversations SET title = $2 WHERE id = $1`, [convId, question.slice(0, 60)]);
   }
 
-  const questionForModel = extraContext ? `${question}\n\n${extraContext}` : question;
+  const questionForModel = from(sender?.name, extraContext ? `${question}\n\n${extraContext}` : question);
   // The email's image attachments ride along with this turn (system prompts can't carry images).
   const emailImages = context.emailAttachments?.images ?? [];
   const userContent: string | ChatContentPart[] =
@@ -1144,8 +1173,8 @@ export async function* askAssistant(
       : questionForModel;
 
   const messages: ToolChatMessage[] = [
-    { role: "system", content: systemPrompt(pageContext, context) },
-    ...priorRows.map((r) => ({ role: r.role, content: r.body }) as const),
+    { role: "system", content: systemPrompt(pageContext, context, sender) },
+    ...priorRows.map((r) => ({ role: r.role, content: r.role === "user" ? from(r.sender_name, r.body) : r.body }) as const),
     { role: "user", content: userContent },
   ];
 

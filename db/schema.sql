@@ -1035,6 +1035,13 @@ CREATE TABLE IF NOT EXISTS agent_message_attachments (
 CREATE INDEX IF NOT EXISTS agent_message_attachments_message_idx
   ON agent_message_attachments (message_id, sort_order);
 
+-- Who sent a user message — several team members can share one conversation.
+-- Messages from before this column are credited to the conversation's creator.
+ALTER TABLE agent_messages ADD COLUMN IF NOT EXISTS person_id uuid REFERENCES people (id) ON DELETE SET NULL;
+UPDATE agent_messages m SET person_id = c.person_id
+  FROM agent_conversations c
+ WHERE m.conversation_id = c.id AND m.role = 'user' AND m.person_id IS NULL AND c.person_id IS NOT NULL;
+
 -- Archiving a conversation hides it from the switcher's default list without
 -- deleting anything — see lib/assistant.ts's archiveConversation/listConversations.
 ALTER TABLE agent_conversations ADD COLUMN IF NOT EXISTS archived_at timestamptz;

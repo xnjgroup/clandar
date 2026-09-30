@@ -24,19 +24,23 @@ import { readMail, type MailDetail } from "@/lib/gmail";
  *     without deleting it.
  */
 export async function GET(request: Request) {
-  const { org } = await requireSession();
+  const { org, person } = await requireSession();
   const params = new URL(request.url).searchParams;
   const conversationId = params.get("conversationId");
 
   if (conversationId) {
     const conversation = await getConversation(conversationId, org.id);
     if (!conversation) return NextResponse.json({ error: "Conversation not found" }, { status: 404 });
-    return NextResponse.json({ conversation });
+    // viewerId: the chat labels other people's messages with their name (conversations can be shared).
+    return NextResponse.json({ conversation, viewerId: person.id });
   }
 
   const archived = params.get("archived") === "true";
   const conversations = await listConversations(org.id, { includeArchived: archived });
-  return NextResponse.json({ conversations: archived ? conversations.filter((c) => c.archived) : conversations });
+  return NextResponse.json({
+    conversations: archived ? conversations.filter((c) => c.archived) : conversations,
+    viewerId: person.id,
+  });
 }
 
 export async function PATCH(request: Request) {
