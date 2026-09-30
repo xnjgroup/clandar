@@ -8,6 +8,7 @@
  * `jobStatus`, and pushed to the browser over SSE by
  * `app/api/gmail-jobs/[jobId]/route.ts` — no client-side polling.
  */
+import { createHash } from "node:crypto";
 import { Queue, QueueEvents } from "bullmq";
 import { createRedisConnection, redis } from "@/lib/redis";
 
@@ -31,7 +32,16 @@ export type TrashLabelJob = {
   requestedBy?: string;
 };
 
-export type GmailWorkerJob = AnalyzeInboxJob | TrashLabelJob;
+/** Everything matching a Gmail search goes to Trash — started by the assistant after the person confirms. */
+export type TrashSearchJob = {
+  kind: "trash-search";
+  connectorId: string;
+  /** Gmail search syntax, e.g. "category:promotions -category:updates". */
+  query: string;
+  requestedBy?: string;
+};
+
+export type GmailWorkerJob = AnalyzeInboxJob | TrashLabelJob | TrashSearchJob;
 
 const globalForQueue = globalThis as typeof globalThis & {
   clandarGmailQueue?: Queue<GmailWorkerJob>;
@@ -65,11 +75,7 @@ export function gmailQueueEvents(): QueueEvents {
   return globalForQueue.clandarGmailQueueEvents;
 }
 
-export async function enqueueInboxAnalysis(
-  connectorId: string,
-  maxMessages = 2_000,
-  label: string | null = null,
-) {
+export async function enqueueInboxAnalysis(connectorId: string, maxMessages = 2_000, label: string | null = null) {
   return gmailCleanupQueue().add("analyze-inbox", { kind: "analyze-inbox", connectorId, maxMessages, label });
 }
 
@@ -96,6 +102,44 @@ export async function enqueueTrashLabel(connectorId: string, label: string, requ
   }
   await setJobControl(jobId, null);
   return queueRef.add("trash-label", { kind: "trash-label", connectorId, label, requestedBy }, { jobId });
+}
+
+/** One job id per account + search, so asking twice while it runs doesn't start a duplicate. */
+export function trashSearchJobId(connectorId: string, query: string) {
+  return `trash-search-${createHash("sha1").update(query).digest("hex").slice(0, 16)}-${connectorId}`;
+}
+
+export async function enqueueTrashSearch(connectorId: string, query: string, requestedBy?: string) {
+  const queueRef = gmailCleanupQueue();
+  const jobId = trashSearchJobId(connectorId, query);
+  const existing = await queueRef.getJob(jobId);
+  if (existing) {
+    const state = await existing.getState();
+    if (state !== "completed" && state !== "failed") return existing;
+    await existing.remove();
+  }
+  await setJobControl(jobId, null);
+  return queueRef.add("trash-search", { kind: "trash-search", connectorId, query, requestedBy }, { jobId });
+}
+
+export type RunningTrash = { jobId: string; connectorId: string } & (
+  { kind: "trash-label"; label: string } | { kind: "trash-search"; query: string }
+);
+
+/** Bulk trashes (a label or a search) still queued or running — for the assistant's Updates. */
+export async function runningTrashJobs(): Promise<RunningTrash[]> {
+  const jobs = await gmailCleanupQueue().getJobs(["active", "waiting", "delayed", "prioritized"]);
+  const out: RunningTrash[] = [];
+  for (const job of jobs) {
+    if (!job?.id) continue;
+    const data = job.data;
+    if (data.kind === "trash-label")
+      out.push({ jobId: job.id, connectorId: data.connectorId, kind: data.kind, label: data.label });
+    else if (data.kind === "trash-search") {
+      out.push({ jobId: job.id, connectorId: data.connectorId, kind: data.kind, query: data.query });
+    }
+  }
+  return out;
 }
 
 export type JobStatus = {

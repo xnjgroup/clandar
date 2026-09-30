@@ -62,3 +62,9 @@ export async function markNotificationsRead(personId: string, id?: string): Prom
     await query(`UPDATE notifications SET read_at = now() WHERE person_id = $1 AND read_at IS NULL`, [personId]);
   }
 }
+
+/** Removes one notification, or all of the person's when `id` is omitted (dismiss / Clear all in Updates). */
+export async function deleteNotifications(personId: string, id?: string): Promise<void> {
+  if (id) await query(`DELETE FROM notifications WHERE id = $1 AND person_id = $2`, [id, personId]);
+  else await query(`DELETE FROM notifications WHERE person_id = $1`, [personId]);
+}

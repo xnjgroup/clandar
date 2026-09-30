@@ -607,6 +607,31 @@ export async function listMessageIds(
 }
 
 /**
+ * Exactly how many messages match a Gmail search, counting ids page by page
+ * (no per-message fetch) up to `cap` — Gmail's own `resultSizeEstimate` is
+ * often far off, and a trash confirmation needs the real number. `capped`
+ * means there are at least `cap`.
+ */
+export async function countMatches(
+  orgId: string,
+  connectorId: string,
+  query: string,
+  cap: number,
+): Promise<{ count: number; capped: boolean }> {
+  const connector = await resolveConnector(orgId, connectorId);
+  let count = 0;
+  let pageToken: string | undefined;
+  do {
+    const params = new URLSearchParams({ q: query, maxResults: "500" });
+    if (pageToken) params.set("pageToken", pageToken);
+    const list = await call<{ messages?: { id: string }[]; nextPageToken?: string }>(connector, `/messages?${params}`);
+    count += list.messages?.length ?? 0;
+    pageToken = list.nextPageToken;
+  } while (pageToken && count < cap);
+  return { count: Math.min(count, cap), capped: count >= cap && Boolean(pageToken) };
+}
+
+/**
  * The id of the Gmail label with this exact name (e.g. "Leads/Deck & fence"),
  * creating it if needed — Gmail shows "/" as nesting. Needs `gmail.modify`.
  */

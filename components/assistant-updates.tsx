@@ -118,7 +118,7 @@ export function AssistantUpdates({
   notifications: Notifications;
   onNavigate: () => void;
 }) {
-  const { items, unread, jobs, reload, markRead, push, pushError, togglePush } = notifications;
+  const { items, unread, jobs, reload, markRead, dismiss, push, pushError, togglePush } = notifications;
   // Remember which were unread when the tab opened, so they stay marked "new" after being read.
   const [fresh] = useState(() => new Set(items.filter((n) => !n.read).map((n) => n.id)));
   useEffect(() => {
@@ -134,6 +134,15 @@ export function AssistantUpdates({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div ref={scrollRef} className="flex min-h-0 flex-1 flex-col gap-[12px] overflow-y-auto px-[14px] py-[14px]">
+        {ordered.length > 1 ? (
+          <button
+            type="button"
+            onClick={() => void dismiss()}
+            className="-mb-[4px] cursor-pointer self-end text-[11.5px] font-medium text-muted underline hover:text-ink"
+          >
+            Clear all
+          </button>
+        ) : null}
         {ordered.length === 0 && jobs.length === 0 ? (
           <p className="m-0 text-[12px] leading-[1.5] text-muted">
             Nothing yet — I&rsquo;ll post here when a reminder is due or new leads come in.
@@ -148,9 +157,18 @@ export function AssistantUpdates({
                     isNew ? "border border-[#cfe3a8] bg-[#f3f9e6]" : "bg-bg"
                   }`}
                 >
-                  <span className="flex items-center gap-[6px] font-semibold text-ink">
-                    {isNew ? <span className="size-[7px] shrink-0 rounded-full bg-ok-fg" /> : null}
-                    {n.title}
+                  <span className="flex items-start gap-[6px] font-semibold text-ink">
+                    {isNew ? <span className="mt-[0.5em] size-[7px] shrink-0 rounded-full bg-ok-fg" /> : null}
+                    <span className="min-w-0 flex-1">{n.title}</span>
+                    <button
+                      type="button"
+                      onClick={() => void dismiss(n.id)}
+                      aria-label="Dismiss"
+                      title="Dismiss"
+                      className="-mr-[4px] flex size-[22px] shrink-0 cursor-pointer items-center justify-center rounded-full text-faint hover:bg-line-soft hover:text-ink"
+                    >
+                      <Icon name="close" size={12} />
+                    </button>
                   </span>
                   {n.body ? (
                     // Markdown — automations (a daily briefing) write their reports that way.

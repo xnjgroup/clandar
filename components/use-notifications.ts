@@ -104,6 +104,20 @@ export function useNotifications() {
     [load],
   );
 
+  /** Dismisses one notification (or all, without an id) — removed right away, then confirmed by a reload. */
+  const dismiss = useCallback(
+    async (id?: string) => {
+      setItems((list) => (id ? list.filter((n) => n.id !== id) : []));
+      await fetch("/api/notifications", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(id ? { id } : {}),
+      }).catch(() => {});
+      await load();
+    },
+    [load],
+  );
+
   const togglePush = useCallback(async () => {
     setPushError(null);
     const was = push;
@@ -142,7 +156,7 @@ export function useNotifications() {
     }
   }, [push]);
 
-  return { items, unread, jobs, reload: load, markRead, push, pushError, togglePush };
+  return { items, unread, jobs, reload: load, markRead, dismiss, push, pushError, togglePush };
 }
 
 export type Notifications = ReturnType<typeof useNotifications>;

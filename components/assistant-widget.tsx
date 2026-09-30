@@ -7,7 +7,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { ChatMarkdown } from "@/components/chat-markdown";
 import { AssistantUpdates } from "@/components/assistant-updates";
 import { Icon } from "@/components/icons";
-import type { Notifications } from "@/components/use-notifications";
+import { JOBS_CHANGED_EVENT, type Notifications } from "@/components/use-notifications";
 import type { AgentAttachment, AgentTurn, ConversationSummary } from "@/lib/assistant";
 
 /**
@@ -352,8 +352,15 @@ export function AssistantWidget({
         | { type: "done"; conversationId: string }
         | { type: "error"; message: string; conversationId?: string }
         | { type: "conversation"; conversation: { id: string; turns: DisplayTurn[] } | null };
+      // A bulk email trash started during this turn: its progress card shows in Updates right away,
+      // and the panel switches there once the reply is done.
+      let startedTrash = false;
       const handle = (event: StreamEvent) => {
         if (event.type === "tool_call") {
+          if (event.tool === "trash_email_search" && event.detail.startsWith("Started")) {
+            startedTrash = true;
+            window.dispatchEvent(new Event(JOBS_CHANGED_EVENT));
+          }
           updateStreamingTurn((t) => ({ ...t, toolCalls: [...t.toolCalls, { tool: event.tool, detail: event.detail }] }));
         } else if (event.type === "reply_delta") {
           updateStreamingTurn((t) => ({ ...t, body: t.body + event.text }));
@@ -382,6 +389,7 @@ export function AssistantWidget({
         if (done) break;
         parser.feed(decoder.decode(value, { stream: true }));
       }
+      if (startedTrash) onTabChange("updates");
     } catch {
       setError(`Could not reach ${name} — try again.`);
       setTurns((prev) => prev?.filter((t) => t.id !== "pending" && t.id !== "streaming") ?? prev);

@@ -35,7 +35,10 @@ import { listTeam } from "@/lib/auth";
 import { emailContextBlock, type EmailAttachmentContent } from "@/lib/email-context";
 import { dateInZone, zonedTimeToUtc } from "@/lib/time-zone";
 import { directionsUrl, drivingRoute, findPlace, geocodePause, milesBetween, type Place } from "@/lib/geocode";
-import { createDraft, replyContext, sendMail, type MailDetail } from "@/lib/gmail";
+import { countMatches, createDraft, listMail, replyContext, sendMail, type MailDetail } from "@/lib/gmail";
+import { hasGmailModifyScope, listGmailConnectors, type Connector } from "@/lib/connectors";
+import { BULK_TRASH_CAP } from "@/lib/gmail-cleanup";
+import { enqueueTrashSearch } from "@/lib/queue";
 import { listInvoiceDocuments, recordInvoiceFromEmail, setInvoiceProject } from "@/lib/email-invoice";
 import { invoiceDetail } from "@/lib/queries";
 import { copyEmailAttachmentsToProject } from "@/lib/email-to-project";
@@ -415,6 +418,38 @@ const TOOLS: { name: string; description: string; parameters: JsonSchema; emailO
     parameters: obj({ entryId: str("The entry id") }, ["entryId"]),
   },
   {
+    name: "search_email",
+    description:
+      "Search the connected Gmail mailbox(es) with Gmail search syntax — e.g. \"category:promotions -category:updates\", " +
+      "\"from:newsletter@example.com older_than:1y\", \"has:attachment larger:5M\". Returns, per mailbox, the exact number " +
+      `of matching emails (counted up to ${BULK_TRASH_CAP.toLocaleString("en-US")}) and a few examples (sender, subject, date). ` +
+      "Spam and Trash aren't searched unless the query says in:spam / in:trash.",
+    parameters: obj(
+      {
+        query: str("Gmail search syntax"),
+        account: str("A mailbox's email address, to search just that one; leave out for all"),
+      },
+      ["query"],
+    ),
+  },
+  {
+    name: "trash_email_search",
+    description:
+      "Move every email matching a Gmail search in ONE mailbox to Trash (Gmail keeps Trash 30 days), as a background " +
+      `job of up to ${BULK_TRASH_CAP.toLocaleString("en-US")} emails with live progress in the Updates panel. ONLY after: ` +
+      "(1) search_email with this exact query, (2) telling the user the mailbox, the count and a few examples, and " +
+      "(3) the user explicitly confirming. Pass the count they confirmed as expectedCount — if the mailbox no longer " +
+      "matches it, nothing is trashed and you must re-confirm.",
+    parameters: obj(
+      {
+        query: str("The exact Gmail search the user confirmed"),
+        account: str("The mailbox's email address (from search_email)"),
+        expectedCount: { type: "number", description: "The number of emails the user confirmed" },
+      },
+      ["query", "account", "expectedCount"],
+    ),
+  },
+  {
     name: "find_place",
     description:
       "Look up an address or place name on the map (OpenStreetMap): its full address and coordinates. " +
@@ -507,6 +542,15 @@ async function findProjectIdByTitle(orgId: string, title: string | undefined): P
  * context under the chat input.
  */
 type SavedAttachment = { filePath: string; fileName: string; contentType: string };
+
+/** A Gmail account as the model names it: its address. */
+function accountName(c: Connector): string {
+  return c.accountLabel ?? c.name;
+}
+function matchesAccount(c: Connector, text: string): boolean {
+  const t = text.trim().toLowerCase();
+  return Boolean(t) && (c.accountLabel?.toLowerCase() === t || c.name.toLowerCase() === t);
+}
 
 /** A schedule entry as the model sees it: local date and times in the user's zone. */
 function scheduleEntryForModel(e: ScheduleEntry, timeZone: string) {
@@ -698,6 +742,75 @@ async function runToolUnsafe(
       return {
         summary: projectId ? `Linked the invoice to "${projectTitle}".` : "Unlinked the invoice from its project.",
         data: { link: projectId ? `/projects/${projectId}` : null },
+      };
+    }
+    case "search_email": {
+      const query = str(args.query);
+      if (!query) return { summary: "search_email failed: give a Gmail search." };
+      const all = await listGmailConnectors(orgId);
+      if (all.length === 0) return { summary: "search_email: no Gmail account is connected (Connectors page)." };
+      const accountArg = str(args.account);
+      const accounts = accountArg ? all.filter((c) => matchesAccount(c, accountArg)) : all;
+      if (accounts.length === 0) {
+        return { summary: `search_email: no connected mailbox matches "${accountArg}". Connected: ${all.map(accountName).join(", ")}.` };
+      }
+      const results = await Promise.all(
+        accounts.map(async (c) => {
+          const [{ count, capped }, sample] = await Promise.all([
+            countMatches(orgId, c.id, query, BULK_TRASH_CAP),
+            listMail({ orgId, connectorId: c.id, query, pageSize: 5 }),
+          ]);
+          return {
+            mailbox: accountName(c),
+            count,
+            atLeast: capped,
+            canTrash: hasGmailModifyScope(c),
+            examples: sample.messages.map((m) => ({
+              from: m.from || m.fromEmail,
+              subject: m.subject,
+              date: m.date ? dateInZone(m.date, context.timeZone) : null,
+            })),
+          };
+        }),
+      );
+      const line = results.map((r) => `${r.mailbox}: ${r.atLeast ? "at least " : ""}${r.count.toLocaleString("en-US")}`).join("; ");
+      return { summary: `Emails matching "${query}" — ${line}.`, data: { query, results } };
+    }
+    case "trash_email_search": {
+      const query = str(args.query);
+      const expected = Number(args.expectedCount);
+      if (!query || !Number.isFinite(expected) || expected < 1) {
+        return { summary: "trash_email_search failed: needs the query, the mailbox and the count the user confirmed." };
+      }
+      const all = await listGmailConnectors(orgId);
+      const matches = all.filter((c) => matchesAccount(c, str(args.account)));
+      if (matches.length !== 1) {
+        return { summary: `trash_email_search failed: name exactly one mailbox — connected: ${all.map(accountName).join(", ")}.` };
+      }
+      const connector = matches[0];
+      if (!hasGmailModifyScope(connector)) {
+        return { summary: `trash_email_search failed: ${accountName(connector)} only has read access — reconnect it on the Connectors page to allow trashing.` };
+      }
+      // Recount right before trashing: if it moved beyond a small margin (mail arriving), the user confirms again.
+      const { count, capped } = await countMatches(orgId, connector.id, query, BULK_TRASH_CAP);
+      if (count === 0) return { summary: `Nothing matches "${query}" in ${accountName(connector)} any more — nothing trashed.` };
+      if (Math.abs(count - expected) > Math.max(5, expected * 0.05)) {
+        return {
+          summary:
+            `trash_email_search stopped: ${accountName(connector)} now has ${capped ? "at least " : ""}${count.toLocaleString("en-US")} ` +
+            `matching emails, not the ${expected.toLocaleString("en-US")} the user confirmed. Tell them the new count and ask again. Nothing was trashed.`,
+        };
+      }
+      if (!process.env.REDIS_URL) {
+        return { summary: "trash_email_search failed: background jobs aren't set up on this server (no REDIS_URL), so bulk trash can't run." };
+      }
+      await enqueueTrashSearch(connector.id, query, personId ?? undefined);
+      return {
+        summary:
+          `Started moving ${count.toLocaleString("en-US")} emails matching "${query}" in ${accountName(connector)} to Trash. ` +
+          "Progress (with pause and cancel) is in the Updates panel; the user gets a notification when it's done." +
+          (capped ? ` It stops after ${BULK_TRASH_CAP.toLocaleString("en-US")} — ask again for the rest.` : ""),
+        data: { startedTrash: true, link: "/email" },
       };
     }
     case "find_place": {
@@ -1082,6 +1195,9 @@ function systemPrompt(
     "the question. In replies, link to pages in the app with markdown links, e.g. " +
     '"[Project Types](/projects/types)" — the chat renders them as clickable links. Common pages: /projects, ' +
     "/projects/types, /projects/new, /customers, /schedule, /tasks, /settings." +
+    "\n\nEmail cleanup: to delete (trash) emails, first call search_email, then tell the user the mailbox, the " +
+    "exact count and 2–3 example senders/subjects, and ask them to confirm. Only after they clearly say yes, call " +
+    "trash_email_search with that mailbox, query and count. Never trash on your own initiative." +
     "\n\nSeveral team members can share this conversation: each user message starts with its sender's name in " +
     "brackets, e.g. \"[Joy Wang] …\". Keep track of who asked for what, and when someone says \"me\", \"my\" or " +
     "\"I\", it means that sender. Don't start your own replies with a bracketed name." +

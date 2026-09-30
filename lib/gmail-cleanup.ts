@@ -12,7 +12,7 @@
 import { getConnector, hasGmailModifyScope } from "@/lib/connectors";
 import { classify, isEligible, type Confidence } from "@/lib/cleanup-heuristics";
 import { query, queryOne } from "@/lib/db";
-import { LABEL_QUERIES, labelCount, scanMail, trashMail, type ScannedMessage } from "@/lib/gmail";
+import { countMatches, LABEL_QUERIES, labelCount, listMessageIds, scanMail, trashMail, type ScannedMessage } from "@/lib/gmail";
 import { chatComplete, emailAnalyzerProvider } from "@/lib/llm-providers";
 
 /**
@@ -367,8 +367,8 @@ export async function trashCandidates(
   return { trashed, failed };
 }
 
-/** One run's worth of a bulk trash — more than this needs another click. */
-const BULK_TRASH_CAP = 2_000;
+/** One run's worth of a bulk trash — more than this needs another click (or another ask). */
+export const BULK_TRASH_CAP = 2_000;
 
 /**
  * Moves everything currently in one label (Spam, or a category like
@@ -408,6 +408,42 @@ export async function runTrashLabel(
       await trashMail(message.id, connector.orgId, connectorId);
       trashed++;
       onProgress?.(trashed, total);
+    }
+  }
+  return { trashed, total, cancelled: false };
+}
+
+/**
+ * Trashes every message matching a Gmail search (the assistant's
+ * trash_email_search), up to BULK_TRASH_CAP, with the same progress /
+ * pause / cancel hooks as runTrashLabel. Re-lists from the top after each
+ * batch rather than paging on: trashed mail drops out of the results, which
+ * would make a page token skip messages.
+ */
+export async function runTrashSearch(
+  connectorId: string,
+  query: string,
+  onProgress?: (trashed: number, total: number) => void,
+  checkpoint?: (trashed: number, total: number) => Promise<"continue" | "cancel">,
+): Promise<{ trashed: number; total: number; cancelled: boolean }> {
+  const connector = await getConnector(connectorId);
+  if (!connector) throw new Error("Connector not found");
+  if (!hasGmailModifyScope(connector)) {
+    throw new Error(
+      `${connector.name} only has read access — reconnect it on /connectors to grant Gmail permission to trash messages.`,
+    );
+  }
+  const { count: total } = await countMatches(connector.orgId, connectorId, query, BULK_TRASH_CAP);
+  let trashed = 0;
+  onProgress?.(trashed, total);
+  while (trashed < BULK_TRASH_CAP) {
+    const ids = await listMessageIds(connector.orgId, connectorId, query, Math.min(100, BULK_TRASH_CAP - trashed));
+    if (ids.length === 0) break;
+    for (const id of ids) {
+      if (checkpoint && (await checkpoint(trashed, total)) === "cancel") return { trashed, total, cancelled: true };
+      await trashMail(id, connector.orgId, connectorId);
+      trashed++;
+      onProgress?.(trashed, Math.max(total, trashed));
     }
   }
   return { trashed, total, cancelled: false };

@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth";
 import { listGmailConnectors } from "@/lib/connectors";
 import { BULK_TRASH_LABELS } from "@/lib/gmail-cleanup";
-import { listNotifications, markNotificationsRead } from "@/lib/notifications";
-import { bulkTrashJobId, bulkTrashStatus, type JobStatus } from "@/lib/queue";
+import { deleteNotifications, listNotifications, markNotificationsRead } from "@/lib/notifications";
+import { jobStatus, runningTrashJobs, type JobStatus } from "@/lib/queue";
 
 export type RunningJob = { jobId: string; title: string; status: JobStatus };
 
@@ -17,15 +17,22 @@ async function runningJobs(orgId: string): Promise<RunningJob[]> {
   if (!process.env.REDIS_URL) return [];
   const lookup = (async () => {
     const connectors = await listGmailConnectors(orgId);
-    const checks = connectors.flatMap((c) =>
-      BULK_TRASH_LABELS.map(async (l) => {
-        const status = await bulkTrashStatus(c.id, l.id);
+    const byId = new Map(connectors.map((c) => [c.id, c]));
+    const jobs = (await runningTrashJobs()).filter((j) => byId.has(j.connectorId));
+    const found = await Promise.all(
+      jobs.map(async (job) => {
+        const status = await jobStatus(job.jobId);
         if (!status || status.state === "completed" || status.state === "failed") return null;
+        const c = byId.get(job.connectorId)!;
         const account = connectors.length > 1 ? ` · ${c.accountLabel ?? c.name}` : "";
-        return { jobId: bulkTrashJobId(c.id, l.id), title: `Trashing ${l.label.toLowerCase()}${account}`, status };
+        const what =
+          job.kind === "trash-label"
+            ? (BULK_TRASH_LABELS.find((l) => l.id === job.label)?.label ?? job.label).toLowerCase()
+            : `“${job.query}”`;
+        return { jobId: job.jobId, title: `Trashing ${what}${account}`, status };
       }),
     );
-    return (await Promise.all(checks)).filter((j): j is RunningJob => j !== null);
+    return found.filter((j): j is RunningJob => j !== null);
   })();
   const timeout = new Promise<RunningJob[]>((resolve) => setTimeout(() => resolve([]), 1500));
   return Promise.race([lookup.catch(() => []), timeout]);
@@ -43,5 +50,13 @@ export async function POST(request: Request) {
   const { person } = await requireSession();
   const body = (await request.json().catch(() => ({}))) as { id?: unknown };
   await markNotificationsRead(person.id, typeof body.id === "string" ? body.id : undefined);
+  return NextResponse.json({ ok: true });
+}
+
+/** DELETE { id? } → dismisses one notification, or clears them all without an id. */
+export async function DELETE(request: Request) {
+  const { person } = await requireSession();
+  const body = (await request.json().catch(() => ({}))) as { id?: unknown };
+  await deleteNotifications(person.id, typeof body.id === "string" ? body.id : undefined);
   return NextResponse.json({ ok: true });
 }

@@ -17,7 +17,7 @@
 import { Worker, type Job } from "bullmq";
 import { createRedisConnection } from "@/lib/redis";
 import { GMAIL_CLEANUP_QUEUE, getJobControl, setJobControl, type GmailWorkerJob } from "@/lib/queue";
-import { BULK_TRASH_LABELS, runInboxScan, runTrashLabel } from "@/lib/gmail-cleanup";
+import { BULK_TRASH_LABELS, runInboxScan, runTrashLabel, runTrashSearch } from "@/lib/gmail-cleanup";
 import { getConnector } from "@/lib/connectors";
 import { queryOne } from "@/lib/db";
 import { createNotification } from "@/lib/notifications";
@@ -30,7 +30,8 @@ import { pushToPerson } from "@/lib/push";
  */
 async function notifyTrashDone(
   connectorId: string,
-  label: string,
+  /** "spam", or "emails matching “…”" for a search. */
+  what: string,
   requestedBy: string | undefined,
   result: { trashed: number; cancelled?: boolean } | { error: string },
 ) {
@@ -42,14 +43,17 @@ async function notifyTrashDone(
         ?.created_by ??
       null;
     if (!connector || !personId) return;
-    const name = (BULK_TRASH_LABELS.find((l) => l.id === label)?.label ?? label).toLowerCase();
     const account = connector.accountLabel ?? connector.name;
-    const count = "error" in result ? "" : `${result.trashed.toLocaleString("en-US")} ${name} email${result.trashed === 1 ? "" : "s"}`;
+    const isSearch = what.startsWith("emails matching");
+    const n = "error" in result ? 0 : result.trashed;
+    const count = isSearch
+      ? `${n.toLocaleString("en-US")} ${what.replace(/^emails/, n === 1 ? "email" : "emails")}`
+      : `${n.toLocaleString("en-US")} ${what} email${n === 1 ? "" : "s"}`;
     const title =
       "error" in result
-        ? `Trashing ${name} stopped`
+        ? `Trashing ${what} stopped`
         : result.cancelled
-          ? `Stopped trashing ${name}`
+          ? `Stopped trashing ${what}`
           : `Trashed ${count}`;
     const body =
       "error" in result
@@ -79,7 +83,7 @@ export function startGmailCleanupWorker() {
       if (job.data.kind === "analyze-inbox") {
         await runInboxScan(job.data.connectorId, job.data.maxMessages, job.data.label, job.id, onProgress);
       } else {
-        const { connectorId, label, requestedBy } = job.data;
+        const { connectorId, requestedBy } = job.data;
         const jobId = job.id!;
         // Pause / cancel (set from the assistant's Updates): checked before each message.
         // While paused it waits here, reporting `paused` so the progress card can say so.
@@ -99,12 +103,21 @@ export function startGmailCleanupWorker() {
             await new Promise((r) => setTimeout(r, 2000));
           }
         };
+        const data = job.data;
+        // What's being trashed, for the notifications: "spam", or the search itself.
+        const what =
+          data.kind === "trash-label"
+            ? (BULK_TRASH_LABELS.find((l) => l.id === data.label)?.label ?? data.label).toLowerCase()
+            : `emails matching “${data.query}”`;
         try {
-          const { trashed, cancelled } = await runTrashLabel(connectorId, label, onProgress, checkpoint);
+          const { trashed, cancelled } =
+            data.kind === "trash-label"
+              ? await runTrashLabel(connectorId, data.label, onProgress, checkpoint)
+              : await runTrashSearch(connectorId, data.query, onProgress, checkpoint);
           await setJobControl(jobId, null).catch(() => {});
-          await notifyTrashDone(connectorId, label, requestedBy, cancelled ? { trashed, cancelled } : { trashed });
+          await notifyTrashDone(connectorId, what, requestedBy, cancelled ? { trashed, cancelled } : { trashed });
         } catch (error) {
-          await notifyTrashDone(connectorId, label, requestedBy, {
+          await notifyTrashDone(connectorId, what, requestedBy, {
             error: error instanceof Error ? error.message : "Unknown error",
           });
           throw error;
