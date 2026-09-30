@@ -29,12 +29,13 @@ export default async function SchedulePage({ searchParams }: PageProps<"/schedul
     listScheduledTasks(org.id),
   ]);
   const activeAutomations = automations.filter((a) => a.isEnabled);
+  const projectOptions = projects.map((j) => ({ id: j.id, title: `${j.title} — ${j.customerName}` }));
 
   return (
     <PageBody>
       <div className="flex items-center gap-[10px]">
         <AddToScheduleDialog
-          projects={projects.map((j) => ({ id: j.id, title: `${j.title} — ${j.customerName}` }))}
+          projects={projectOptions}
           members={team}
           redirectPath="/schedule"
         />
@@ -66,7 +67,7 @@ export default async function SchedulePage({ searchParams }: PageProps<"/schedul
         <TableHeader>
           <TableTitle>Next 30 days</TableTitle>
         </TableHeader>
-        <ScheduleList entries={entries} redirectPath="/schedule" />
+        <ScheduleList entries={entries} projects={projectOptions} members={team} redirectPath="/schedule" />
       </TableCard>
 
       <TableCard>

@@ -134,6 +134,59 @@ export async function locateScheduleEntries(orgId: string, entries: ScheduleEntr
   }
 }
 
+export async function getScheduleEntry(id: string, orgId: string): Promise<ScheduleEntry | null> {
+  const row = await queryOne<ScheduleRow>(`${SELECT} WHERE s.id = $1 AND s.org_id = $2`, [id, orgId]);
+  return row ? toEntry(row) : null;
+}
+
+/**
+ * Changes an entry; fields left undefined stay as they are. A new location is
+ * looked up again (an empty one falls back to the project's address, filled in
+ * by locateScheduleEntries); so is a changed project when there's no location.
+ */
+export async function updateScheduleEntry(
+  id: string,
+  orgId: string,
+  changes: {
+    projectId?: string | null;
+    assignedTo?: string | null;
+    startsAt?: Date;
+    endsAt?: Date;
+    notes?: string;
+    location?: string;
+  },
+): Promise<boolean> {
+  const current = await getScheduleEntry(id, orgId);
+  if (!current) return false;
+  const location = changes.location === undefined ? current.location : changes.location.trim();
+  const projectId = changes.projectId === undefined ? current.projectId : changes.projectId;
+  let lat = current.lat;
+  let lng = current.lng;
+  if (location !== current.location || (!location && projectId !== current.projectId)) {
+    const point = location ? await geocode(location) : null;
+    lat = point?.lat ?? null;
+    lng = point?.lng ?? null;
+  }
+  await query(
+    `UPDATE schedule_entries
+        SET project_id = $3, assigned_to = $4, starts_at = $5, ends_at = $6, notes = $7, location = $8, lat = $9, lng = $10
+      WHERE id = $1 AND org_id = $2`,
+    [
+      id,
+      orgId,
+      projectId,
+      changes.assignedTo === undefined ? current.assignedTo : changes.assignedTo,
+      changes.startsAt ?? current.startsAt,
+      changes.endsAt ?? current.endsAt,
+      changes.notes ?? current.notes,
+      location,
+      lat,
+      lng,
+    ],
+  );
+  return true;
+}
+
 export async function deleteScheduleEntry(id: string, orgId: string): Promise<void> {
   await query(`DELETE FROM schedule_entries WHERE id = $1 AND org_id = $2`, [id, orgId]);
 }

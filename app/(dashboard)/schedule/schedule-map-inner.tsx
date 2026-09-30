@@ -48,10 +48,12 @@ export default function ScheduleMapInner({
       className="h-full w-full"
       attributionControl
     >
-      {/* CARTO's light basemap (OpenStreetMap data) — quiet enough for the pins and route to stand out. */}
+      {/* OpenStreetMap's standard tiles: free and keyless for light use like this (attribution
+          required). CARTO's basemaps, the first choice, now answer "API key required". */}
       <TileLayer
-        url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+        url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+        maxZoom={19}
+        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
       />
       {line.length > 1 ? (
         <Polyline

@@ -407,7 +407,13 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
           The days you (or your crew) will be working on this job. They show on the Scheduled page and in the morning
           briefing. For to-dos and reminders, use Tasks below.
         </p>
-        <ProjectSchedule entries={schedule} redirectPath={`/projects/${project.id}`} emptyLabel="Not scheduled yet." />
+        <ProjectSchedule
+          entries={schedule}
+          projectId={project.id}
+          members={team}
+          redirectPath={`/projects/${project.id}`}
+          emptyLabel="Not scheduled yet."
+        />
       </TableCard>
 
       {/* Tasks */}

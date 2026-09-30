@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireSession } from "@/lib/auth";
-import { createScheduleEntry, deleteScheduleEntry } from "@/lib/schedule";
+import { createScheduleEntry, deleteScheduleEntry, updateScheduleEntry } from "@/lib/schedule";
 import { zonedTimeToUtc } from "@/lib/time-zone";
 
 export type FormState = { error?: string; ok?: string };
@@ -12,7 +12,8 @@ function field(form: FormData, name: string) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-export async function addScheduleEntry(_prev: FormState, form: FormData): Promise<FormState> {
+/** Adds a schedule entry, or — with an `id` — saves changes to one (the edit dialog). */
+export async function saveScheduleEntry(_prev: FormState, form: FormData): Promise<FormState> {
   const { org } = await requireSession();
   const projectId = field(form, "projectId");
   const date = field(form, "date");
@@ -31,19 +32,24 @@ export async function addScheduleEntry(_prev: FormState, form: FormData): Promis
     return { error: "Enter a valid start and end time." };
   }
 
-  await createScheduleEntry({
-    orgId: org.id,
+  const entry = {
     projectId: projectId || null,
     assignedTo: field(form, "assignedTo") || null,
     startsAt,
     endsAt,
     notes,
     location: field(form, "location"),
-  });
+  };
+  const id = field(form, "id");
+  if (id) {
+    if (!(await updateScheduleEntry(id, org.id, entry))) return { error: "That entry no longer exists." };
+  } else {
+    await createScheduleEntry({ orgId: org.id, ...entry });
+  }
 
   revalidatePath(redirectPath);
   revalidatePath("/schedule");
-  return { ok: "Scheduled." };
+  return { ok: id ? "Saved." : "Scheduled." };
 }
 
 export async function removeScheduleEntry(form: FormData) {

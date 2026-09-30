@@ -5,6 +5,7 @@ import { Icon } from "@/components/icons";
 import { EmptyRow } from "@/components/ui";
 import type { ScheduleEntry } from "@/lib/schedule";
 import { removeScheduleEntry } from "./actions";
+import { EditScheduleDialog } from "./add-to-schedule-dialog";
 import { ScheduleMap } from "./schedule-map";
 
 const noSubscribe = () => () => {};
@@ -17,7 +18,17 @@ const dayKey = (d: Date) => d.toLocaleDateString("en-CA");
  * entries are faded; long notes are clamped to three lines and expand on tap.
  * Rendered in the browser so days and times are in the viewer's own zone.
  */
-function Timeline({ entries, redirectPath, now }: { entries: ScheduleEntry[]; redirectPath: string; now: number }) {
+function Timeline({
+  entries,
+  redirectPath,
+  now,
+  onEdit,
+}: {
+  entries: ScheduleEntry[];
+  redirectPath: string;
+  now: number;
+  onEdit: (entry: ScheduleEntry) => void;
+}) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const today = dayKey(new Date(now));
@@ -97,13 +108,24 @@ function Timeline({ entries, redirectPath, now }: { entries: ScheduleEntry[]; re
                         </span>
                       ) : null}
                     </div>
-                    <form action={removeScheduleEntry}>
-                      <input type="hidden" name="id" value={entry.id} />
-                      <input type="hidden" name="redirectPath" value={redirectPath} />
-                      <button type="submit" aria-label="Remove" className="cursor-pointer pt-[1px] text-faint hover:text-bad-fg">
-                        <Icon name="close" size={13} />
+                    <div className="flex shrink-0 items-start gap-[10px]">
+                      <button
+                        type="button"
+                        onClick={() => onEdit(entry)}
+                        aria-label="Edit"
+                        title="Edit"
+                        className="cursor-pointer pt-[1px] text-faint hover:text-ink"
+                      >
+                        <Icon name="pencil" size={13} />
                       </button>
-                    </form>
+                      <form action={removeScheduleEntry}>
+                        <input type="hidden" name="id" value={entry.id} />
+                        <input type="hidden" name="redirectPath" value={redirectPath} />
+                        <button type="submit" aria-label="Remove" className="cursor-pointer pt-[1px] text-faint hover:text-bad-fg">
+                          <Icon name="close" size={13} />
+                        </button>
+                      </form>
+                    </div>
                   </div>
                 );
               })}
@@ -116,7 +138,15 @@ function Timeline({ entries, redirectPath, now }: { entries: ScheduleEntry[]; re
 }
 
 /** The project's schedule as a list: one row per entry, date and time first. */
-function List({ entries, redirectPath }: { entries: ScheduleEntry[]; redirectPath: string }) {
+function List({
+  entries,
+  redirectPath,
+  onEdit,
+}: {
+  entries: ScheduleEntry[];
+  redirectPath: string;
+  onEdit: (entry: ScheduleEntry) => void;
+}) {
   return entries.map((entry) => (
     <div key={entry.id} className="flex min-h-[52px] items-start gap-3 border-t border-line-soft px-[18px] py-[11px] first:border-t-0">
       <Icon name="calendar" size={16} className="mt-[1px] shrink-0 text-body-soft" />
@@ -141,13 +171,24 @@ function List({ entries, redirectPath }: { entries: ScheduleEntry[]; redirectPat
           </span>
         ) : null}
       </div>
-      <form action={removeScheduleEntry}>
-        <input type="hidden" name="id" value={entry.id} />
-        <input type="hidden" name="redirectPath" value={redirectPath} />
-        <button type="submit" aria-label="Remove" className="cursor-pointer text-faint hover:text-bad-fg">
-          <Icon name="close" size={14} />
+      <div className="flex shrink-0 items-start gap-[10px]">
+        <button
+          type="button"
+          onClick={() => onEdit(entry)}
+          aria-label="Edit"
+          title="Edit"
+          className="cursor-pointer text-faint hover:text-ink"
+        >
+          <Icon name="pencil" size={14} />
         </button>
-      </form>
+        <form action={removeScheduleEntry}>
+          <input type="hidden" name="id" value={entry.id} />
+          <input type="hidden" name="redirectPath" value={redirectPath} />
+          <button type="submit" aria-label="Remove" className="cursor-pointer text-faint hover:text-bad-fg">
+            <Icon name="close" size={14} />
+          </button>
+        </form>
+      </div>
     </div>
   ));
 }
@@ -188,13 +229,18 @@ function subscribeView(listener: () => void) {
  */
 export function ProjectSchedule({
   entries,
+  projectId,
+  members,
   redirectPath,
   emptyLabel,
 }: {
   entries: ScheduleEntry[];
+  projectId: string;
+  members: { id: string; name: string }[];
   redirectPath: string;
   emptyLabel: string;
 }) {
+  const [editing, setEditing] = useState<ScheduleEntry | null>(null);
   const now = useSyncExternalStore(noSubscribe, () => Date.now(), () => 0);
   const view = useSyncExternalStore(subscribeView, readView, () => "timeline" as View);
   if (entries.length === 0) return <EmptyRow>{emptyLabel}</EmptyRow>;
@@ -223,14 +269,21 @@ export function ProjectSchedule({
         </div>
       </div>
       {view === "timeline" ? (
-        <Timeline entries={entries} redirectPath={redirectPath} now={now} />
+        <Timeline entries={entries} redirectPath={redirectPath} now={now} onEdit={setEditing} />
       ) : view === "map" ? (
         <ScheduleMap entries={entries} />
       ) : (
         <div className="pt-[6px]">
-          <List entries={entries} redirectPath={redirectPath} />
+          <List entries={entries} redirectPath={redirectPath} onEdit={setEditing} />
         </div>
       )}
+      <EditScheduleDialog
+        entry={editing}
+        onClose={() => setEditing(null)}
+        projectId={projectId}
+        members={members}
+        redirectPath={redirectPath}
+      />
     </div>
   );
 }

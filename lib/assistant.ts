@@ -33,12 +33,19 @@ import { addProjectFile, addProjectPhoto, listProjectPhotos } from "@/lib/projec
 import { readUpload, saveUpload } from "@/lib/storage";
 import { listTeam } from "@/lib/auth";
 import { emailContextBlock, type EmailAttachmentContent } from "@/lib/email-context";
-import { zonedTimeToUtc } from "@/lib/time-zone";
+import { dateInZone, zonedTimeToUtc } from "@/lib/time-zone";
 import { createDraft, replyContext, sendMail, type MailDetail } from "@/lib/gmail";
 import { listInvoiceDocuments, recordInvoiceFromEmail, setInvoiceProject } from "@/lib/email-invoice";
 import { invoiceDetail } from "@/lib/queries";
 import { copyEmailAttachmentsToProject } from "@/lib/email-to-project";
-import { createScheduleEntry } from "@/lib/schedule";
+import {
+  createScheduleEntry,
+  deleteScheduleEntry,
+  getScheduleEntry,
+  listSchedule,
+  updateScheduleEntry,
+  type ScheduleEntry,
+} from "@/lib/schedule";
 
 /** What the user is looking at, beyond the page title: the open email (if any) and their time zone for dates. */
 export type AssistantContext = {
@@ -336,6 +343,42 @@ const TOOLS: { name: string; description: string; parameters: JsonSchema; emailO
     ),
   },
   {
+    name: "list_schedule",
+    description:
+      "List schedule (calendar) entries in a date range, oldest first: id, what's happening, where, date and times " +
+      "(user's local time), project and who's assigned. Use it to find an entry's id before editing or removing it.",
+    parameters: obj({
+      from: str("YYYY-MM-DD, default today"),
+      to: str("YYYY-MM-DD, default 30 days after from"),
+      projectTitle: str("Only this project's entries"),
+    }),
+  },
+  {
+    name: "update_schedule_entry",
+    description:
+      "Change a schedule entry (id from list_schedule). Only the fields you pass change: what's happening, where " +
+      "(an address or place name; empty string = the project's address), date, start/end time (user's local time), " +
+      "who (empty string = anyone), project (empty string = no project).",
+    parameters: obj(
+      {
+        entryId: str("The entry id"),
+        notes: str("What's happening"),
+        location: str("Where it happens"),
+        date: str("YYYY-MM-DD"),
+        startTime: str("HH:MM, 24-hour"),
+        endTime: str("HH:MM, 24-hour"),
+        assigneeName: str("A team member's name, or empty for anyone"),
+        projectTitle: str("The project it's for, or empty for none"),
+      },
+      ["entryId"],
+    ),
+  },
+  {
+    name: "delete_schedule_entry",
+    description: "Remove a schedule entry (id from list_schedule). Confirm with the user first.",
+    parameters: obj({ entryId: str("The entry id") }, ["entryId"]),
+  },
+  {
     name: "draft_email_reply",
     description:
       "Save a reply to the email the user is viewing into their Gmail Drafts (threaded, addressed to the sender). Nothing is sent.",
@@ -402,6 +445,24 @@ async function findProjectIdByTitle(orgId: string, title: string | undefined): P
  * context under the chat input.
  */
 type SavedAttachment = { filePath: string; fileName: string; contentType: string };
+
+/** A schedule entry as the model sees it: local date and times in the user's zone. */
+function scheduleEntryForModel(e: ScheduleEntry, timeZone: string) {
+  const hhmm = (d: Date) =>
+    d.toLocaleTimeString("en-GB", { timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+  return {
+    id: e.id,
+    what: e.notes,
+    where: e.location || (e.projectAddress ? `${e.projectAddress} (project address)` : ""),
+    date: dateInZone(e.startsAt, timeZone),
+    startTime: hhmm(e.startsAt),
+    endTime: hhmm(e.endsAt),
+    project: e.projectTitle,
+    projectId: e.projectId,
+    assignedTo: e.assignedName,
+    onMap: e.lat !== null,
+  };
+}
 
 async function runTool(
   orgId: string,
@@ -576,6 +637,68 @@ async function runToolUnsafe(
         summary: projectId ? `Linked the invoice to "${projectTitle}".` : "Unlinked the invoice from its project.",
         data: { link: projectId ? `/projects/${projectId}` : null },
       };
+    }
+    case "list_schedule": {
+      const today = dateInZone(new Date(), context.timeZone);
+      const fromDay = /^\d{4}-\d{2}-\d{2}$/.test(str(args.from)) ? str(args.from) : today;
+      const from = zonedTimeToUtc(fromDay, "00:00", context.timeZone)!;
+      const toDay = /^\d{4}-\d{2}-\d{2}$/.test(str(args.to)) ? str(args.to) : null;
+      const to = toDay ? zonedTimeToUtc(toDay, "23:59", context.timeZone)! : new Date(from.getTime() + 30 * 86_400_000);
+      const projectTitle = str(args.projectTitle);
+      const projectId = projectTitle ? await findProjectIdByTitle(orgId, projectTitle) : null;
+      if (projectTitle && !projectId) return { summary: `list_schedule: no project found named "${projectTitle}".` };
+      const entries = await listSchedule(orgId, { from, to }, projectId ? { projectId } : {});
+      return {
+        summary: `${entries.length} schedule entr${entries.length === 1 ? "y" : "ies"} from ${fromDay}.`,
+        data: { entries: entries.map((e) => scheduleEntryForModel(e, context.timeZone)) },
+      };
+    }
+    case "update_schedule_entry": {
+      const id = str(args.entryId);
+      const current = /^[0-9a-f-]{36}$/i.test(id) ? await getScheduleEntry(id, orgId) : null;
+      if (!current) return { summary: "update_schedule_entry failed: entryId must be an id from list_schedule." };
+      const was = scheduleEntryForModel(current, context.timeZone);
+      const given = (key: string) => typeof args[key] === "string";
+      const changes: Parameters<typeof updateScheduleEntry>[2] = {};
+      if (given("notes")) changes.notes = str(args.notes);
+      if (given("location")) changes.location = str(args.location);
+      if (given("date") || given("startTime") || given("endTime")) {
+        const date = given("date") ? str(args.date) : was.date;
+        const startsAt = zonedTimeToUtc(date, given("startTime") ? str(args.startTime) : was.startTime, context.timeZone);
+        const endsAt = zonedTimeToUtc(date, given("endTime") ? str(args.endTime) : was.endTime, context.timeZone);
+        if (!startsAt || !endsAt) return { summary: "update_schedule_entry failed: date must be YYYY-MM-DD and times HH:MM." };
+        if (endsAt <= startsAt) return { summary: "update_schedule_entry failed: endTime must be after startTime." };
+        changes.startsAt = startsAt;
+        changes.endsAt = endsAt;
+      }
+      if (given("assigneeName")) {
+        const name = str(args.assigneeName);
+        if (!name) changes.assignedTo = null;
+        else {
+          const member = (await listTeam(orgId)).find((m) => m.name.toLowerCase() === name.toLowerCase());
+          if (!member) return { summary: `update_schedule_entry failed: no team member named "${name}".` };
+          changes.assignedTo = member.id;
+        }
+      }
+      if (given("projectTitle")) {
+        const title = str(args.projectTitle);
+        const projectId = title ? await findProjectIdByTitle(orgId, title) : null;
+        if (title && !projectId) return { summary: `update_schedule_entry failed: no project found named "${title}".` };
+        changes.projectId = projectId;
+      }
+      await updateScheduleEntry(id, orgId, changes);
+      const now = scheduleEntryForModel((await getScheduleEntry(id, orgId))!, context.timeZone);
+      return {
+        summary: `Updated the schedule entry "${now.what || now.project || id}".`,
+        data: { entry: now, link: now.projectId ? `/projects/${now.projectId}` : "/schedule" },
+      };
+    }
+    case "delete_schedule_entry": {
+      const id = str(args.entryId);
+      const current = /^[0-9a-f-]{36}$/i.test(id) ? await getScheduleEntry(id, orgId) : null;
+      if (!current) return { summary: "delete_schedule_entry failed: entryId must be an id from list_schedule." };
+      await deleteScheduleEntry(id, orgId);
+      return { summary: `Removed the schedule entry "${current.notes || current.projectTitle || id}".` };
     }
     case "create_schedule_entry": {
       const projectTitle = str(args.projectTitle);
