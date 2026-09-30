@@ -14,7 +14,7 @@ import { listProjectInvoices } from "@/lib/email-invoice";
 import { listEstimates, type Estimate } from "@/lib/quoting";
 import { listSchedule } from "@/lib/schedule";
 import { listTasks } from "@/lib/tasks";
-import { AddTaskForm } from "../../tasks/add-task-form";
+import { NewTaskDialog } from "../../tasks/new-task-dialog";
 import { TaskList } from "../../tasks/task-list";
 import { AddToScheduleDialog } from "../../schedule/add-to-schedule-dialog";
 import { ProjectSchedule } from "../../schedule/schedule-timeline";
@@ -410,10 +410,10 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
       <TableCard>
         <TableHeader>
           <TableTitle>Tasks</TableTitle>
+          <span className="ml-auto">
+            <NewTaskDialog compact projectId={project.id} redirectPath={`/projects/${project.id}`} members={team} />
+          </span>
         </TableHeader>
-        <div className="border-t border-line-soft px-[18px] py-[13px]">
-          <AddTaskForm projectId={project.id} redirectPath={`/projects/${project.id}`} members={team} />
-        </div>
         <TaskList tasks={tasks} redirectPath={`/projects/${project.id}`} emptyLabel="No tasks yet." />
       </TableCard>
 

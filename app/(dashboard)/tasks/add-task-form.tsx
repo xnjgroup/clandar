@@ -9,8 +9,7 @@ import { addTask, type FormState } from "./actions";
 const inputClass =
   "h-[42px] rounded-[12px] border border-line bg-surface px-3 text-[12.5px] text-ink outline-none placeholder:text-faint focus:border-[#9aa78a]";
 
-function Field({ label, stacked, children }: { label: string; stacked: boolean; children: React.ReactNode }) {
-  if (!stacked) return <>{children}</>;
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="flex min-w-0 flex-col gap-[5px]">
       <span className="text-[11.5px] font-medium text-muted">{label}</span>
@@ -20,25 +19,22 @@ function Field({ label, stacked, children }: { label: string; stacked: boolean; 
 }
 
 /**
- * Shared between /tasks (in the "New task" dialog, `layout="stacked"`) and a
- * project hub page (inline, `projectId` set). `onAdded` runs after a successful add.
+ * The "New task" dialog's form — on /tasks, and on a project page with
+ * `projectId` set. `onAdded` runs after a successful add.
  */
 export function AddTaskForm({
   projectId,
   redirectPath,
   defaultKind = "todo",
   members = [],
-  layout = "inline",
   onAdded,
 }: {
   projectId?: string;
   redirectPath: string;
   defaultKind?: TaskKind;
   members?: { id: string; name: string }[];
-  layout?: "inline" | "stacked";
   onAdded?: () => void;
 }) {
-  const stacked = layout === "stacked";
   const [state, action, pending] = useActionState<FormState, FormData>(addTask, {});
   // Remounting the form on a successful add clears its (uncontrolled) inputs
   // without fighting useActionState's own state — simpler than a ref + effect.
@@ -57,21 +53,21 @@ export function AddTaskForm({
     <form
       key={resetKey}
       action={action}
-      className={stacked ? "flex flex-col gap-[12px]" : "flex flex-wrap items-center gap-[8px]"}
+      className="flex flex-col gap-[12px]"
     >
       {projectId ? <input type="hidden" name="projectId" value={projectId} /> : null}
       <input type="hidden" name="redirectPath" value={redirectPath} />
       <TimeZoneField />
-      <Field label="What needs doing?" stacked={stacked}>
+      <Field label="What needs doing?">
         <input
           name="title"
           required
-          autoFocus={stacked}
-          placeholder={stacked ? "e.g. Order tile for the Smith bathroom" : "What needs doing?"}
-          className={`${inputClass} ${stacked ? "w-full" : "min-w-[180px] flex-1"}`}
+          autoFocus
+          placeholder="e.g. Order tile for the Smith bathroom"
+          className={`${inputClass} w-full`}
         />
       </Field>
-      <Field label="Type" stacked={stacked}>
+      <Field label="Type">
         <select name="kind" defaultValue={defaultKind} className={inputClass}>
           {TASK_KINDS.map((k) => (
             <option key={k.id} value={k.id}>
@@ -80,16 +76,16 @@ export function AddTaskForm({
           ))}
         </select>
       </Field>
-      <Field label="Due" stacked={stacked}>
+      <Field label="Due">
         <input
           name="dueDate"
           type="date"
           aria-label="Due date"
-          className={`${inputClass} min-w-0 appearance-none ${stacked ? "w-full" : ""}`}
+          className={`${inputClass} w-full min-w-0 appearance-none`}
         />
       </Field>
       {members.length > 0 ? (
-        <Field label="Assigned to" stacked={stacked}>
+        <Field label="Assigned to">
           <select name="assignedTo" defaultValue="" className={inputClass}>
             <option value="">Unassigned</option>
             {members.map((m) => (
@@ -103,11 +99,9 @@ export function AddTaskForm({
       <button
         type="submit"
         disabled={pending}
-        className={`h-[42px] cursor-pointer rounded-full bg-ink px-5 text-[12.5px] font-semibold text-bg disabled:opacity-50 ${
-          stacked ? "mt-[4px] w-full" : ""
-        }`}
+        className="mt-[4px] h-[42px] w-full cursor-pointer rounded-full bg-ink px-5 text-[12.5px] font-semibold text-bg disabled:opacity-50"
       >
-        {pending ? "Adding…" : stacked ? "Add task" : "Add"}
+        {pending ? "Adding…" : "Add task"}
       </button>
       {state.error ? <span className="text-[11.5px] text-bad-fg">{state.error}</span> : null}
     </form>

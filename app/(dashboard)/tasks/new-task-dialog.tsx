@@ -5,13 +5,23 @@ import { Icon } from "@/components/icons";
 import type { TaskKind } from "@/lib/task-kinds";
 import { AddTaskForm } from "./add-task-form";
 
-/** "+ New task" on /tasks — the add-task form in a modal that closes once the task is added. */
+/**
+ * "+ New task" — the add-task form in a modal that closes once the task is
+ * added. On /tasks, and on a project page (`projectId`, as a `compact` header link).
+ */
 export function NewTaskDialog({
-  defaultKind,
+  defaultKind = "todo",
   members,
+  projectId,
+  redirectPath = "/tasks",
+  compact = false,
 }: {
-  defaultKind: TaskKind;
+  defaultKind?: TaskKind;
   members: { id: string; name: string }[];
+  projectId?: string;
+  redirectPath?: string;
+  /** A small underlined link (for a card header) instead of the solid button. */
+  compact?: boolean;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const close = useCallback(() => dialogRef.current?.close(), []);
@@ -20,10 +30,14 @@ export function NewTaskDialog({
       <button
         type="button"
         onClick={() => dialogRef.current?.showModal()}
-        className="flex h-[38px] shrink-0 cursor-pointer items-center gap-[6px] rounded-full bg-ink px-4 text-[12.5px] font-semibold text-bg"
+        className={
+          compact
+            ? "cursor-pointer text-[11.5px] font-medium underline"
+            : "flex h-[38px] shrink-0 cursor-pointer items-center gap-[6px] rounded-full bg-ink px-4 text-[12.5px] font-semibold text-bg"
+        }
       >
-        <span className="text-[16px] leading-none">+</span>
-        New task
+        {compact ? null : <span className="text-[16px] leading-none">+</span>}
+        {compact ? "+ New task" : "New task"}
       </button>
       <dialog
         ref={dialogRef}
@@ -45,7 +59,13 @@ export function NewTaskDialog({
               <Icon name="close" size={16} />
             </button>
           </div>
-          <AddTaskForm redirectPath="/tasks" defaultKind={defaultKind} members={members} layout="stacked" onAdded={close} />
+          <AddTaskForm
+            projectId={projectId}
+            redirectPath={redirectPath}
+            defaultKind={defaultKind}
+            members={members}
+            onAdded={close}
+          />
         </div>
       </dialog>
     </>
