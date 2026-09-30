@@ -8,6 +8,7 @@ import { Worker, type Job } from "bullmq";
 import { createRedisConnection } from "@/lib/redis";
 import { SCHEDULED_TASKS_QUEUE, scheduledTasksQueue, type SchedulerJob } from "@/lib/scheduled-tasks-queue";
 import { dueScheduledTasks, executeScheduledTask } from "@/lib/scheduled-tasks";
+import { runLeadDigests, runLeadFinder } from "@/lib/lead-finder";
 import { fireDueReminders } from "@/lib/reminders";
 
 const globalForWorker = globalThis as typeof globalThis & { clandarScheduledTasksWorker?: Worker };
@@ -22,6 +23,13 @@ export function startScheduledTasksWorker() {
         // Due reminders ride the same 5-minute tick (lib/reminders.ts); a failure there mustn't stop scheduled tasks.
         await fireDueReminders().catch((error: unknown) =>
           console.error("[reminders] failed:", error instanceof Error ? error.message : error),
+        );
+        // Lead finder scans (each org on its own 15/30/60-minute cadence) and the daily lead digests.
+        await runLeadFinder().catch((error: unknown) =>
+          console.error("[lead-finder] failed:", error instanceof Error ? error.message : error),
+        );
+        await runLeadDigests().catch((error: unknown) =>
+          console.error("[lead-digest] failed:", error instanceof Error ? error.message : error),
         );
         const due = await dueScheduledTasks();
         for (const task of due) {

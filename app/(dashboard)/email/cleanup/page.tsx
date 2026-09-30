@@ -14,7 +14,7 @@ import {
 import { count, firstParam, relativeTime, type Tone } from "@/lib/data";
 import { requireSession } from "@/lib/auth";
 import { hasGmailModifyScope, listGmailConnectors } from "@/lib/connectors";
-import { fileSize } from "@/lib/gmail";
+import { fileSize, labelCounts } from "@/lib/gmail";
 import {
   cleanupCounts,
   latestScan,
@@ -24,6 +24,7 @@ import {
 } from "@/lib/gmail-cleanup";
 import { jobStatus } from "@/lib/queue";
 import { dismissSelected, startInboxScan, trashSelected } from "./actions";
+import { LabelDashboard } from "../label-dashboard";
 import { ScanProgressPanel } from "./scan-progress-panel";
 
 const CONFIDENCE_TONE: Record<CleanupCandidate["confidence"], Tone> = {
@@ -62,10 +63,11 @@ export default async function EmailCleanupPage({ searchParams }: PageProps<"/ema
   const account =
     accounts.find((a) => a.id === requestedId) ?? accounts.find((a) => a.status === "connected") ?? accounts[0];
 
-  const [scan, candidates, counts] = await Promise.all([
+  const [scan, candidates, counts, labels] = await Promise.all([
     latestScan(account.id),
     listCleanupCandidates(account.id, "pending"),
     cleanupCounts(account.id),
+    labelCounts(org.id, account.id).catch(() => []), // the overview is a nice-to-have
   ]);
 
   const canTrash = hasGmailModifyScope(account);
@@ -74,6 +76,12 @@ export default async function EmailCleanupPage({ searchParams }: PageProps<"/ema
 
   return (
     <PageBody>
+      {labels.length > 0 ? (
+        <div className="flex flex-col gap-[8px]">
+          <span className="text-[12px] font-medium text-muted">Your Gmail labels — open one to review or trash it in bulk</span>
+          <LabelDashboard labels={labels} accounts={accounts.length} accountId={account.id} params={{}} />
+        </div>
+      ) : null}
       {notice ? (
         <p className="m-0 rounded-[14px] border border-line bg-surface px-[14px] py-[11px] text-[12.5px]">
           {notice}

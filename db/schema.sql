@@ -1023,3 +1023,64 @@ CREATE UNIQUE INDEX IF NOT EXISTS llm_providers_one_chat_provider_per_org
 -- the provider's own default model" for that feature.
 ALTER TABLE llm_providers ADD COLUMN IF NOT EXISTS email_model text;
 ALTER TABLE llm_providers ADD COLUMN IF NOT EXISTS chat_model text;
+
+/* ── Lead finder ──────────────────────────────────────────────
+   Watches the org's Gmail for project opportunities (lib/lead-finder.ts):
+   new inbox mail is classified by the email AI against the org's own project
+   types; real opportunities land in email_leads as a review queue, optionally
+   Gmail-labelled "Leads/<type>", with a daily digest of what came in.
+*/
+CREATE TABLE IF NOT EXISTS lead_finder_settings (
+  org_id            uuid PRIMARY KEY REFERENCES organizations (id) ON DELETE CASCADE,
+  is_enabled        boolean NOT NULL DEFAULT false,
+  check_minutes     integer NOT NULL DEFAULT 15 CHECK (check_minutes IN (15, 30, 60)),
+  -- How sure the AI must be (0–1) before an email counts as a lead.
+  min_confidence    numeric(3, 2) NOT NULL DEFAULT 0.65,
+  gmail_labels      boolean NOT NULL DEFAULT true,
+  -- The owner's own rules, e.g. "Only Brooklyn and Queens; skip commercial jobs".
+  instructions      text NOT NULL DEFAULT '',
+  digest_enabled    boolean NOT NULL DEFAULT true,
+  digest_time       time NOT NULL DEFAULT '07:30',
+  time_zone         text NOT NULL DEFAULT 'UTC',
+  digest_bell       boolean NOT NULL DEFAULT true,
+  digest_push       boolean NOT NULL DEFAULT true,
+  digest_email      boolean NOT NULL DEFAULT true,
+  last_scan_started_at timestamptz,
+  last_scan_at      timestamptz,
+  last_scan_note    text,
+  last_digest_at    timestamptz,
+  updated_at        timestamptz NOT NULL DEFAULT now()
+);
+
+-- Per Gmail account: everything received before `scanned_through` has been looked at.
+CREATE TABLE IF NOT EXISTS lead_scan_state (
+  connector_id    uuid PRIMARY KEY REFERENCES connectors (id) ON DELETE CASCADE,
+  scanned_through timestamptz NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS email_leads (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id          uuid NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+  connector_id    uuid NOT NULL REFERENCES connectors (id) ON DELETE CASCADE,
+  message_id      text NOT NULL,
+  thread_id       text NOT NULL,
+  from_name       text NOT NULL DEFAULT '',
+  from_email      text NOT NULL DEFAULT '',
+  subject         text NOT NULL DEFAULT '',
+  received_at     timestamptz,
+  project_type_id uuid REFERENCES project_types (id) ON DELETE SET NULL,
+  -- The type's name when classified (kept if the type is later renamed/removed), or the AI's own label.
+  project_type_name text NOT NULL DEFAULT '',
+  confidence      numeric(3, 2) NOT NULL DEFAULT 0,
+  -- A suggested project title, a two-line summary, and extracted facts.
+  title           text NOT NULL DEFAULT '',
+  summary         text NOT NULL DEFAULT '',
+  details         jsonb NOT NULL DEFAULT '{}',
+  status          text NOT NULL DEFAULT 'new' CHECK (status IN ('new', 'reviewed', 'converted', 'dismissed')),
+  project_id      uuid REFERENCES projects (id) ON DELETE SET NULL,
+  gmail_label_id  text,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (connector_id, message_id)
+);
+CREATE INDEX IF NOT EXISTS email_leads_org_idx ON email_leads (org_id, status, received_at DESC);
+

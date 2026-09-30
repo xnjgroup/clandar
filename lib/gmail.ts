@@ -584,6 +584,62 @@ export async function createDraft(input: {
   });
 }
 
+/* ── Lead finder support (lib/lead-finder.ts) ─────────────── */
+
+/** Ids of messages matching `query`, newest first, up to `max` — no per-message fetch. */
+export async function listMessageIds(
+  orgId: string,
+  connectorId: string,
+  query: string,
+  max = 50,
+): Promise<string[]> {
+  const connector = await resolveConnector(orgId, connectorId);
+  const params = new URLSearchParams({ q: query, maxResults: String(Math.min(max, 500)) });
+  const list = await call<{ messages?: { id: string }[] }>(connector, `/messages?${params}`);
+  return (list.messages ?? []).map((m) => m.id);
+}
+
+/**
+ * The id of the Gmail label with this exact name (e.g. "Leads/Deck & fence"),
+ * creating it if needed — Gmail shows "/" as nesting. Needs `gmail.modify`.
+ */
+export async function ensureGmailLabel(orgId: string, connectorId: string, name: string): Promise<string> {
+  const connector = await resolveConnector(orgId, connectorId);
+  const { labels = [] } = await call<{ labels?: { id: string; name: string }[] }>(connector, `/labels`);
+  const found = labels.find((l) => l.name.toLowerCase() === name.toLowerCase());
+  if (found) return found.id;
+  // Parents first, so "Leads/Tile" nests under an existing/created "Leads".
+  const parts = name.split("/");
+  for (let i = 1; i < parts.length; i++) {
+    const parent = parts.slice(0, i).join("/");
+    if (!labels.some((l) => l.name.toLowerCase() === parent.toLowerCase())) {
+      await call(connector, `/labels`, "POST", { name: parent, labelListVisibility: "labelShow", messageListVisibility: "show" }).catch(
+        () => {},
+      );
+    }
+  }
+  const created = await call<{ id: string }>(connector, `/labels`, "POST", {
+    name,
+    labelListVisibility: "labelShow",
+    messageListVisibility: "show",
+  });
+  return created.id;
+}
+
+/** Adds and/or removes labels on one message. Needs `gmail.modify`. */
+export async function modifyMessageLabels(
+  orgId: string,
+  connectorId: string,
+  messageId: string,
+  change: { add?: string[]; remove?: string[] },
+): Promise<void> {
+  const connector = await resolveConnector(orgId, connectorId);
+  await call(connector, `/messages/${messageId}/modify`, "POST", {
+    addLabelIds: change.add ?? [],
+    removeLabelIds: change.remove ?? [],
+  });
+}
+
 /* ── Label dashboard ──────────────────────────────────────── */
 
 export type LabelCount = { id: string; label: string; total: number; unread: number };

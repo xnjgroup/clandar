@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Icon } from "@/components/icons";
 import { TabLinks } from "@/components/tabs";
+import type { IconName } from "@/components/icons";
 import {
   Card,
   CardTitle,
@@ -14,6 +15,8 @@ import {
   TableTitle,
 } from "@/components/ui";
 import { count, firstParam, hrefWith, relativeTime } from "@/lib/data";
+import { countOpenLeads, getLeadFinderSettings, listLeads } from "@/lib/lead-finder";
+import { listProjectTypes } from "@/lib/project-types";
 import { requireSession } from "@/lib/auth";
 import { hasGmailModifyScope, listGmailConnectors, type Connector } from "@/lib/connectors";
 import { BULK_TRASH_LABELS } from "@/lib/gmail-cleanup";
@@ -22,54 +25,18 @@ import {
   LABEL_QUERIES,
   DEFAULT_MAILBOX_VIEW,
   MAILBOX_VIEWS,
-  labelCounts,
+  labelCount,
   listMail,
   mailboxView,
-  type LabelCount,
 } from "@/lib/gmail";
 import { bulkTrashJobId, bulkTrashStatus } from "@/lib/queue";
+import { LeadsView } from "./leads-view";
+import { MailboxNav, type MailboxNavItem } from "./mailbox-nav";
 import { TrashLabelButton } from "./trash-label-button";
 import { TrashProgressPanel } from "./trash-progress-panel";
 
 /** Which labels get a "Trash all X" button, and where — matches BULK_TRASH_LABELS' ids. */
 const QUICK_TRASH_LABELS = ["SPAM", "CATEGORY_PROMOTIONS"];
-
-function LabelDashboard({
-  labels,
-  accounts,
-  accountId,
-  params,
-}: {
-  labels: LabelCount[];
-  accounts: number;
-  accountId: string;
-  params: Record<string, string | string[] | undefined>;
-}) {
-  return (
-    <div className="flex min-w-0 flex-wrap gap-[8px]">
-      {labels.map((l) => (
-        <Link
-          key={l.id}
-          href={hrefWith(PATH, params, {
-            view: "all",
-            q: LABEL_QUERIES[l.id],
-            account: accounts > 1 ? accountId : null,
-            t: null,
-          })}
-          className="flex shrink-0 items-center gap-[7px] rounded-[12px] border border-line bg-surface px-[11px] py-[8px] hover:bg-[#fafbf9]"
-        >
-          <span className="text-[11.5px] text-muted">{l.label}</span>
-          <span className="font-mono text-[12.5px] font-semibold">{count(l.total)}</span>
-          {l.unread > 0 ? (
-            <span className="rounded-full bg-ok-bg px-[6px] py-[1px] font-mono text-[10px] text-ok-fg">
-              {count(l.unread)} new
-            </span>
-          ) : null}
-        </Link>
-      ))}
-    </div>
-  );
-}
 
 const PAGE_SIZE = 25;
 const PATH = "/email";
@@ -148,11 +115,115 @@ export default async function EmailPage({ searchParams }: PageProps<"/email">) {
     );
   }
 
+  // Leads: the lead finder's review queue — opened by default once the finder is on (it's what matters most).
+  const viewParam = firstParam(params.view);
+  const [leadSettings, openLeads] = await Promise.all([getLeadFinderSettings(org.id), countOpenLeads(org.id)]);
+  const showLeads = viewParam === "leads" || (!viewParam && !search && leadSettings.isEnabled);
+
+  // Views: a left side column on desktop (like Gmail's), a sideways-scrolling chip row on phones.
+  // Always explicit in links (?view=…), since the default depends on whether the lead finder is on.
+  const VIEW_ICONS: Record<string, IconName> = {
+    inbox: "mail",
+    bills: "doc",
+    unread: "message",
+    attachments: "link2",
+    all: "layers",
+  };
+  const [inboxCount, unreadCount] = await Promise.all([
+    labelCount("INBOX", org.id, account.id).catch(() => undefined),
+    labelCount("UNREAD", org.id, account.id).catch(() => undefined),
+  ]);
+  const navItems: MailboxNavItem[] = [
+    {
+      id: "leads",
+      label: "Leads",
+      icon: "briefcase",
+      href: hrefWith(PATH, {}, { view: "leads", account: accounts.length > 1 ? account.id : null }),
+      badge: openLeads,
+    },
+    ...MAILBOX_VIEWS.map((v) => ({
+      id: v.id,
+      label: v.label,
+      icon: VIEW_ICONS[v.id] ?? "mail",
+      href: hrefWith(PATH, {}, { view: v.id, account: accounts.length > 1 ? account.id : null }),
+      count: v.id === "inbox" ? inboxCount : v.id === "unread" ? unreadCount : undefined,
+    })),
+  ];
+  const searchRow = (
+    <div className="flex items-center gap-[9px]">
+      <SearchForm
+        action={PATH}
+        placeholder="Search mail — from:acme has:attachment…"
+        defaultValue={search}
+        keep={{
+          view: showLeads ? DEFAULT_MAILBOX_VIEW : view.id,
+          account: accounts.length > 1 ? account.id : undefined,
+        }}
+        className="min-w-0 flex-1"
+      />
+      <Link
+        href={`/email/cleanup?account=${account.id}`}
+        className="flex shrink-0 items-center gap-2 rounded-[14px] border border-line bg-surface px-[13px] py-[9px] text-[12.5px] font-medium"
+      >
+        <Icon name="shield" size={15} className="shrink-0 text-body-soft" />
+        Clean up
+      </Link>
+    </div>
+  );
+  /** Side column of views + the main column (search row, then the page's content). */
+  const layout = (content: React.ReactNode) => (
+    <div className="grid min-w-0 grid-cols-1 items-start gap-[12px] lg:grid-cols-[210px_minmax(0,1fr)] lg:gap-[18px]">
+      <MailboxNav items={navItems} active={showLeads ? "leads" : view.id} />
+      <div className="flex min-w-0 flex-col gap-[12px]">
+        {searchRow}
+        {accountSwitcher}
+        {content}
+      </div>
+    </div>
+  );
+
+  const accountSwitcher =
+    accounts.length > 1 ? (
+      <TabLinks
+        options={accounts.map(accountLabel)}
+        value={accountLabel(account)}
+        label="Gmail account"
+        href={(label) => {
+          const target = accounts.find((a) => accountLabel(a) === label)!;
+          return hrefWith(PATH, params, { account: target.id, t: null });
+        }}
+      />
+    ) : null;
+
+  if (showLeads) {
+    const handled = firstParam(params.handled) === "true";
+    const typeFilter = firstParam(params.type);
+    const [leads, projectTypes] = await Promise.all([
+      listLeads(org.id, { handled, projectTypeId: typeFilter || undefined }),
+      listProjectTypes(org.id),
+    ]);
+    return (
+      <PageBody>
+        {layout(
+          <LeadsView
+          leads={leads}
+          settings={leadSettings}
+          handled={handled}
+          typeFilter={typeFilter}
+          projectTypes={projectTypes}
+          params={params}
+            multipleAccounts={accounts.length > 1}
+          />,
+        )}
+      </PageBody>
+    );
+  }
+
   let mailbox;
-  let labels: LabelCount[] = [];
+  let labelTotal = 0;
   let trashJobs: (Awaited<ReturnType<typeof bulkTrashStatus>>)[] = [];
   try {
-    [mailbox, labels, trashJobs] = await Promise.all([
+    [mailbox, labelTotal, trashJobs] = await Promise.all([
       listMail({
         orgId: org.id,
         connectorId: account.id,
@@ -161,7 +232,8 @@ export default async function EmailPage({ searchParams }: PageProps<"/email">) {
         pageToken: trail.at(-1),
         pageSize: PAGE_SIZE,
       }),
-      labelCounts(org.id, account.id).catch(() => []), // the dashboard is a nice-to-have, not worth failing the page over
+      // Only the label being viewed, for its "Trash all" button's count.
+      viewingLabel ? labelCount(viewingLabel, org.id, account.id).catch(() => 0) : Promise.resolve(0),
       // Checked regardless of which view is open — a bulk trash keeps running
       // in the background no matter where you navigate within /email.
       Promise.all(QUICK_TRASH_LABELS.map((id) => bulkTrashStatus(account.id, id))),
@@ -188,7 +260,7 @@ export default async function EmailPage({ searchParams }: PageProps<"/email">) {
 
   const messageHref = (id: string) =>
     hrefWith(`${PATH}/${id}`, {}, {
-      view: view.id === DEFAULT_MAILBOX_VIEW ? null : view.id,
+      view: view.id,
       q: search || null,
       account: accounts.length > 1 ? account.id : null,
     });
@@ -215,66 +287,7 @@ export default async function EmailPage({ searchParams }: PageProps<"/email">) {
         );
       })}
 
-      <div className="flex items-center gap-[9px] sm:flex-wrap">
-        <SearchForm
-          action={PATH}
-          placeholder="Gmail search — from:acme has:attachment…"
-          defaultValue={search}
-          keep={{
-            view: view.id === DEFAULT_MAILBOX_VIEW ? undefined : view.id,
-            account: accounts.length > 1 ? account.id : undefined,
-          }}
-          className="min-w-0 flex-1 sm:max-w-[360px]"
-        />
-        {accounts.length === 1 ? (
-          // The single account's address is just context — hidden on phones to save the row.
-          <span className="hidden shrink-0 items-center gap-2 rounded-[14px] border border-line bg-surface px-[13px] py-[9px] sm:flex">
-            <Icon name="mail" size={16} className="shrink-0 text-body-soft" />
-            <span className="truncate text-[12.5px] font-medium">{accountLabel(account)}</span>
-          </span>
-        ) : null}
-        <Link
-          href={`/email/cleanup?account=${account.id}`}
-          className="flex shrink-0 items-center gap-2 rounded-[14px] border border-line bg-surface px-[13px] py-[9px] text-[12.5px] font-medium"
-        >
-          <Icon name="shield" size={15} className="shrink-0 text-body-soft" />
-          <span className="sm:hidden">Clean up</span>
-          <span className="hidden sm:inline">Clean up inbox</span>
-        </Link>
-      </div>
-
-      {accounts.length > 1 ? (
-        <TabLinks
-          options={accounts.map(accountLabel)}
-          value={accountLabel(account)}
-          label="Gmail account"
-          href={(label) => {
-            const target = accounts.find((a) => accountLabel(a) === label)!;
-            return hrefWith(PATH, params, { account: target.id, t: null });
-          }}
-        />
-      ) : null}
-
-      {/* The per-label counts are an overview for bigger screens; on phones the view chips below cover it. */}
-      {labels.length > 0 ? (
-        <div className="hidden sm:block">
-          <LabelDashboard labels={labels} accounts={accounts.length} accountId={account.id} params={params} />
-        </div>
-      ) : null}
-
-      <TabLinks
-        options={MAILBOX_VIEWS.map((v) => v.label)}
-        value={view.label}
-        label="Mailbox view"
-        href={(label) => {
-          const target = MAILBOX_VIEWS.find((v) => v.label === label)!;
-          return hrefWith(PATH, params, {
-            view: target.id === DEFAULT_MAILBOX_VIEW ? null : target.id,
-            t: null,
-          });
-        }}
-      />
-
+      {layout(
       <TableCard>
         <TableHeader>
           <TableTitle>{search ? `Messages matching “${search}”` : view.label}</TableTitle>
@@ -288,7 +301,7 @@ export default async function EmailPage({ searchParams }: PageProps<"/email">) {
               connectorId={account.id}
               label={viewingLabel}
               labelName={BULK_TRASH_LABELS.find((l) => l.id === viewingLabel)?.label ?? viewingLabel}
-              count={labels.find((l) => l.id === viewingLabel)?.total ?? 0}
+              count={labelTotal}
               disabled={!hasGmailModifyScope(account)}
               disabledReason="Reconnect this account on /connectors to grant permission to trash mail"
             />
@@ -348,6 +361,7 @@ export default async function EmailPage({ searchParams }: PageProps<"/email">) {
           nextHref={nextHref}
         />
       </TableCard>
+      )}
     </PageBody>
   );
 }

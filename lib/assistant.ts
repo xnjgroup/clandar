@@ -18,7 +18,7 @@
  */
 import { query, queryOne } from "@/lib/db";
 import { chatCompleteStream, chatLlmProvider, type ChatContentPart, type ChatMessage } from "@/lib/llm-providers";
-import { createCustomer, listCustomers } from "@/lib/customers";
+import { createCustomer, findOrCreateCustomer, listCustomers } from "@/lib/customers";
 import { createProject, getProject, listProjects, type ProjectStatus } from "@/lib/projects";
 import { analyzeProjectPhotos, createEstimate, type LineItemKind } from "@/lib/quoting";
 import { createProjectType, listProjectTypes } from "@/lib/project-types";
@@ -28,8 +28,9 @@ import { readUpload, saveUpload } from "@/lib/storage";
 import { listTeam } from "@/lib/auth";
 import { emailContextBlock, type EmailAttachmentContent } from "@/lib/email-context";
 import { zonedTimeToUtc } from "@/lib/time-zone";
-import { createDraft, readAttachment, readMail, replyContext, sendMail, type MailDetail } from "@/lib/gmail";
+import { createDraft, replyContext, sendMail, type MailDetail } from "@/lib/gmail";
 import { recordInvoiceFromEmail } from "@/lib/email-invoice";
+import { copyEmailAttachmentsToProject } from "@/lib/email-to-project";
 import { createScheduleEntry } from "@/lib/schedule";
 
 /** What the user is looking at, beyond the page title: the open email (if any) and their time zone for dates. */
@@ -292,33 +293,6 @@ async function findProjectTypeIdByName(orgId: string, name: string | undefined):
   return types.find((t) => t.name.toLowerCase() === name.trim().toLowerCase())?.id ?? null;
 }
 
-/**
- * The customer to put a project under: matched by email first (when given), then
- * by name, else created. A match with no email/phone on file gets them filled in —
- * so a project made from an email is ready to have its quote sent.
- */
-async function findOrCreateCustomerId(
-  orgId: string,
-  name: string,
-  contact: { email?: string; phone?: string } = {},
-): Promise<string> {
-  const email = contact.email?.trim().toLowerCase() || null;
-  const phone = contact.phone?.trim() || null;
-  const byEmail = email
-    ? await queryOne<{ id: string }>(`SELECT id FROM customers WHERE org_id = $1 AND lower(email) = $2 LIMIT 1`, [orgId, email])
-    : null;
-  const existing = byEmail ?? (await listCustomers(orgId, name)).find((c) => c.name.toLowerCase() === name.trim().toLowerCase());
-  if (existing) {
-    await query(
-      `UPDATE customers SET email = coalesce(nullif(email, ''), $3), phone = coalesce(nullif(phone, ''), $4)
-        WHERE id = $1 AND org_id = $2`,
-      [existing.id, orgId, email, phone],
-    );
-    return existing.id;
-  }
-  return createCustomer({ orgId, name: name.trim(), email, phone, address: null, notes: "" });
-}
-
 async function findProjectIdByTitle(orgId: string, title: string | undefined): Promise<string | null> {
   if (!title) return null;
   const projects = await listProjects(orgId);
@@ -444,39 +418,21 @@ async function runToolUnsafe(
       const projectTitle = str(args.projectTitle);
       const projectId = await findProjectIdByTitle(orgId, projectTitle);
       if (!projectId) return { summary: `attach_email_files_to_project failed: no project found named "${projectTitle}".` };
-      // Re-read the message: Gmail issues fresh attachment ids per read, so use ones from right now.
-      const email = await readMail(context.email.id, orgId, context.email.connectorId);
-      const wanted = Array.isArray(args.attachmentNames)
-        ? args.attachmentNames.filter((n): n is string => typeof n === "string").map((n) => n.toLowerCase())
+      const names = Array.isArray(args.attachmentNames)
+        ? args.attachmentNames.filter((n): n is string => typeof n === "string")
         : [];
-      const chosen = wanted.length
-        ? email.attachments.filter((a) => wanted.includes(a.filename.toLowerCase()))
-        : email.attachments;
-      if (chosen.length === 0) {
+      const { photos, files, available } = await copyEmailAttachmentsToProject({
+        orgId,
+        connectorId: context.email.connectorId,
+        messageId: context.email.id,
+        projectId,
+        uploadedBy: personId,
+        names,
+      });
+      if (photos.length + files.length === 0) {
         return {
-          summary: `attach_email_files_to_project: nothing to copy — the email's attachments are: ${
-            email.attachments.map((a) => a.filename).join(", ") || "none"
-          }.`,
+          summary: `attach_email_files_to_project: nothing to copy — the email's attachments are: ${available.join(", ") || "none"}.`,
         };
-      }
-      const photos: string[] = [];
-      const files: string[] = [];
-      for (const a of chosen) {
-        const bytes = await readAttachment(email.id, a.attachmentId, orgId, email.connectorId);
-        if (a.mimeType.startsWith("image/")) {
-          await addProjectPhoto({ projectId, fileName: a.filename, contentType: a.mimeType, bytes, uploadedBy: personId });
-          photos.push(a.filename);
-        } else {
-          await addProjectFile({
-            projectId,
-            folderId: null,
-            fileName: a.filename,
-            contentType: a.mimeType || "application/octet-stream",
-            bytes,
-            uploadedBy: personId,
-          });
-          files.push(a.filename);
-        }
       }
       return {
         summary: `Copied ${photos.length} photo(s) and ${files.length} file(s) from the email to "${projectTitle}".`,
@@ -606,7 +562,7 @@ async function runToolUnsafe(
       if (!customerName || !title) {
         return { summary: "create_project failed: customerName and title are required." };
       }
-      const customerId = await findOrCreateCustomerId(orgId, customerName, {
+      const customerId = await findOrCreateCustomer(orgId, customerName, {
         email: str(args.customerEmail),
         phone: str(args.customerPhone),
       });

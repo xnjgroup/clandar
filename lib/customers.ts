@@ -91,3 +91,30 @@ export async function updateCustomer(
 export async function deleteCustomer(id: string, orgId: string): Promise<void> {
   await query(`DELETE FROM customers WHERE id = $1 AND org_id = $2`, [id, orgId]);
 }
+
+/**
+ * The customer to put a project under: matched by email first (when given), then
+ * by name, else created. A match with no email/phone on file gets them filled in —
+ * so a project made from an email is ready to have its quote sent.
+ */
+export async function findOrCreateCustomer(
+  orgId: string,
+  name: string,
+  contact: { email?: string; phone?: string } = {},
+): Promise<string> {
+  const email = contact.email?.trim().toLowerCase() || null;
+  const phone = contact.phone?.trim() || null;
+  const byEmail = email
+    ? await queryOne<{ id: string }>(`SELECT id FROM customers WHERE org_id = $1 AND lower(email) = $2 LIMIT 1`, [orgId, email])
+    : null;
+  const existing = byEmail ?? (await listCustomers(orgId, name)).find((c) => c.name.toLowerCase() === name.trim().toLowerCase());
+  if (existing) {
+    await query(
+      `UPDATE customers SET email = coalesce(nullif(email, ''), $3), phone = coalesce(nullif(phone, ''), $4)
+        WHERE id = $1 AND org_id = $2`,
+      [existing.id, orgId, email, phone],
+    );
+    return existing.id;
+  }
+  return createCustomer({ orgId, name: name.trim(), email, phone, address: null, notes: "" });
+}

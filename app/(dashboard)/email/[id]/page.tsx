@@ -4,7 +4,10 @@ import { Icon } from "@/components/icons";
 import { Card, CardTitle, PageBody, TableCard } from "@/components/ui";
 import { firstParam, hrefWith } from "@/lib/data";
 import { requireSession } from "@/lib/auth";
+import { TimeZoneField } from "@/components/time-zone-field";
 import { GmailError, fileSize, readMail } from "@/lib/gmail";
+import { getLeadForMessage } from "@/lib/lead-finder";
+import { createProjectFromLead, dismissLead, followUpLead } from "../lead-actions";
 
 /**
  * The message body is untrusted HTML from a stranger, so it is rendered inside a
@@ -88,6 +91,8 @@ export default async function EmailDetailPage({ params, searchParams }: PageProp
   ];
 
   const showText = asText || message.html === null;
+  // Flagged by the lead finder? Then this email gets its lead strip and actions.
+  const lead = await getLeadForMessage(message.id, org.id);
   const attachmentHref = (partId: string) =>
     hrefWith(`/api/email/${id}/attachments/${encodeURIComponent(partId)}`, {}, { account: account || null });
   const imageAttachments = message.attachments.filter((a) => a.mimeType.startsWith("image/"));
@@ -110,6 +115,44 @@ export default async function EmailDetailPage({ params, searchParams }: PageProp
           {message.subject}
         </span>
       </div>
+
+      {lead ? (
+        <section className="flex min-w-0 flex-wrap items-center gap-x-[12px] gap-y-[8px] rounded-[16px] border border-line bg-surface px-[14px] py-[10px]">
+          <span className="rounded-full bg-lime px-[9px] py-[2px] text-[11px] font-semibold text-ink">
+            Lead · {lead.projectTypeName || "Other"}
+          </span>
+          <span className="min-w-0 flex-1 text-[12.5px] text-body">{lead.summary || lead.title}</span>
+          {lead.status === "converted" && lead.projectId ? (
+            <Link href={`/projects/${lead.projectId}`} className="text-[12px] font-semibold text-ok-fg underline">
+              Project created — open it →
+            </Link>
+          ) : lead.status === "dismissed" ? (
+            <span className="text-[11.5px] text-muted">Marked not a lead</span>
+          ) : (
+            <div className="flex items-center gap-[8px]">
+              <form action={createProjectFromLead}>
+                <input type="hidden" name="id" value={lead.id} />
+                <button type="submit" className="cursor-pointer rounded-full bg-ink px-3 py-[6px] text-[11.5px] font-semibold text-bg">
+                  Create project
+                </button>
+              </form>
+              <form action={followUpLead}>
+                <input type="hidden" name="id" value={lead.id} />
+                <TimeZoneField />
+                <button type="submit" className="cursor-pointer rounded-full border border-line px-3 py-[6px] text-[11.5px] font-medium">
+                  Follow up
+                </button>
+              </form>
+              <form action={dismissLead}>
+                <input type="hidden" name="id" value={lead.id} />
+                <button type="submit" className="cursor-pointer text-[11.5px] font-medium text-muted underline">
+                  Not a lead
+                </button>
+              </form>
+            </div>
+          )}
+        </section>
+      ) : null}
 
       {/* Message details and attachments sit above the body, compactly, so the email itself gets the full width. */}
       <section className="flex min-w-0 flex-col gap-[8px] rounded-[16px] border border-line bg-surface px-[14px] py-[9px]">

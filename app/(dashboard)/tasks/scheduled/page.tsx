@@ -3,6 +3,7 @@ import { Icon } from "@/components/icons";
 import { Card, EmptyRow, IconTile, PageBody, TableCard, TableHeader, TableTitle } from "@/components/ui";
 import { relativeTime } from "@/lib/data";
 import { requireSession } from "@/lib/auth";
+import { countOpenLeads, getLeadFinderSettings } from "@/lib/lead-finder";
 import { formatSchedule, listScheduledTasks, TASK_PRESETS } from "@/lib/scheduled-tasks";
 import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
 import { removeScheduledTask, toggleScheduledTask } from "./actions";
@@ -11,7 +12,11 @@ import { PresetAdder } from "./preset-adder";
 
 export default async function ScheduledTasksPage() {
   const { org } = await requireSession();
-  const tasks = await listScheduledTasks(org.id);
+  const [tasks, leadFinder, openLeads] = await Promise.all([
+    listScheduledTasks(org.id),
+    getLeadFinderSettings(org.id),
+    countOpenLeads(org.id),
+  ]);
 
   return (
     <PageBody>
@@ -23,6 +28,32 @@ export default async function ScheduledTasksPage() {
           Tasks
         </Link>
       </div>
+
+      {/* Built-in: the lead finder has its own settings page rather than a prompt. */}
+      <Link href="/tasks/scheduled/lead-finder" className="block">
+        <Card className="flex flex-wrap items-center gap-[12px] hover:bg-[#fafbf9]">
+          <span className="flex size-[38px] shrink-0 items-center justify-center rounded-[12px] bg-lime">
+            <Icon name="search" size={18} />
+          </span>
+          <div className="flex min-w-0 flex-1 flex-col gap-[2px]">
+            <span className="text-[13.5px] font-semibold">Lead finder</span>
+            <span className="text-[12px] text-muted">
+              {leadFinder.isEnabled
+                ? `Watching your email every ${leadFinder.checkMinutes} min for project requests${
+                    openLeads ? ` · ${openLeads} new lead${openLeads === 1 ? "" : "s"} to review` : ""
+                  }`
+                : "Finds emails asking for work and sorts them by your project types — with a daily summary."}
+            </span>
+          </div>
+          <span
+            className={`shrink-0 rounded-full px-[12px] py-[6px] text-[11.5px] font-semibold ${
+              leadFinder.isEnabled ? "bg-ok-bg text-ok-fg" : "bg-ink text-bg"
+            }`}
+          >
+            {leadFinder.isEnabled ? "On · Settings" : "Set up"}
+          </span>
+        </Card>
+      </Link>
 
       <Card>
         <AddScheduledTaskButton />
