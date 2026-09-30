@@ -236,3 +236,56 @@ export async function deleteProject(id: string, orgId: string): Promise<void> {
   await query(`DELETE FROM projects WHERE id = $1 AND org_id = $2`, [id, orgId]);
   await Promise.all(paths.map((p) => deleteUpload(p.file_path)));
 }
+
+export type ProjectOverview = {
+  active: number;
+  activeOverdue: number;
+  leads: number;
+  quoted: number;
+  quotesOut: number;
+  tasksToday: number;
+  tasksOverdue: number;
+  jobsThisWeek: number;
+  newLeads: number;
+};
+
+/** Headline numbers for the overview's Projects row. "Today" is the database's date. */
+export async function projectOverview(orgId: string): Promise<ProjectOverview> {
+  const row = await queryOne<{
+    active: number;
+    active_overdue: number;
+    leads: number;
+    quoted: number;
+    quotes_out: string;
+    tasks_today: number;
+    tasks_overdue: number;
+    jobs_week: number;
+    new_leads: number;
+  }>(
+    `SELECT
+       (SELECT count(*)::int FROM projects WHERE org_id = $1 AND status IN ('scheduled', 'in_progress')) AS active,
+       (SELECT count(*)::int FROM projects WHERE org_id = $1 AND status IN ('scheduled', 'in_progress')
+          AND due_date < current_date) AS active_overdue,
+       (SELECT count(*)::int FROM projects WHERE org_id = $1 AND status = 'lead') AS leads,
+       (SELECT count(*)::int FROM projects WHERE org_id = $1 AND status = 'quoted') AS quoted,
+       (SELECT coalesce(sum(total), 0)::text FROM estimates WHERE org_id = $1 AND status = 'sent') AS quotes_out,
+       (SELECT count(*)::int FROM tasks WHERE org_id = $1 AND NOT is_done AND due_date = current_date) AS tasks_today,
+       (SELECT count(*)::int FROM tasks WHERE org_id = $1 AND NOT is_done AND due_date < current_date) AS tasks_overdue,
+       (SELECT count(*)::int FROM schedule_entries WHERE org_id = $1
+          AND starts_at >= now() AND starts_at < now() + interval '7 days') AS jobs_week,
+       (SELECT count(*)::int FROM email_leads WHERE org_id = $1 AND status = 'new') AS new_leads`,
+    [orgId],
+  );
+  return {
+    active: row?.active ?? 0,
+    activeOverdue: row?.active_overdue ?? 0,
+    leads: row?.leads ?? 0,
+    quoted: row?.quoted ?? 0,
+    quotesOut: Number(row?.quotes_out ?? 0),
+    tasksToday: row?.tasks_today ?? 0,
+    tasksOverdue: row?.tasks_overdue ?? 0,
+    jobsThisWeek: row?.jobs_week ?? 0,
+    newLeads: row?.new_leads ?? 0,
+  };
+}
+

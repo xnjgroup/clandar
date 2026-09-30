@@ -3,9 +3,10 @@ import { Icon } from "@/components/icons";
 import { SpendByCategoryChart } from "@/components/charts";
 import { InvoiceListRow } from "@/components/invoice-row";
 import { OpenAssistantButton } from "@/components/open-assistant-button";
-import { Card, CardTitle, EmptyRow, PageBody, StatCard, StatRow, TableCard } from "@/components/ui";
+import { Card, CardTitle, EmptyRow, PageBody, Pill, StatCard, StatRow, TableCard } from "@/components/ui";
 import { count, delta, money0 } from "@/lib/data";
 import { requireSession } from "@/lib/auth";
+import { PROJECT_STATUSES, describeDue, listProjects, projectOverview } from "@/lib/projects";
 import {
   needsAttention,
   overviewStats,
@@ -23,12 +24,42 @@ const QUICK_QUESTIONS = [
 
 export default async function OverviewPage() {
   const { org } = await requireSession();
-  const [stats, slices, attention, invoices] = await Promise.all([
+  const [projectStats, activeProjects, stats, slices, attention, invoices] = await Promise.all([
+    projectOverview(org.id),
+    listProjects(org.id),
     overviewStats(org.id),
     spendByCategory(org.id),
     needsAttention(org.id),
     recentInvoices(org.id, 5),
   ]);
+
+  const projectCards = [
+    {
+      label: "Active projects",
+      value: count(projectStats.active),
+      sub: projectStats.activeOverdue ? `${count(projectStats.activeOverdue)} past due` : "scheduled or in progress",
+    },
+    {
+      label: "Pipeline",
+      value: count(projectStats.leads + projectStats.quoted),
+      sub: `${count(projectStats.leads)} lead${projectStats.leads === 1 ? "" : "s"} · ${money0(projectStats.quotesOut)} quoted out`,
+    },
+    {
+      label: "Tasks due today",
+      value: count(projectStats.tasksToday),
+      sub: projectStats.tasksOverdue ? `${count(projectStats.tasksOverdue)} overdue` : "nothing overdue",
+    },
+    {
+      label: "Jobs this week",
+      value: count(projectStats.jobsThisWeek),
+      sub: projectStats.newLeads ? `${count(projectStats.newLeads)} new email lead${projectStats.newLeads === 1 ? "" : "s"}` : "on the schedule",
+    },
+  ];
+  // Jobs underway first, soonest due first; anything without a due date after.
+  const current = activeProjects
+    .filter((p) => p.status === "scheduled" || p.status === "in_progress")
+    .sort((a, b) => (a.dueDate ?? "9999").localeCompare(b.dueDate ?? "9999"))
+    .slice(0, 6);
 
   const cards = [
     {
@@ -55,6 +86,59 @@ export default async function OverviewPage() {
 
   return (
     <PageBody>
+      <StatRow>
+        {projectCards.map((s) => (
+          <StatCard key={s.label} {...s} />
+        ))}
+      </StatRow>
+
+      <TableCard>
+        <div className="flex items-center gap-[10px] px-[18px] py-4">
+          <CardTitle>Active projects</CardTitle>
+          <Link href="/projects" className="ml-auto text-[12.5px] font-medium underline">
+            All projects
+          </Link>
+        </div>
+        {current.length === 0 ? (
+          <EmptyRow>No projects scheduled or in progress.</EmptyRow>
+        ) : (
+          current.map((p) => {
+            const due = describeDue(p.dueDate, p.status);
+            const pct = p.taskCount ? Math.round((p.tasksDone / p.taskCount) * 100) : null;
+            return (
+              <Link
+                key={p.id}
+                href={`/projects/${p.id}`}
+                className="flex min-h-[58px] min-w-0 flex-wrap items-center gap-x-3 gap-y-[6px] border-t border-line-soft px-[18px] py-[11px] hover:bg-[#fafbf9]"
+              >
+                <div className="flex min-w-0 flex-1 basis-[200px] flex-col leading-[1.4]">
+                  <span className="truncate text-[13px] font-semibold">{p.title}</span>
+                  <span className="truncate text-[11.5px] text-muted">
+                    {p.customerName}
+                    {due ? <span className={due.overdue ? "font-medium text-bad-fg" : ""}> · {due.label}</span> : null}
+                  </span>
+                </div>
+                <span className="flex w-[130px] shrink-0 items-center gap-[8px]" title={pct === null ? "No tasks" : `${p.tasksDone} of ${p.taskCount} tasks done`}>
+                  {pct === null ? (
+                    <span className="text-[11px] text-faint">No tasks</span>
+                  ) : (
+                    <>
+                      <span className="h-[6px] flex-1 overflow-hidden rounded-full bg-line-soft">
+                        <span className={`block h-full rounded-full ${pct === 100 ? "bg-ok-fg" : "bg-ink"}`} style={{ width: `${pct}%` }} />
+                      </span>
+                      <span className="w-[34px] text-right font-mono text-[11px] font-semibold">{pct}%</span>
+                    </>
+                  )}
+                </span>
+                <Pill tone={p.status === "in_progress" ? "ok" : "warn"}>
+                  {PROJECT_STATUSES.find((s) => s.id === p.status)?.label ?? p.status}
+                </Pill>
+              </Link>
+            );
+          })
+        )}
+      </TableCard>
+
       <StatRow>
         {cards.map((s) => (
           <StatCard key={s.label} {...s} />
@@ -146,7 +230,7 @@ export default async function OverviewPage() {
               <OpenAssistantButton
                 key={q}
                 prompt={q}
-                className="cursor-pointer rounded-[12px] bg-surface/70 px-[13px] py-[9px] text-left text-[12.5px] font-medium text-ink hover:bg-surface"
+                className="cursor-pointer rounded-full bg-ink px-[15px] py-[9px] text-left text-[12.5px] font-semibold text-bg hover:bg-ink/85"
               >
                 {q}
               </OpenAssistantButton>
