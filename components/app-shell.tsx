@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Icon, type IconName } from "@/components/icons";
-import { ExecutiveAssistantWidget } from "@/components/executive-assistant-widget";
+import { AideWidget } from "@/components/aide-widget";
 import { HEADER_ACTIONS_ID } from "@/components/header-actions";
 import { useNotifications } from "@/components/use-notifications";
 import { MOBILE_TABS, NAV_FOOTER, NAV_GROUPS, NAV_TOP, PAGE_TITLES, USER_MENU, greeting } from "@/lib/data";
@@ -256,15 +256,15 @@ export function AppShell({
   }
 
   // Lets a page (e.g. the overview card's "Ask about this") open the panel
-  // without needing a route to link to — dispatch `new CustomEvent("clandar:open-assistant")`.
+  // without needing a route to link to — dispatch `new CustomEvent("clandar:open-aide")`.
   useEffect(() => {
     // Always the chat: these carry a question to ask.
     const onOpenRequest = () => {
       setAssistantTab("chat");
       setAssistantOpen(true);
     };
-    window.addEventListener("clandar:open-assistant", onOpenRequest);
-    return () => window.removeEventListener("clandar:open-assistant", onOpenRequest);
+    window.addEventListener("clandar:open-aide", onOpenRequest);
+    return () => window.removeEventListener("clandar:open-aide", onOpenRequest);
   }, []);
 
   // Whether the panel was open persists across a refresh — a per-browser
@@ -310,7 +310,7 @@ export function AppShell({
 
       <div className="flex min-w-0">
         {/* Bottom padding: on phones, room for the floating tab bar above the home indicator; on desktop, room for the floating assistant
-            button (components/executive-assistant-widget.tsx) — 24px up + 52px tall. */}
+            button (components/aide-widget.tsx) — 24px up + 52px tall. */}
         <main className="flex min-w-0 flex-1 flex-col gap-[14px] px-[14px] pt-4 pb-[calc(96px+env(safe-area-inset-bottom))] lg:gap-4 lg:px-[26px] lg:pt-[22px] lg:pb-[96px]">
           <header className="flex min-w-0 items-center gap-[14px]">
             <button
@@ -334,7 +334,7 @@ export function AppShell({
           {children}
         </main>
 
-        <ExecutiveAssistantWidget
+        <AideWidget
           open={assistantOpen}
           onOpenChange={(next) => (next ? openAssistant() : setAssistantOpen(false))}
           tab={assistantTab}

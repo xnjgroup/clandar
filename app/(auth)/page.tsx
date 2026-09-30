@@ -6,9 +6,9 @@ import { Icon, type IconName } from "@/components/icons";
 import { currentSession } from "@/lib/auth";
 
 export const metadata: Metadata = {
-  title: "Clandar — AI executive assistant for business owners who do it all",
+  title: "Clandar — Aide, the AI assistant for business owners who do it all",
   description:
-    "Clandar quotes jobs from photos, manages your schedule, chases invoices, and answers customer email — the executive assistant your business doesn't have to hire.",
+    "Clandar quotes jobs from photos, manages your schedule, chases invoices, and answers customer email — Aide, the assistant your business doesn't have to hire.",
 };
 
 /* ── Feature tile previews — small mocked-up "screens", not real screenshots ── */
@@ -206,7 +206,7 @@ export default async function LandingPage() {
           For business owners who wear every hat
         </span>
         <h1 className="m-0 max-w-[780px] text-[34px] leading-[1.12] font-bold tracking-[-0.03em] lg:text-[50px]">
-          The executive assistant every business owner wishes they could afford
+          Aide — the assistant every business owner wishes they could afford
         </h1>
         <p className="m-0 max-w-[560px] text-[15px] leading-[1.6] text-body-soft lg:text-[16.5px]">
           Clandar handles the busywork of running a service business — quoting jobs from photos, keeping the
@@ -273,7 +273,7 @@ export default async function LandingPage() {
       <section id="features" className="mx-auto w-full max-w-[1120px] px-5 py-[50px] lg:px-8">
         <div className="mb-[30px] flex flex-col items-center gap-[8px] text-center">
           <h2 className="m-0 text-[26px] font-bold tracking-[-0.02em] lg:text-[30px]">
-            Everything an executive assistant would do — done by AI
+            Everything an assistant would do — done by Aide
           </h2>
           <p className="m-0 max-w-[520px] text-[13.5px] leading-[1.6] text-body-soft">
             One place for customers, jobs, quotes, schedule, tasks, and the money — built for a business run by

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { createParser } from "eventsource-parser";
 import { usePathname, useSearchParams } from "next/navigation";
 import { ChatMarkdown } from "@/components/chat-markdown";
-import { AssistantUpdates } from "@/components/assistant-updates";
+import { AideUpdates } from "@/components/aide-updates";
 import { Icon } from "@/components/icons";
 import type { Notifications } from "@/components/use-notifications";
 import type { AgentAttachment, AgentTurn, ConversationSummary } from "@/lib/assistant";
@@ -88,7 +88,7 @@ const EMAIL_QUICK_ACTIONS: { label: string; prompt: string }[] = [
   },
 ];
 
-export function ExecutiveAssistantWidget({
+export function AideWidget({
   open,
   onOpenChange,
   tab,
@@ -176,7 +176,7 @@ export function ExecutiveAssistantWidget({
       .catch(() => setTurns([]));
   }
 
-  // A question handed over by an "Ask the assistant" button elsewhere (OpenAssistantButton's `prompt`):
+  // A question handed over by an "Ask the assistant" button elsewhere (OpenAideButton's `prompt`):
   // asked in a fresh conversation as soon as the panel is open and its history has loaded.
   const [queuedPrompt, setQueuedPrompt] = useState<string | null>(null);
   useEffect(() => {
@@ -184,8 +184,8 @@ export function ExecutiveAssistantWidget({
       const prompt = (e as CustomEvent<{ prompt?: string }>).detail?.prompt;
       if (prompt) setQueuedPrompt(prompt);
     };
-    window.addEventListener("clandar:open-assistant", onOpen);
-    return () => window.removeEventListener("clandar:open-assistant", onOpen);
+    window.addEventListener("clandar:open-aide", onOpen);
+    return () => window.removeEventListener("clandar:open-aide", onOpen);
   }, []);
   const sendRef = useRef(send);
   sendRef.current = send;
@@ -358,7 +358,7 @@ export function ExecutiveAssistantWidget({
         parser.feed(decoder.decode(value, { stream: true }));
       }
     } catch {
-      setError("Could not reach the assistant — try again.");
+      setError("Could not reach Aide — try again.");
       setTurns((prev) => prev?.filter((t) => t.id !== "pending" && t.id !== "streaming") ?? prev);
     } finally {
       setPending(false);
@@ -543,7 +543,7 @@ export function ExecutiveAssistantWidget({
 
       {/* Updates (the bell in the header): notifications — due reminders, lead digests … — posted by Aide. */}
       {tab === "updates" ? (
-        <AssistantUpdates notifications={notifications} onNavigate={closeOnMobileNavigate} />
+        <AideUpdates notifications={notifications} onNavigate={closeOnMobileNavigate} />
       ) : (
         <>
 
@@ -634,7 +634,7 @@ export function ExecutiveAssistantWidget({
                 ? "-mt-[4px] px-[4px]"
                 : "rounded-[16px] bg-bg px-[14px] py-[10px]"
             }`}
-            aria-label="The assistant is working"
+            aria-label="Aide is working"
             role="status"
           >
             {[0, 1, 2].map((i) => (

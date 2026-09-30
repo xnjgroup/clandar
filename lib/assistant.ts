@@ -1,5 +1,5 @@
 /**
- * The Executive Assistant: a real, org-scoped, multi-conversation chat backed
+ * Aide, the assistant: a real, org-scoped, multi-conversation chat backed
  * by the org's chat LLM provider (see lib/llm-providers.ts's chatLlmProvider
  * — falls back to the org's default provider if a chat-specific one isn't
  * assigned on /settings). Unlike the

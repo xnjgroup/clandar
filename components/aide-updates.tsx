@@ -19,7 +19,7 @@ function ago(iso: string) {
  * Viewing them marks them read; the ones that were new stay highlighted
  * until the tab is closed. The browser-push switch for this device sits below.
  */
-export function AssistantUpdates({
+export function AideUpdates({
   notifications,
   onNavigate,
 }: {
