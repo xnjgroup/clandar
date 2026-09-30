@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { ChatMarkdown } from "@/components/chat-markdown";
 import { Icon } from "@/components/icons";
 import type { Notifications, RunningJob } from "@/components/use-notifications";
 import { useJobProgress } from "@/app/(dashboard)/email/use-job-progress";
@@ -42,7 +43,7 @@ function JobCard({ job, onFinished }: { job: RunningJob; onFinished: () => void 
   const iconButton =
     "flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-full border border-line text-body-soft hover:text-ink disabled:cursor-default disabled:opacity-40";
   return (
-    <div className="flex w-[92%] flex-col gap-[6px] self-start rounded-[16px] border border-line bg-surface px-[12px] py-[10px]">
+    <div className="flex w-full flex-col gap-[6px] rounded-[16px] border border-line bg-surface px-[12px] py-[10px]">
       <span className="flex items-center gap-[8px] text-[13px] font-semibold sm:text-[12.5px]">
         <span
           className={`size-[7px] shrink-0 rounded-full ${paused || cancelling ? "bg-warn-fg" : "animate-pulse bg-meter-ok"}`}
@@ -136,7 +137,7 @@ export function AssistantUpdates({
           ordered.map((n) => {
             const isNew = fresh.has(n.id) || !n.read;
             return (
-              <div key={n.id} className="flex max-w-[92%] flex-col gap-[4px] self-start">
+              <div key={n.id} className="flex w-full flex-col gap-[4px]">
                 <div
                   className={`flex flex-col gap-[3px] rounded-[16px] px-[12px] py-[9px] text-[15px] leading-[1.5] sm:text-[12.5px] ${
                     isNew ? "border border-[#cfe3a8] bg-[#f3f9e6]" : "bg-bg"
@@ -146,7 +147,12 @@ export function AssistantUpdates({
                     {isNew ? <span className="size-[7px] shrink-0 rounded-full bg-ok-fg" /> : null}
                     {n.title}
                   </span>
-                  {n.body ? <span className="whitespace-pre-line text-body">{n.body}</span> : null}
+                  {n.body ? (
+                    // Markdown — automations (a daily briefing) write their reports that way.
+                    <div className="text-body">
+                      <ChatMarkdown text={n.body} onNavigate={onNavigate} />
+                    </div>
+                  ) : null}
                   {n.link ? (
                     <Link
                       href={n.link}

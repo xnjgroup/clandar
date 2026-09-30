@@ -11,6 +11,8 @@ import { listGmailConnectors } from "@/lib/connectors";
 import { listMail } from "@/lib/gmail";
 import { WEEKDAYS, type Frequency } from "@/lib/data";
 import { dateInZone, validTimeZone, zonedTimeToUtc } from "@/lib/time-zone";
+import { createNotification } from "@/lib/notifications";
+import { pushToPerson } from "@/lib/push";
 
 // Re-exported so existing `from "@/lib/scheduled-tasks"` imports keep working
 // — the data lives in lib/data.ts because a client component (the new-task
@@ -304,14 +306,31 @@ async function unreadInboxSnapshot(orgId: string): Promise<
 }
 
 /**
- * Runs one scheduled task now: builds the context, asks the org's default LLM
- * provider, records the run, and advances `next_run_at`. Never touches
- * customer-facing data — the result is only ever written to
- * `scheduled_task_runs` for a person to read.
+ * Runs one scheduled task: claims its slot, builds the context, asks the org's
+ * default LLM provider, records the run, and delivers the result to whoever
+ * set the task up — a notification in the assistant's Updates (badging its
+ * button) plus a push. Never touches customer-facing data.
  */
 export async function executeScheduledTask(taskId: string, orgId: string): Promise<void> {
   const task = await getScheduledTask(taskId, orgId);
   if (!task) return;
+
+  // Claim this run by advancing next_run_at in one statement — if another worker
+  // (a second server, a dev machine on the same queue) already took it, stop here.
+  const nextRunAt = computeNextRun(task.frequency, task.runTime, task.runWeekday, new Date(), task.timeZone);
+  const claimed = await queryOne<{ id: string; created_by: string | null }>(
+    `UPDATE scheduled_tasks SET last_run_at = now(), next_run_at = $2
+      WHERE id = $1 AND next_run_at <= now() RETURNING id, created_by`,
+    [taskId, nextRunAt],
+  );
+  if (!claimed) return;
+
+  // Runs cut off mid-way (a server restart) would otherwise say "running" forever.
+  await query(
+    `UPDATE scheduled_task_runs SET status = 'failed', error = 'Interrupted — the server restarted mid-run.', finished_at = now()
+      WHERE task_id = $1 AND status = 'running' AND started_at < now() - interval '15 minutes'`,
+    [taskId],
+  );
 
   const run = await queryOne<{ id: string }>(
     `INSERT INTO scheduled_task_runs (task_id, status) VALUES ($1, 'running') RETURNING id`,
@@ -338,18 +357,32 @@ export async function executeScheduledTask(taskId: string, orgId: string): Promi
       `UPDATE scheduled_task_runs SET status = 'completed', output = $2, finished_at = now() WHERE id = $1`,
       [runId, output],
     );
+    await deliverRun(orgId, claimed.created_by, task, { output });
   } catch (error) {
-    await query(
-      `UPDATE scheduled_task_runs SET status = 'failed', error = $2, finished_at = now() WHERE id = $1`,
-      [runId, error instanceof Error ? error.message : "Unknown error"],
-    );
+    const message = error instanceof Error ? error.message : "Unknown error";
+    await query(`UPDATE scheduled_task_runs SET status = 'failed', error = $2, finished_at = now() WHERE id = $1`, [
+      runId,
+      message,
+    ]);
+    await deliverRun(orgId, claimed.created_by, task, { error: message });
   }
+}
 
-  const nextRunAt = computeNextRun(task.frequency, task.runTime, task.runWeekday, new Date(), task.timeZone);
-  await query(`UPDATE scheduled_tasks SET last_run_at = now(), next_run_at = $2 WHERE id = $1`, [
-    taskId,
-    nextRunAt,
-  ]);
+/** Sends a run's result to the person who set the task up: Updates (the full report, as markdown) and a short push. */
+async function deliverRun(
+  orgId: string,
+  personId: string | null,
+  task: ScheduledTask,
+  result: { output: string } | { error: string },
+): Promise<void> {
+  if (!personId) return;
+  const link = `/tasks/scheduled/${task.id}`;
+  const title = "error" in result ? `${task.name} didn't run` : task.name;
+  const body = "error" in result ? result.error : result.output;
+  await createNotification({ orgId, personId, title, body, link }).catch(() => {});
+  // A push shows a line or two, so it gets the opening of the report.
+  const preview = body.replace(/[*_#>`]/g, "").replace(/\s+/g, " ").trim().slice(0, 160);
+  await pushToPerson(personId, { title, body: preview, link }).catch(() => {});
 }
 
 /** Every enabled task whose `next_run_at` has arrived — what the scheduler tick polls for. */

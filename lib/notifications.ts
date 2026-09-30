@@ -21,7 +21,8 @@ export async function createNotification(input: {
     input.orgId,
     input.personId,
     input.title.slice(0, 200),
-    input.body.slice(0, 1000),
+    // Long enough for an automation's whole report (a daily briefing), which Updates renders as markdown.
+    input.body.slice(0, 8000),
     input.link,
   ]);
 }
