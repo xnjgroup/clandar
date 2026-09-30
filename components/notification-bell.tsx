@@ -147,7 +147,7 @@ export function NotificationBell() {
         aria-expanded={open}
         className="relative flex size-9 cursor-pointer items-center justify-center rounded-[12px] border border-line bg-surface"
       >
-        <Icon name="alert" size={17} />
+        <Icon name="bellSm" size={17} />
         {unread > 0 ? (
           <span className="absolute -top-[5px] -right-[5px] flex h-[17px] min-w-[17px] items-center justify-center rounded-full bg-bad-fg px-[4px] text-[10px] font-bold text-white">
             {unread > 99 ? "99+" : unread}

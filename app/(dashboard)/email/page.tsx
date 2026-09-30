@@ -141,7 +141,7 @@ export default async function EmailPage({ searchParams }: PageProps<"/email">) {
   const totalOf = (id: string) => systemLabels.find((l) => l.id === id)?.total;
   const unreadOf = (id: string) => systemLabels.find((l) => l.id === id)?.unread;
   const LABEL_ICONS: Record<string, IconName> = {
-    STARRED: "alertSm",
+    STARRED: "star",
     CATEGORY_PROMOTIONS: "card",
     CATEGORY_SOCIAL: "users",
     CATEGORY_UPDATES: "refresh",

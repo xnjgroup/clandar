@@ -130,19 +130,33 @@ export default async function EmailDetailPage({ params, searchParams }: PageProp
 
       {/* Message details and attachments sit above the body, compactly, so the email itself gets the full width. */}
       <section className="flex min-w-0 flex-col gap-[8px] rounded-[16px] border border-line bg-surface px-[14px] py-[9px]">
-        <dl className="m-0 flex min-w-0 items-baseline gap-x-[18px] overflow-hidden text-[12.5px] whitespace-nowrap">
-          {fields.map((field) => (
-            <div
-              key={field.label}
-              // From/To can be long; they shrink first. Received stays whole.
-              className={`flex min-w-0 items-baseline gap-[5px] ${field.label === "Received" ? "shrink-0" : "shrink"}`}
-              title={`${field.label}: ${field.value}`}
-            >
-              <dt className="shrink-0 text-[11px] text-muted">{field.label}</dt>
-              <dd className="m-0 min-w-0 truncate font-medium">{field.value}</dd>
-            </div>
-          ))}
-        </dl>
+        {/* Collapsed: one line where From/To shrink and truncate. Tap to open the full details, wrapped. */}
+        <details className="group min-w-0">
+          <summary className="flex min-w-0 cursor-pointer list-none items-center gap-[8px] [&::-webkit-details-marker]:hidden">
+            <dl className="m-0 flex min-w-0 flex-1 items-baseline gap-x-[18px] overflow-hidden text-[12.5px] whitespace-nowrap group-open:hidden">
+              {fields.map((field) => (
+                <div
+                  key={field.label}
+                  // From/To can be long; they shrink first. Received stays whole.
+                  className={`flex min-w-0 items-baseline gap-[5px] ${field.label === "Received" ? "shrink-0" : "shrink"}`}
+                >
+                  <dt className="shrink-0 text-[11px] text-muted">{field.label}</dt>
+                  <dd className="m-0 min-w-0 truncate font-medium">{field.value}</dd>
+                </div>
+              ))}
+            </dl>
+            <span className="hidden flex-1 text-[12px] font-medium text-muted group-open:block">Details</span>
+            <Icon name="chev" size={14} className="shrink-0 text-faint transition-transform group-open:rotate-180" />
+          </summary>
+          <dl className="m-0 mt-[6px] grid grid-cols-[auto_minmax(0,1fr)] gap-x-[10px] gap-y-[5px] text-[12.5px]">
+            {fields.map((field) => (
+              <div key={field.label} className="contents">
+                <dt className="text-[11px] leading-[1.6] text-muted">{field.label}</dt>
+                <dd className="m-0 font-medium break-words [overflow-wrap:anywhere]">{field.value}</dd>
+              </div>
+            ))}
+          </dl>
+        </details>
         {message.attachments.length > 0 ? (
           <div className="flex min-w-0 flex-wrap items-center gap-[6px] border-t border-line-faint pt-[8px]">
             <span className="text-[11px] text-muted">
