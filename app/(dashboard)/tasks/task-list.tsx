@@ -64,9 +64,9 @@ export function TaskList({
         return (
           <div
             key={task.id}
-            className="flex min-h-[52px] min-w-0 flex-wrap items-center gap-3 border-t border-line-soft px-[18px] py-[11px]"
+            className="flex min-h-[52px] min-w-0 items-start gap-3 border-t border-line-soft px-[18px] py-[11px] sm:items-center"
           >
-            <form action={toggleTask}>
+            <form action={toggleTask} className="pt-[1px] sm:pt-0">
               <input type="hidden" name="id" value={task.id} />
               <input type="hidden" name="done" value={String(!task.isDone)} />
               <input type="hidden" name="redirectPath" value={redirectPath} />
@@ -80,15 +80,37 @@ export function TaskList({
                 <Icon name="check2" size={13} />
               </button>
             </form>
-            <Icon name={KIND_ICON[task.kind] ?? "clipboard"} size={15} className="shrink-0 text-body-soft" />
-            <div className="flex min-w-0 flex-1 flex-col leading-[1.35]">
+            <Icon name={KIND_ICON[task.kind] ?? "clipboard"} size={15} className="mt-[4px] shrink-0 text-body-soft sm:mt-0" />
+            {/* Phones: the title wraps (up to 2 lines) and due/assignee, details and project stack beneath it.
+                Wider screens: one line each, with assignee and due as right-hand columns. */}
+            <div className="flex min-w-0 flex-1 flex-col gap-[2px] leading-[1.35]">
               <Link
                 href={`/tasks/${task.id}`}
-                className={`truncate text-[13px] hover:underline ${task.isDone ? "text-faint line-through" : "font-medium"}`}
+                className={`line-clamp-2 text-[13px] hover:underline sm:line-clamp-1 sm:truncate ${
+                  task.isDone ? "text-faint line-through" : "font-medium"
+                }`}
               >
                 {task.title}
               </Link>
-              {summary ? <span className="truncate text-[11px] text-muted">{summary}</span> : null}
+              {task.dueDate && due ? (
+                <span className="flex flex-wrap items-center gap-x-[6px] text-[11px] sm:hidden">
+                  <span className={due.tone === "overdue" ? "font-semibold text-bad-fg" : "text-ink"}>
+                    {shortDate(task.dueDate)}
+                    {task.kind === "reminder" && task.remindTime ? ` · ${clockTime(task.remindTime)}` : ""}
+                  </span>
+                  <span
+                    className={
+                      due.tone === "overdue" ? "text-bad-fg" : due.tone === "soon" ? "font-medium text-warn-fg" : "text-faint"
+                    }
+                  >
+                    {due.label}
+                  </span>
+                  {task.assignedName ? <span className="text-muted">· {task.assignedName}</span> : null}
+                </span>
+              ) : task.assignedName ? (
+                <span className="text-[11px] text-muted sm:hidden">{task.assignedName}</span>
+              ) : null}
+              {summary ? <span className="line-clamp-2 text-[11px] text-muted sm:line-clamp-1 sm:truncate">{summary}</span> : null}
               {showProject && task.projectTitle ? (
                 <Link href={`/projects/${task.projectId}`} className="truncate text-[11px] text-muted underline">
                   {task.projectTitle}
@@ -101,8 +123,8 @@ export function TaskList({
                 {task.assignedName}
               </span>
             ) : null}
-            {/* Due column — fixed width (empty when there's no due date) so rows line up. */}
-            <span className="flex w-[118px] shrink-0 flex-col items-end leading-[1.3]">
+            {/* Due column (wider screens) — fixed width, empty when there's no due date, so rows line up. */}
+            <span className="hidden w-[118px] shrink-0 flex-col items-end leading-[1.3] sm:flex">
               {task.dueDate && due ? (
                 <>
                   <span className={`font-mono text-[11.5px] ${due.tone === "overdue" ? "font-semibold text-bad-fg" : "text-ink"}`}>
@@ -119,7 +141,7 @@ export function TaskList({
                 </>
               ) : null}
             </span>
-            <form action={removeTask}>
+            <form action={removeTask} className="pt-[2px] sm:pt-0">
               <input type="hidden" name="id" value={task.id} />
               <input type="hidden" name="redirectPath" value={redirectPath} />
               <button type="submit" aria-label="Delete task" className="cursor-pointer text-faint hover:text-bad-fg">
