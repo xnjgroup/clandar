@@ -27,6 +27,8 @@ export type TrashLabelJob = {
   connectorId: string;
   /** One of `BULK_TRASH_LABELS`' ids — everything in it gets trashed, no review. */
   label: string;
+  /** Who started it — told (notification + push) when it finishes. */
+  requestedBy?: string;
 };
 
 export type GmailWorkerJob = AnalyzeInboxJob | TrashLabelJob;
@@ -83,7 +85,7 @@ export function bulkTrashJobId(connectorId: string, label: string) {
  * finished job has to be explicitly cleared first — BullMQ refuses to re-add
  * a job whose id already exists in a terminal (completed/failed) state.
  */
-export async function enqueueTrashLabel(connectorId: string, label: string) {
+export async function enqueueTrashLabel(connectorId: string, label: string, requestedBy?: string) {
   const queueRef = gmailCleanupQueue();
   const jobId = bulkTrashJobId(connectorId, label);
   const existing = await queueRef.getJob(jobId);
@@ -92,7 +94,7 @@ export async function enqueueTrashLabel(connectorId: string, label: string) {
     if (state !== "completed" && state !== "failed") return existing;
     await existing.remove();
   }
-  return queueRef.add("trash-label", { kind: "trash-label", connectorId, label }, { jobId });
+  return queueRef.add("trash-label", { kind: "trash-label", connectorId, label, requestedBy }, { jobId });
 }
 
 export type JobStatus = {
@@ -114,6 +116,12 @@ export async function jobStatus(jobId: string): Promise<JobStatus | null> {
     total: progress?.total ?? 0,
     error: state === "failed" ? (job.failedReason ?? "Unknown error") : null,
   };
+}
+
+/** Which connector a job belongs to — so the progress stream can check it's the viewer's org's. */
+export async function jobConnectorId(jobId: string): Promise<string | null> {
+  const job = await gmailCleanupQueue().getJob(jobId);
+  return job?.data.connectorId ?? null;
 }
 
 /** `jobStatus`, addressed by connector + label instead of a raw job id — for the trash progress panel. */

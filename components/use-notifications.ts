@@ -24,38 +24,57 @@ function keyBytes(base64url: string): Uint8Array<ArrayBuffer> {
 
 export type PushState = "unsupported" | "off" | "on" | "blocked" | "busy";
 
+/** A background job still running (a bulk email trash), shown with live progress in Updates. */
+export type RunningJob = {
+  jobId: string;
+  title: string;
+  status: { state: string; done: number; total: number; error: string | null };
+};
+
+/** Dispatch after starting a background job, so Updates picks it up right away instead of on the next poll. */
+export const JOBS_CHANGED_EVENT = "clandar:jobs-changed";
+
 /**
- * The signed-in person's notifications (due reminders, lead digests …), shown
- * as the assistant's Updates in the chat, with the unread count on its button.
+ * The signed-in person's notifications (due reminders, lead digests, finished
+ * email trashes …) and running background jobs, shown as the assistant's
+ * Updates in the chat, with the unread count on its button.
  * Polls every minute and whenever the tab regains focus — reminders fire on a
  * 5-minute cycle, so that's plenty. Also owns browser push for this device.
  */
 export function useNotifications() {
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [unread, setUnread] = useState(0);
+  const [jobs, setJobs] = useState<RunningJob[]>([]);
   const [push, setPush] = useState<PushState>("unsupported");
   const [pushError, setPushError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const res = await fetch("/api/notifications", { cache: "no-store" }).catch(() => null);
     if (!res?.ok) return;
-    const data = (await res.json()) as { items: NotificationItem[]; unread: number };
+    const data = (await res.json()) as { items: NotificationItem[]; unread: number; jobs?: RunningJob[] };
     setItems(data.items);
     setUnread(data.unread);
+    setJobs(data.jobs ?? []);
   }, []);
 
+  // Every minute — every 10s while a job is running, so its "done" notification lands promptly.
+  const running = jobs.length > 0;
   useEffect(() => {
     // The first load and every refresh happen after an await, never synchronously in the effect.
     const tick = () => void load();
     const first = setTimeout(tick, 0);
-    const timer = setInterval(tick, 60_000);
+    const timer = setInterval(tick, running ? 10_000 : 60_000);
+    // A job just started (e.g. "Trash all spam"): give the server a moment to enqueue it, then look.
+    const onJobsChanged = () => setTimeout(tick, 1500);
     window.addEventListener("focus", tick);
+    window.addEventListener(JOBS_CHANGED_EVENT, onJobsChanged);
     return () => {
       clearTimeout(first);
       clearInterval(timer);
       window.removeEventListener("focus", tick);
+      window.removeEventListener(JOBS_CHANGED_EVENT, onJobsChanged);
     };
-  }, [load]);
+  }, [load, running]);
 
   // Work out this browser's push state once (after mount — none of this exists on the server).
   useEffect(() => {
@@ -123,7 +142,7 @@ export function useNotifications() {
     }
   }, [push]);
 
-  return { items, unread, markRead, push, pushError, togglePush };
+  return { items, unread, jobs, reload: load, markRead, push, pushError, togglePush };
 }
 
 export type Notifications = ReturnType<typeof useNotifications>;

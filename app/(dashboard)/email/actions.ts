@@ -16,13 +16,13 @@ function field(form: FormData, name: string) {
  * polls `bulkTrashStatus` for progress rather than waiting here.
  */
 export async function startTrashLabel(form: FormData) {
-  const { org } = await requireSession();
+  const { org, person } = await requireSession();
   const connectorId = field(form, "connectorId");
   const label = field(form, "label");
   // A destructive action against a user-supplied connector id — verify it's
   // actually this org's connector before ever touching a real inbox.
   const connector = await getConnectorForOrg(connectorId, org.id);
   if (!connector) return;
-  await enqueueTrashLabel(connectorId, label);
+  await enqueueTrashLabel(connectorId, label, person.id);
   revalidatePath("/email");
 }

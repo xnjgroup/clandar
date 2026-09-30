@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef } from "react";
+import { JOBS_CHANGED_EVENT } from "@/components/use-notifications";
 import { startTrashLabel } from "./actions";
 
 /**
@@ -47,7 +48,11 @@ export function TrashLabelButton({
       >
         <form
           action={startTrashLabel}
-          onSubmit={() => dialogRef.current?.close()}
+          onSubmit={() => {
+            dialogRef.current?.close();
+            // Its progress (and a note when it's done) shows in the assistant's Updates.
+            window.dispatchEvent(new Event(JOBS_CHANGED_EVENT));
+          }}
           className="flex flex-col gap-[13px] p-[20px]"
         >
           <input type="hidden" name="connectorId" value={connectorId} />

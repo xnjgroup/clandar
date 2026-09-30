@@ -17,7 +17,48 @@
 import { Worker, type Job } from "bullmq";
 import { createRedisConnection } from "@/lib/redis";
 import { GMAIL_CLEANUP_QUEUE, type GmailWorkerJob } from "@/lib/queue";
-import { runInboxScan, runTrashLabel } from "@/lib/gmail-cleanup";
+import { BULK_TRASH_LABELS, runInboxScan, runTrashLabel } from "@/lib/gmail-cleanup";
+import { getConnector } from "@/lib/connectors";
+import { queryOne } from "@/lib/db";
+import { createNotification } from "@/lib/notifications";
+import { pushToPerson } from "@/lib/push";
+
+/**
+ * Tells whoever started a bulk trash that it's finished (or failed) — a
+ * notification in the assistant's Updates (badging its button) plus a push.
+ * Older jobs without `requestedBy` go to whoever connected the account.
+ */
+async function notifyTrashDone(
+  connectorId: string,
+  label: string,
+  requestedBy: string | undefined,
+  result: { trashed: number } | { error: string },
+) {
+  try {
+    const connector = await getConnector(connectorId);
+    const personId =
+      requestedBy ??
+      (await queryOne<{ created_by: string | null }>(`SELECT created_by FROM connectors WHERE id = $1`, [connectorId]))
+        ?.created_by ??
+      null;
+    if (!connector || !personId) return;
+    const name = (BULK_TRASH_LABELS.find((l) => l.id === label)?.label ?? label).toLowerCase();
+    const account = connector.accountLabel ?? connector.name;
+    const title =
+      "error" in result
+        ? `Trashing ${name} stopped`
+        : `Trashed ${result.trashed.toLocaleString("en-US")} ${name} email${result.trashed === 1 ? "" : "s"}`;
+    const body =
+      "error" in result
+        ? `${account}: ${result.error}`
+        : `${account} — they're in Gmail's Trash for 30 days if you need anything back.`;
+    const link = `/email?account=${connectorId}`;
+    await createNotification({ orgId: connector.orgId, personId, title, body, link }).catch(() => {});
+    await pushToPerson(personId, { title, body, link }).catch(() => {});
+  } catch {
+    // Never let a notification problem fail the job itself.
+  }
+}
 
 const globalForWorker = globalThis as typeof globalThis & { clandarGmailWorker?: Worker };
 
@@ -33,7 +74,16 @@ export function startGmailCleanupWorker() {
       if (job.data.kind === "analyze-inbox") {
         await runInboxScan(job.data.connectorId, job.data.maxMessages, job.data.label, job.id, onProgress);
       } else {
-        await runTrashLabel(job.data.connectorId, job.data.label, onProgress);
+        const { connectorId, label, requestedBy } = job.data;
+        try {
+          const { trashed } = await runTrashLabel(connectorId, label, onProgress);
+          await notifyTrashDone(connectorId, label, requestedBy, { trashed });
+        } catch (error) {
+          await notifyTrashDone(connectorId, label, requestedBy, {
+            error: error instanceof Error ? error.message : "Unknown error",
+          });
+          throw error;
+        }
       }
     },
     // Its own connection, not the shared one `redis()` hands out — a Worker

@@ -428,6 +428,10 @@ export function AssistantWidget({
           }`}
         >
           <Icon name="bellSm" size={15} />
+          {notifications.jobs.length > 0 && notifications.unread === 0 ? (
+            // Something's running (e.g. an email trash) — its progress is in Updates.
+            <span className="absolute -top-[2px] -right-[2px] size-[8px] animate-pulse rounded-full bg-meter-ok" />
+          ) : null}
           {notifications.unread > 0 ? (
             <span className="absolute -top-[4px] -right-[4px] flex h-[15px] min-w-[15px] items-center justify-center rounded-full bg-bad-fg px-[3px] text-[9px] font-bold text-white">
               {notifications.unread > 99 ? "99+" : notifications.unread}

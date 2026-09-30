@@ -1,5 +1,7 @@
 import type { NextRequest } from "next/server";
-import { gmailQueueEvents, jobStatus, type JobStatus } from "@/lib/queue";
+import { requireSession } from "@/lib/auth";
+import { getConnectorForOrg } from "@/lib/connectors";
+import { gmailQueueEvents, jobConnectorId, jobStatus, type JobStatus } from "@/lib/queue";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +16,12 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(request: NextRequest, { params }: { params: Promise<{ jobId: string }> }) {
   const { jobId } = await params;
+  // Only for jobs on the viewer's own org's Gmail accounts.
+  const { org } = await requireSession();
+  const connectorId = await jobConnectorId(jobId);
+  if (!connectorId || !(await getConnectorForOrg(connectorId, org.id))) {
+    return new Response("Not found", { status: 404 });
+  }
 
   const stream = new ReadableStream({
     async start(controller) {

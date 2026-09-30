@@ -3,7 +3,34 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/icons";
-import type { Notifications } from "@/components/use-notifications";
+import type { Notifications, RunningJob } from "@/components/use-notifications";
+import { useJobProgress } from "@/app/(dashboard)/email/use-job-progress";
+
+/** A running job as a live message: title, count and progress bar, pushed over SSE. When it ends, `onFinished` refreshes Updates (its "done" notification). */
+function JobCard({ job, onFinished }: { job: RunningJob; onFinished: () => void }) {
+  const status = useJobProgress(job.jobId, job.status) ?? job.status;
+  const finished = status.state === "completed" || status.state === "failed";
+  useEffect(() => {
+    if (finished) onFinished();
+  }, [finished, onFinished]);
+  const pct = status.total > 0 ? Math.round((status.done / status.total) * 100) : 0;
+  return (
+    <div className="flex w-[92%] flex-col gap-[6px] self-start rounded-[16px] border border-line bg-surface px-[12px] py-[10px]">
+      <span className="flex items-center gap-[8px] text-[13px] font-semibold sm:text-[12.5px]">
+        <span className="size-[7px] shrink-0 animate-pulse rounded-full bg-meter-ok" />
+        <span className="min-w-0 flex-1 truncate">{job.title}</span>
+        <span className="shrink-0 font-mono text-[11px] font-normal text-faint">
+          {status.done.toLocaleString("en-US")}
+          {status.total > 0 ? ` / ${status.total.toLocaleString("en-US")}` : ""}
+        </span>
+      </span>
+      <div className="h-[6px] overflow-hidden rounded-[3px] bg-line-soft">
+        <div className="h-full rounded-[3px] bg-meter-ok transition-[width]" style={{ width: `${pct}%` }} />
+      </div>
+      <span className="text-[11px] text-muted">Running in the background — I&rsquo;ll let you know when it&rsquo;s done.</span>
+    </div>
+  );
+}
 
 function ago(iso: string) {
   const s = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
@@ -26,7 +53,7 @@ export function AssistantUpdates({
   notifications: Notifications;
   onNavigate: () => void;
 }) {
-  const { items, unread, markRead, push, pushError, togglePush } = notifications;
+  const { items, unread, jobs, reload, markRead, push, pushError, togglePush } = notifications;
   // Remember which were unread when the tab opened, so they stay marked "new" after being read.
   const [fresh] = useState(() => new Set(items.filter((n) => !n.read).map((n) => n.id)));
   useEffect(() => {
@@ -36,13 +63,13 @@ export function AssistantUpdates({
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [items.length]);
+  }, [items.length, jobs.length]);
 
   const ordered = [...items].reverse();
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div ref={scrollRef} className="flex min-h-0 flex-1 flex-col gap-[12px] overflow-y-auto px-[14px] py-[14px]">
-        {ordered.length === 0 ? (
+        {ordered.length === 0 && jobs.length === 0 ? (
           <p className="m-0 text-[12px] leading-[1.5] text-muted">
             Nothing yet — I&rsquo;ll post here when a reminder is due or new leads come in.
           </p>
@@ -76,6 +103,10 @@ export function AssistantUpdates({
             );
           })
         )}
+        {/* Still running — newest, so at the bottom. */}
+        {jobs.map((job) => (
+          <JobCard key={job.jobId} job={job} onFinished={reload} />
+        ))}
       </div>
       {push !== "unsupported" ? (
         <div className="flex shrink-0 flex-col gap-[4px] border-t border-line-soft px-[14px] py-[10px]">
