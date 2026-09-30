@@ -104,9 +104,16 @@ export function DashboardGrid({
             {layout
               .filter((p) => byId.has(p.i))
               .map((p) => (
-                <div key={p.i} className={`flex min-h-0 min-w-0 flex-col ${editing ? "rounded-[22px] outline-2 outline-dashed outline-offset-2 outline-line" : ""}`}>
+                <div
+                  key={p.i}
+                  // Edit mode: a dashed frame around handle + card. Its radius = the card's 22px + 5px
+                  // padding + 2px border, so the curves stay concentric.
+                  className={`flex min-h-0 min-w-0 flex-col ${
+                    editing ? "gap-[5px] rounded-[29px] border-2 border-dashed border-line p-[5px]" : ""
+                  }`}
+                >
                   {editing ? (
-                    <div className="dashboard-drag flex shrink-0 cursor-grab items-center gap-[6px] rounded-t-[14px] border border-b-0 border-line bg-line-soft px-[10px] py-[4px] text-[11px] font-medium text-body-soft hover:bg-line active:cursor-grabbing">
+                    <div className="dashboard-drag flex shrink-0 cursor-grab items-center gap-[6px] rounded-[20px] border border-line bg-line-soft px-[12px] py-[5px] text-[11px] font-medium text-body-soft hover:bg-line active:cursor-grabbing">
                       <Icon name="menu" size={12} />
                       {byId.get(p.i)!.title}
                     </div>
