@@ -58,7 +58,7 @@ const DOCUMENT_ACCEPT =
   "image/*";
 
 /**
- * A real, org-scoped chat backed by the Executive Assistant — docked on the
+ * A real, org-scoped chat with Aide (the assistant, lib/assistant.ts) — docked on the
  * right and pushing page content left when open (see components/app-shell.tsx,
  * which owns `open` and renders this as a flex sibling of `<main>`). Knows
  * what page the user is on (`pageContext`) and can carry multiple switchable
@@ -372,8 +372,8 @@ export function ExecutiveAssistantWidget({
       <button
         type="button"
         onClick={() => onOpenChange(true)}
-        aria-label="Open Executive Assistant chat"
-        title="Open Executive Assistant chat"
+        aria-label="Open Aide"
+        title="Open Aide"
         className="fixed right-6 bottom-6 z-40 hidden size-[52px] shrink-0 cursor-pointer items-center justify-center rounded-full bg-ink text-lime shadow-[0_6px_20px_rgba(16,18,17,0.28)] lg:flex"
       >
         <Icon name="bot" size={22} />
@@ -392,10 +392,45 @@ export function ExecutiveAssistantWidget({
   return (
     <div className="fixed inset-0 z-40 flex h-full flex-col border-line bg-surface lg:sticky lg:top-0 lg:z-auto lg:h-screen lg:w-[400px] lg:shrink-0 lg:border-l">
       <div className="relative flex shrink-0 items-center gap-[9px] border-b border-line-soft bg-bg px-[16px] py-[13px]">
-        <span className="flex size-8 shrink-0 items-center justify-center rounded-[10px] bg-lime">
-          <Icon name="bot" size={16} />
-        </span>
-        <span className="min-w-0 flex-1 truncate text-[13.5px] font-semibold">Executive Assistant</span>
+        {tab === "updates" ? (
+          <button
+            type="button"
+            onClick={() => onTabChange("chat")}
+            aria-label="Back to chat"
+            title="Back to chat"
+            className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-[10px] border border-line bg-surface text-body-soft hover:text-ink"
+          >
+            <Icon name="chevL" size={16} />
+          </button>
+        ) : (
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-[10px] bg-lime">
+            <Icon name="bot" size={16} />
+          </span>
+        )}
+        <span className="min-w-0 flex-1 truncate text-[13.5px] font-semibold">{tab === "updates" ? "Updates" : "Aide"}</span>
+        <button
+          type="button"
+          onClick={() => onTabChange(tab === "updates" ? "chat" : "updates")}
+          aria-label={
+            notifications.unread
+              ? `Updates, ${notifications.unread} new`
+              : tab === "updates"
+                ? "Back to chat"
+                : "Updates"
+          }
+          aria-pressed={tab === "updates"}
+          title="Updates"
+          className={`relative flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-[9px] ${
+            tab === "updates" ? "bg-ink text-lime" : "text-faint hover:text-body"
+          }`}
+        >
+          <Icon name="bellSm" size={15} />
+          {notifications.unread > 0 ? (
+            <span className="absolute -top-[4px] -right-[4px] flex h-[15px] min-w-[15px] items-center justify-center rounded-full bg-bad-fg px-[3px] text-[9px] font-bold text-white">
+              {notifications.unread > 99 ? "99+" : notifications.unread}
+            </span>
+          ) : null}
+        </button>
         <button
           type="button"
           onClick={startNewConversation}
@@ -506,29 +541,7 @@ export function ExecutiveAssistantWidget({
         ) : null}
       </div>
 
-      {/* Chat, or Updates: notifications (due reminders, lead digests …) posted by the assistant. */}
-      <div role="tablist" aria-label="Assistant" className="flex shrink-0 gap-[4px] border-b border-line-soft bg-bg px-[12px] py-[6px]">
-        {(["chat", "updates"] as const).map((id) => (
-          <button
-            key={id}
-            type="button"
-            role="tab"
-            aria-selected={tab === id}
-            onClick={() => onTabChange(id)}
-            className={`flex cursor-pointer items-center gap-[6px] rounded-full px-[12px] py-[5px] text-[12px] font-medium ${
-              tab === id ? "bg-ink text-bg" : "text-body-soft hover:text-ink"
-            }`}
-          >
-            {id === "chat" ? "Chat" : "Updates"}
-            {id === "updates" && notifications.unread > 0 ? (
-              <span className="flex h-[16px] min-w-[16px] items-center justify-center rounded-full bg-bad-fg px-[4px] text-[9.5px] font-bold text-white">
-                {notifications.unread > 99 ? "99+" : notifications.unread}
-              </span>
-            ) : null}
-          </button>
-        ))}
-      </div>
-
+      {/* Updates (the bell in the header): notifications — due reminders, lead digests … — posted by Aide. */}
       {tab === "updates" ? (
         <AssistantUpdates notifications={notifications} onNavigate={closeOnMobileNavigate} />
       ) : (

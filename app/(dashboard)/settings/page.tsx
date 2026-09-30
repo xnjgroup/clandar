@@ -230,7 +230,7 @@ export default async function SettingsPage() {
         <Card className="flex flex-col gap-[10px]">
           <CardTitle>Chat</CardTitle>
           <p className="m-0 text-[11.5px] leading-[1.55] text-muted">
-            The provider (and, optionally, a specific model of its own) the Executive Assistant chat uses to answer
+            The provider (and, optionally, a specific model of its own) Aide (the assistant chat) uses to answer
             questions and run its tools.
           </p>
           <FeatureProviderForm

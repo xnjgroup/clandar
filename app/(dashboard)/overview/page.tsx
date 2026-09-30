@@ -178,12 +178,12 @@ export default async function OverviewPage() {
     },
     {
       id: "assistant",
-      title: "Executive Assistant",
+      title: "Aide",
       node: (
         <div className="flex min-w-0 flex-col gap-3 rounded-[22px] bg-lime p-[18px]">
                 <div className="flex items-center gap-[10px]">
                   <Icon name="bot" size={18} />
-                  <CardTitle>Executive Assistant</CardTitle>
+                  <CardTitle>Aide</CardTitle>
                 </div>
                 {(["Ask", "Do"] as const).map((group) => (
                   <div key={group} className="flex flex-col gap-[6px]">

@@ -370,10 +370,10 @@ export function AppShell({
           onClick={() => openAssistant()}
           aria-label={
             notifications.unread
-              ? `Open Executive Assistant — ${notifications.unread} new update${notifications.unread === 1 ? "" : "s"}`
-              : "Open Executive Assistant chat"
+              ? `Open Aide — ${notifications.unread} new update${notifications.unread === 1 ? "" : "s"}`
+              : "Open Aide"
           }
-          title="Open Executive Assistant chat"
+          title="Open Aide"
           className={`flex min-h-[54px] cursor-pointer flex-col items-center justify-center gap-[3px] rounded-full transition-[background-color,color,transform] duration-200 ease-out active:scale-[0.96] ${
             assistantOpen ? "bg-ink text-lime" : "text-[#8b918a]"
           }`}
@@ -386,7 +386,7 @@ export function AppShell({
               </span>
             ) : null}
           </span>
-          <span className="text-[10.5px] font-medium">Assistant</span>
+          <span className="text-[10.5px] font-medium">Aide</span>
         </button>
       </nav>
     </div>

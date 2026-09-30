@@ -441,7 +441,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
         </TableHeader>
         {invoices.length === 0 ? (
           <EmptyRow>
-            None linked yet — link one from its invoice page, record one from an email with the assistant, or upload a file as
+            None linked yet — link one from its invoice page, record one from an email with Aide, or upload a file as
             an Invoice/Receipt below.
           </EmptyRow>
         ) : (
