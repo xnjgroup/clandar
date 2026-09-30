@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { requireSession } from "@/lib/auth";
-import { setInvoiceProject } from "@/lib/email-invoice";
+import { redirect } from "next/navigation";
+import { deleteInvoice, setInvoiceProject } from "@/lib/email-invoice";
 
 function field(form: FormData, name: string) {
   const value = form.get(name);
@@ -16,4 +17,14 @@ export async function linkInvoiceProject(form: FormData) {
   await setInvoiceProject(field(form, "invoiceId"), org.id, projectId);
   revalidatePath("/invoices", "layout");
   if (projectId) revalidatePath(`/projects/${projectId}`);
+}
+
+/** Deletes an invoice from its page (behind a confirmation dialog), then goes back to the list. */
+export async function removeInvoice(form: FormData) {
+  const { org } = await requireSession();
+  const projectId = field(form, "projectId");
+  await deleteInvoice(field(form, "invoiceId"), org.id);
+  revalidatePath("/invoices", "layout");
+  if (projectId) revalidatePath(`/projects/${projectId}`);
+  redirect("/invoices");
 }

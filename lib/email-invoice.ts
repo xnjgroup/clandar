@@ -10,7 +10,7 @@ import { query, queryOne, transaction } from "@/lib/db";
 import { htmlToText } from "@/lib/email-context";
 import { insertInvoice, readInvoiceDocument, type InvoiceSource } from "@/lib/document-ingest";
 import { readAttachment, readRawMail, type MailDetail } from "@/lib/gmail";
-import { saveUpload } from "@/lib/storage";
+import { deleteUpload, saveUpload } from "@/lib/storage";
 
 /** Attachment types the parser can read, best first. */
 const READABLE = [/^application\/pdf$/, /^image\//, /wordprocessingml|spreadsheetml/, /^text\//];
@@ -116,6 +116,30 @@ export async function setInvoiceProject(invoiceId: string, orgId: string, projec
         AND ($3::uuid IS NULL OR EXISTS (SELECT 1 FROM projects WHERE id = $3 AND org_id = $2))`,
     [invoiceId, orgId, projectId],
   );
+}
+
+/**
+ * Deletes an invoice: its line items, flags and source documents go with it
+ * (FK cascade), and the documents' stored bytes are removed too. A project
+ * file it was parsed from stays, reset so it can be read again.
+ */
+export async function deleteInvoice(invoiceId: string, orgId: string): Promise<boolean> {
+  const docs = await query<{ file_path: string }>(
+    `SELECT d.file_path FROM invoice_documents d JOIN invoices i ON i.id = d.invoice_id
+      WHERE d.invoice_id = $1 AND i.org_id = $2`,
+    [invoiceId, orgId],
+  );
+  const deleted = await transaction(async (client) => {
+    await client.query(
+      `UPDATE project_files f SET parse_status = NULL, parse_error = NULL
+         FROM invoices i WHERE f.invoice_id = i.id AND i.id = $1 AND i.org_id = $2`,
+      [invoiceId, orgId],
+    );
+    const result = await client.query(`DELETE FROM invoices WHERE id = $1 AND org_id = $2`, [invoiceId, orgId]);
+    return (result.rowCount ?? 0) > 0;
+  });
+  if (deleted) for (const d of docs) await deleteUpload(d.file_path).catch(() => {});
+  return deleted;
 }
 
 export type ProjectInvoice = {

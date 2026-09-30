@@ -7,7 +7,8 @@ import { requireSession } from "@/lib/auth";
 import { listInvoiceDocuments } from "@/lib/email-invoice";
 import { listProjects } from "@/lib/projects";
 import { AutoSubmitSelect } from "../../projects/[id]/auto-submit-select";
-import { linkInvoiceProject } from "../actions";
+import { linkInvoiceProject, removeInvoice } from "../actions";
+import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
 import { invoiceDetail } from "@/lib/queries";
 
 /** `?id=` pins one document; without it the vendor's latest invoice is shown. */
@@ -68,7 +69,15 @@ export default async function InvoiceDetailPage({
           Invoices
         </Link>
         <span className="text-[13px] text-[#c2c7bd]">/</span>
-        <span className="text-[14px] font-semibold tracking-[-0.015em]">{invoice.vendor}</span>
+        <span className="min-w-0 truncate text-[14px] font-semibold tracking-[-0.015em]">{invoice.vendor}</span>
+        <div className="ml-auto shrink-0">
+          <ConfirmDeleteButton
+            action={removeInvoice}
+            fields={{ invoiceId: invoice.id, projectId: invoice.projectId ?? "" }}
+            title={`Delete this ${invoice.vendor} invoice?`}
+            message={`The ${money(invoice.amount)} invoice from ${longDate(invoice.date)}, its line items and its source documents are deleted. This can't be undone.`}
+          />
+        </div>
       </div>
 
       <div className="grid min-w-0 grid-cols-1 items-start gap-3 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] lg:gap-[14px]">
