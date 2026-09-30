@@ -220,6 +220,27 @@ CREATE TABLE IF NOT EXISTS agent_messages (
 CREATE INDEX IF NOT EXISTS agent_messages_conversation_idx
   ON agent_messages (conversation_id, created_at);
 
+-- Debug trace per chat turn (lib/assistant.ts): exactly what went to the model
+-- and what came back at each step — the system prompt (page/email context
+-- included), the raw model output, tool calls with args/results, timings and
+-- errors. Looked up by the conversation id the chat's copy button gives out.
+CREATE TABLE IF NOT EXISTS agent_traces (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  conversation_id uuid NOT NULL REFERENCES agent_conversations (id) ON DELETE CASCADE,
+  provider        text NOT NULL DEFAULT '',
+  model           text NOT NULL DEFAULT '',
+  page_context    text,
+  system_prompt   text NOT NULL DEFAULT '',
+  user_input      text NOT NULL DEFAULT '',
+  image_count     integer NOT NULL DEFAULT 0,
+  steps           jsonb NOT NULL DEFAULT '[]',
+  final_reply     text,
+  error           text,
+  started_at      timestamptz NOT NULL DEFAULT now(),
+  finished_at     timestamptz
+);
+CREATE INDEX IF NOT EXISTS agent_traces_conversation_idx ON agent_traces (conversation_id, started_at);
+
 CREATE TABLE IF NOT EXISTS agent_tool_calls (
   id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   message_id uuid NOT NULL REFERENCES agent_messages (id) ON DELETE CASCADE,

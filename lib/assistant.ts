@@ -795,7 +795,7 @@ export type AssistantEvent =
   | { type: "tool_call"; tool: string; detail: string }
   | { type: "reply_delta"; text: string }
   | { type: "done"; conversationId: string }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string; conversationId?: string };
 
 /**
  * Pulls the growing value of the `"message"` field out of raw text as it
@@ -935,11 +935,38 @@ export async function* askAssistant(
     { role: "user", content: userContent },
   ];
 
+  // Debug trace for this turn (agent_traces) — see recordTraceStep/finishTrace.
+  const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max)}…(+${text.length - max} chars)` : text);
+  const trace = await queryOne<{ id: string }>(
+    `INSERT INTO agent_traces (conversation_id, provider, model, page_context, system_prompt, user_input, image_count)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+    [
+      convId,
+      provider.name,
+      provider.chatModel ?? provider.model ?? "",
+      pageContext,
+      clip(String(messages[0].content), 60_000),
+      clip(questionForModel, 30_000),
+      images.length + (context.emailAttachments?.images.length ?? 0),
+    ],
+  ).catch(() => null);
+  const traceSteps: Record<string, unknown>[] = [];
+  const saveTrace = async (end?: { reply?: string; error?: string }) => {
+    if (!trace) return;
+    await query(
+      `UPDATE agent_traces SET steps = $2, final_reply = coalesce($3, final_reply), error = coalesce($4, error),
+              finished_at = CASE WHEN $3::text IS NOT NULL OR $4::text IS NOT NULL THEN now() ELSE finished_at END
+        WHERE id = $1`,
+      [trace.id, JSON.stringify(traceSteps), end?.reply ?? null, end?.error ?? null],
+    ).catch(() => {});
+  };
+
   const toolCalls: { tool: string; detail: string }[] = [];
   let finalReply: string;
   try {
     let steps = 0;
     for (;;) {
+      const stepStarted = Date.now();
       let raw = "";
       const extractor = new StreamingReplyExtractor();
       for await (const delta of chatCompleteStream(provider.id, messages, {
@@ -951,7 +978,9 @@ export async function* askAssistant(
         if (piece) yield { type: "reply_delta", text: piece };
       }
       const action = parseAction(raw);
+      const modelMs = Date.now() - stepStarted;
       if (action.type === "reply") {
+        traceSteps.push({ step: traceSteps.length, modelMs, raw: clip(raw, 20_000), action: "reply" });
         finalReply = action.message;
         break;
       }
@@ -966,7 +995,19 @@ export async function* askAssistant(
         break;
       }
       messages.push({ role: "assistant", content: raw });
+      const toolStarted = Date.now();
       const result = await runTool(orgId, personId, action.tool, action.args, savedAttachments, context);
+      traceSteps.push({
+        step: traceSteps.length,
+        modelMs,
+        raw: clip(raw, 20_000),
+        tool: action.tool,
+        args: action.args,
+        toolMs: Date.now() - toolStarted,
+        result: clip(JSON.stringify(result.data ?? result.summary), 8_000),
+        summary: result.summary,
+      });
+      await saveTrace();
       toolCalls.push({ tool: action.tool, detail: result.summary });
       yield { type: "tool_call", tool: action.tool, detail: result.summary };
       messages.push({
@@ -975,12 +1016,13 @@ export async function* askAssistant(
       });
     }
   } catch (error) {
-    yield {
-      type: "error",
-      message: error instanceof Error ? error.message : "The assistant could not answer that — try again.",
-    };
+    const message = error instanceof Error ? error.message : "The assistant could not answer that — try again.";
+    await saveTrace({ error: error instanceof Error ? `${error.name}: ${error.message}\n${error.stack ?? ""}`.slice(0, 8_000) : message });
+    // Carries the conversation id, so even a failed first message leaves an id to copy for debugging.
+    yield { type: "error", message, conversationId: convId };
     return;
   }
+  await saveTrace({ reply: finalReply });
 
   const assistantRow = await queryOne<{ id: string }>(
     `INSERT INTO agent_messages (conversation_id, role, body) VALUES ($1, 'assistant', $2) RETURNING id`,

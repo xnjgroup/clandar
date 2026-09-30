@@ -100,6 +100,7 @@ export function ExecutiveAssistantWidget({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [switcherOpen, setSwitcherOpen] = useState(false);
+  const [copiedId, setCopiedId] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [conversations, setConversations] = useState<ConversationSummary[] | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -289,7 +290,7 @@ export function ExecutiveAssistantWidget({
             | { type: "tool_call"; tool: string; detail: string }
             | { type: "reply_delta"; text: string }
             | { type: "done"; conversationId: string }
-            | { type: "error"; message: string }
+            | { type: "error"; message: string; conversationId?: string }
             | { type: "conversation"; conversation: { id: string; turns: DisplayTurn[] } | null };
 
           if (event.type === "tool_call") {
@@ -298,6 +299,8 @@ export function ExecutiveAssistantWidget({
             updateStreamingTurn((t) => ({ ...t, body: t.body + event.text }));
           } else if (event.type === "error") {
             setError(event.message);
+            // Keep the id even when the turn failed, so it can be copied for debugging.
+            if (event.conversationId) setConversationId(event.conversationId);
           } else if (event.type === "conversation" && event.conversation) {
             setConversationId(event.conversation.id);
             setTurns(event.conversation.turns);
@@ -344,6 +347,25 @@ export function ExecutiveAssistantWidget({
         >
           <Icon name="doc" size={15} />
         </button>
+        {conversationId ? (
+          // Copies this conversation's id — give it to a developer to look up its trace (agent_traces).
+          <button
+            type="button"
+            onClick={() => {
+              void navigator.clipboard?.writeText(conversationId).then(() => {
+                setCopiedId(true);
+                setTimeout(() => setCopiedId(false), 1500);
+              });
+            }}
+            aria-label="Copy conversation ID"
+            title={copiedId ? "Copied!" : `Copy conversation ID (${conversationId.slice(0, 8)}…)`}
+            className={`flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-[9px] hover:text-body ${
+              copiedId ? "text-ok-fg" : "text-faint"
+            }`}
+          >
+            <Icon name={copiedId ? "check2" : "link2"} size={15} />
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={openSwitcher}

@@ -24,7 +24,7 @@ import {
   sendableGmailConnectorId,
   type MailDetail,
 } from "@/lib/gmail";
-import { htmlToText } from "@/lib/email-context";
+import { emailBodyText } from "@/lib/email-context";
 import { chatComplete, emailAnalyzerProvider } from "@/lib/llm-providers";
 import { createNotification } from "@/lib/notifications";
 import { listProjectTypes } from "@/lib/project-types";
@@ -286,7 +286,7 @@ type Classified = {
 };
 
 function bodyText(m: MailDetail): string {
-  return (m.text?.trim() || (m.html ? htmlToText(m.html) : "") || m.snippet).slice(0, 1800);
+  return emailBodyText(m).slice(0, 1800);
 }
 
 /** Asks the org's email AI which of `messages` are project opportunities (exported for dry runs). */

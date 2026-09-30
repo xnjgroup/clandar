@@ -7,7 +7,7 @@
  */
 import type { InvoiceStatus } from "@/lib/data";
 import { query, queryOne, transaction } from "@/lib/db";
-import { htmlToText } from "@/lib/email-context";
+import { emailBodyText } from "@/lib/email-context";
 import { insertInvoice, readInvoiceDocument, type InvoiceSource } from "@/lib/document-ingest";
 import { readAttachment, readRawMail, type MailDetail } from "@/lib/gmail";
 import { deleteUpload, saveUpload } from "@/lib/storage";
@@ -61,7 +61,7 @@ export async function recordInvoiceFromEmail(input: {
     attachmentBytes = await readAttachment(message.id, attachment.attachmentId, orgId, message.connectorId);
     source = { fileName: attachment.filename, contentType: attachmentType, bytes: attachmentBytes };
   } else {
-    const text = message.text?.trim() || (message.html ? htmlToText(message.html) : "") || message.snippet;
+    const text = emailBodyText(message);
     source = { fileName: `Email: ${message.subject}`, text: `From: ${message.from} <${message.fromEmail}>\n\n${text}` };
   }
 
