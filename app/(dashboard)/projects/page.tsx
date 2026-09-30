@@ -191,10 +191,14 @@ export default async function ProjectsPage({ searchParams }: PageProps<"/project
                 <EstimateAmount estimate={project.latestEstimate} />
                 <SpentAmount total={project.invoicesTotal} count={project.invoiceCount} />
                 <TaskProgress done={project.tasksDone} total={project.taskCount} />
-                <Pill tone={STATUS_TONE[project.status]}>
-                  {PROJECT_STATUSES.find((s) => s.id === project.status)?.label ?? project.status}
-                </Pill>
-                <span className="ml-2 hidden shrink-0 font-mono text-[11px] text-faint sm:inline">
+                {/* Fixed-width slots for the status and the time, so the quote / spent / progress columns
+                    line up from row to row whatever the status label ("Lead" vs "In progress"). */}
+                <span className="flex shrink-0 sm:w-[82px] sm:justify-center">
+                  <Pill tone={STATUS_TONE[project.status]}>
+                    {PROJECT_STATUSES.find((s) => s.id === project.status)?.label ?? project.status}
+                  </Pill>
+                </span>
+                <span className="hidden w-[84px] shrink-0 truncate text-right font-mono text-[11px] text-faint sm:inline">
                   {relativeTime(project.updatedAt)}
                 </span>
               </div>
