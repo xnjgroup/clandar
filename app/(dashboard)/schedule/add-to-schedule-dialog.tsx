@@ -55,6 +55,7 @@ export function AddToScheduleDialog({
   members,
   redirectPath,
   compact = false,
+  iconOnly = false,
 }: {
   projectId?: string;
   projects?: Projects;
@@ -62,25 +63,45 @@ export function AddToScheduleDialog({
   redirectPath: string;
   /** A small underlined link (for a card header) instead of the solid button. */
   compact?: boolean;
+  /** A square "+" icon button (for the page header). */
+  iconOnly?: boolean;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const close = useCallback(() => dialogRef.current?.close(), []);
   return (
     <>
-      <button
-        type="button"
-        onClick={() => dialogRef.current?.showModal()}
-        className={
-          compact
-            ? "cursor-pointer text-[11.5px] font-medium underline"
-            : "flex h-[38px] shrink-0 cursor-pointer items-center gap-[6px] rounded-full bg-ink px-4 text-[12.5px] font-semibold text-bg"
-        }
-      >
-        {compact ? null : <span className="text-[16px] leading-none">+</span>}
-        {compact ? "+ Add to schedule" : "Add to schedule"}
-      </button>
+      {iconOnly ? (
+        <button
+          type="button"
+          onClick={() => dialogRef.current?.showModal()}
+          aria-label="Add to schedule"
+          title="Add to schedule"
+          className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-[12px] border border-line bg-surface text-ink hover:bg-bg"
+        >
+          <Icon name="plus" size={18} />
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => dialogRef.current?.showModal()}
+          className={
+            compact
+              ? "cursor-pointer text-[11.5px] font-medium underline"
+              : "flex h-[38px] shrink-0 cursor-pointer items-center gap-[6px] rounded-full bg-ink px-4 text-[12.5px] font-semibold text-bg"
+          }
+        >
+          {compact ? null : <span className="text-[16px] leading-none">+</span>}
+          {compact ? "+ Add to schedule" : "Add to schedule"}
+        </button>
+      )}
       <ScheduleModal dialogRef={dialogRef} title="Add to schedule" onClose={() => {}}>
-        <ScheduleForm projectId={projectId} projects={projects} members={members} redirectPath={redirectPath} onAdded={close} />
+        <ScheduleForm
+          projectId={projectId}
+          projects={projects}
+          members={members}
+          redirectPath={redirectPath}
+          onAdded={close}
+        />
       </ScheduleModal>
     </>
   );

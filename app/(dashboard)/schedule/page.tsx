@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { after } from "next/server";
+import { HeaderActions } from "@/components/header-actions";
 import { Icon } from "@/components/icons";
 import { Card, EmptyRow, PageBody, TableCard, TableHeader, TableTitle } from "@/components/ui";
 import { firstParam, hrefWith } from "@/lib/data";
@@ -38,13 +39,9 @@ export default async function SchedulePage({ searchParams }: PageProps<"/schedul
 
   return (
     <PageBody>
-      <div className="flex items-center gap-[10px]">
-        <AddToScheduleDialog
-          projects={projectOptions}
-          members={team}
-          redirectPath="/schedule"
-        />
-      </div>
+      <HeaderActions>
+        <AddToScheduleDialog iconOnly projects={projectOptions} members={team} redirectPath="/schedule" />
+      </HeaderActions>
 
       <div className="-mx-[14px] flex gap-[7px] overflow-x-auto px-[14px] [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:px-0">
         <Link

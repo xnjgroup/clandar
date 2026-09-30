@@ -5,7 +5,8 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Icon, type IconName } from "@/components/icons";
 import { ExecutiveAssistantWidget } from "@/components/executive-assistant-widget";
-import { NotificationBell } from "@/components/notification-bell";
+import { HEADER_ACTIONS_ID } from "@/components/header-actions";
+import { useNotifications } from "@/components/use-notifications";
 import { MOBILE_TABS, NAV_FOOTER, NAV_GROUPS, NAV_TOP, PAGE_TITLES, USER_MENU, greeting } from "@/lib/data";
 
 const ASSISTANT_OPEN_KEY = "clandar:assistant-open";
@@ -235,6 +236,14 @@ export function AppShell({
   const [crumb, title] = useHeading(pathname, user?.name ?? null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [assistantOpen, setAssistantOpen] = useState(false);
+  // Notifications live in the assistant: their unread count badges its button, and it
+  // opens on its Updates tab when there's something new (otherwise on the chat).
+  const notifications = useNotifications();
+  const [assistantTab, setAssistantTab] = useState<"chat" | "updates">("chat");
+  function openAssistant(tab?: "chat" | "updates") {
+    setAssistantTab(tab ?? (notifications.unread > 0 ? "updates" : "chat"));
+    setAssistantOpen(true);
+  }
 
   // A navigation ends the visit that opened the drawer — close it so the next
   // page doesn't render underneath an open overlay. Adjusting state during
@@ -249,7 +258,11 @@ export function AppShell({
   // Lets a page (e.g. the overview card's "Ask about this") open the panel
   // without needing a route to link to — dispatch `new CustomEvent("clandar:open-assistant")`.
   useEffect(() => {
-    const onOpenRequest = () => setAssistantOpen(true);
+    // Always the chat: these carry a question to ask.
+    const onOpenRequest = () => {
+      setAssistantTab("chat");
+      setAssistantOpen(true);
+    };
     window.addEventListener("clandar:open-assistant", onOpenRequest);
     return () => window.removeEventListener("clandar:open-assistant", onOpenRequest);
   }, []);
@@ -314,7 +327,8 @@ export function AppShell({
               <span className="text-[12.5px] text-muted">{crumb}</span>
               <h1 className="m-0 truncate text-[22px] font-bold tracking-[-0.03em]">{title}</h1>
             </div>
-            <NotificationBell />
+            {/* A page's main action, placed here by <HeaderActions> (components/header-actions.tsx). */}
+            <div id={HEADER_ACTIONS_ID} className="ml-auto flex shrink-0 items-center gap-[8px]" />
           </header>
 
           {children}
@@ -322,7 +336,10 @@ export function AppShell({
 
         <ExecutiveAssistantWidget
           open={assistantOpen}
-          onOpenChange={setAssistantOpen}
+          onOpenChange={(next) => (next ? openAssistant() : setAssistantOpen(false))}
+          tab={assistantTab}
+          onTabChange={setAssistantTab}
+          notifications={notifications}
           pageContext={`${title} (${pathname})`}
         />
       </div>
@@ -350,14 +367,25 @@ export function AppShell({
         })}
         <button
           type="button"
-          onClick={() => setAssistantOpen(true)}
-          aria-label="Open Executive Assistant chat"
+          onClick={() => openAssistant()}
+          aria-label={
+            notifications.unread
+              ? `Open Executive Assistant — ${notifications.unread} new update${notifications.unread === 1 ? "" : "s"}`
+              : "Open Executive Assistant chat"
+          }
           title="Open Executive Assistant chat"
           className={`flex min-h-[54px] cursor-pointer flex-col items-center justify-center gap-[3px] rounded-full transition-[background-color,color,transform] duration-200 ease-out active:scale-[0.96] ${
             assistantOpen ? "bg-ink text-lime" : "text-[#8b918a]"
           }`}
         >
-          <Icon name="bot" size={21} />
+          <span className="relative">
+            <Icon name="bot" size={21} />
+            {notifications.unread > 0 ? (
+              <span className="absolute -top-[6px] -right-[9px] flex h-[16px] min-w-[16px] items-center justify-center rounded-full bg-bad-fg px-[4px] text-[9.5px] font-bold text-white">
+                {notifications.unread > 99 ? "99+" : notifications.unread}
+              </span>
+            ) : null}
+          </span>
           <span className="text-[10.5px] font-medium">Assistant</span>
         </button>
       </nav>

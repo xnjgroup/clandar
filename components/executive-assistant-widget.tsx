@@ -5,7 +5,9 @@ import Link from "next/link";
 import { createParser } from "eventsource-parser";
 import { usePathname, useSearchParams } from "next/navigation";
 import { ChatMarkdown } from "@/components/chat-markdown";
+import { AssistantUpdates } from "@/components/assistant-updates";
 import { Icon } from "@/components/icons";
+import type { Notifications } from "@/components/use-notifications";
 import type { AgentAttachment, AgentTurn, ConversationSummary } from "@/lib/assistant";
 
 /**
@@ -89,10 +91,17 @@ const EMAIL_QUICK_ACTIONS: { label: string; prompt: string }[] = [
 export function ExecutiveAssistantWidget({
   open,
   onOpenChange,
+  tab,
+  onTabChange,
+  notifications,
   pageContext,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Chat, or Updates — the notifications, posted by the assistant. */
+  tab: "chat" | "updates";
+  onTabChange: (tab: "chat" | "updates") => void;
+  notifications: Notifications;
   pageContext: string;
 }) {
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -192,6 +201,7 @@ export function ExecutiveAssistantWidget({
   }, [open, queuedPrompt, turns, pending]);
 
   function startNewConversation() {
+    onTabChange("chat");
     setSwitcherOpen(false);
     setConversationId(null);
     setTurns([]);
@@ -367,6 +377,14 @@ export function ExecutiveAssistantWidget({
         className="fixed right-6 bottom-6 z-40 hidden size-[52px] shrink-0 cursor-pointer items-center justify-center rounded-full bg-ink text-lime shadow-[0_6px_20px_rgba(16,18,17,0.28)] lg:flex"
       >
         <Icon name="bot" size={22} />
+        {notifications.unread > 0 ? (
+          <span
+            aria-label={`${notifications.unread} new update${notifications.unread === 1 ? "" : "s"}`}
+            className="absolute -top-[3px] -right-[3px] flex h-[19px] min-w-[19px] items-center justify-center rounded-full border-2 border-surface bg-bad-fg px-[4px] text-[10px] font-bold text-white"
+          >
+            {notifications.unread > 99 ? "99+" : notifications.unread}
+          </span>
+        ) : null}
       </button>
     );
   }
@@ -456,7 +474,10 @@ export function ExecutiveAssistantWidget({
                 >
                   <button
                     type="button"
-                    onClick={() => loadConversation(c.id)}
+                    onClick={() => {
+                      onTabChange("chat");
+                      loadConversation(c.id);
+                    }}
                     className="flex min-w-0 flex-1 cursor-pointer flex-col items-start gap-[2px] text-left"
                   >
                     <span className="w-full truncate text-[12.5px] font-medium">{c.title}</span>
@@ -484,6 +505,34 @@ export function ExecutiveAssistantWidget({
           </div>
         ) : null}
       </div>
+
+      {/* Chat, or Updates: notifications (due reminders, lead digests …) posted by the assistant. */}
+      <div role="tablist" aria-label="Assistant" className="flex shrink-0 gap-[4px] border-b border-line-soft bg-bg px-[12px] py-[6px]">
+        {(["chat", "updates"] as const).map((id) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={tab === id}
+            onClick={() => onTabChange(id)}
+            className={`flex cursor-pointer items-center gap-[6px] rounded-full px-[12px] py-[5px] text-[12px] font-medium ${
+              tab === id ? "bg-ink text-bg" : "text-body-soft hover:text-ink"
+            }`}
+          >
+            {id === "chat" ? "Chat" : "Updates"}
+            {id === "updates" && notifications.unread > 0 ? (
+              <span className="flex h-[16px] min-w-[16px] items-center justify-center rounded-full bg-bad-fg px-[4px] text-[9.5px] font-bold text-white">
+                {notifications.unread > 99 ? "99+" : notifications.unread}
+              </span>
+            ) : null}
+          </button>
+        ))}
+      </div>
+
+      {tab === "updates" ? (
+        <AssistantUpdates notifications={notifications} onNavigate={closeOnMobileNavigate} />
+      ) : (
+        <>
 
       <div ref={scrollRef} className="flex min-h-0 flex-1 flex-col gap-[12px] overflow-y-auto px-[14px] py-[14px]">
         {turns === null ? (
@@ -681,6 +730,8 @@ export function ExecutiveAssistantWidget({
         </div>
         {error ? <span className="text-[11px] text-bad-fg">{error}</span> : null}
       </div>
+        </>
+      )}
     </div>
   );
 }
