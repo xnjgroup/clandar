@@ -34,6 +34,7 @@ import { readUpload, saveUpload } from "@/lib/storage";
 import { listTeam } from "@/lib/auth";
 import { emailContextBlock, type EmailAttachmentContent } from "@/lib/email-context";
 import { dateInZone, zonedTimeToUtc } from "@/lib/time-zone";
+import { directionsUrl, drivingRoute, findPlace, geocodePause, milesBetween, type Place } from "@/lib/geocode";
 import { createDraft, replyContext, sendMail, type MailDetail } from "@/lib/gmail";
 import { listInvoiceDocuments, recordInvoiceFromEmail, setInvoiceProject } from "@/lib/email-invoice";
 import { invoiceDetail } from "@/lib/queries";
@@ -379,6 +380,32 @@ const TOOLS: { name: string; description: string; parameters: JsonSchema; emailO
     parameters: obj({ entryId: str("The entry id") }, ["entryId"]),
   },
   {
+    name: "find_place",
+    description:
+      "Look up an address or place name on the map (OpenStreetMap): its full address and coordinates. " +
+      "Add a city or state to the query if a name is ambiguous.",
+    parameters: obj({ query: str("An address or place name, e.g. \"Home Depot, Jersey City NJ\"") }, ["query"]),
+  },
+  {
+    name: "get_route",
+    description:
+      "Driving distance and time between two or more places, in order (addresses or place names, or a project's " +
+      "address), with each leg, the straight-line distance, and a Google Maps directions link. Use it for any " +
+      "\"how far\" or \"how long to drive\" question. Times are typical, without live traffic.",
+    parameters: obj(
+      {
+        places: {
+          type: "array",
+          items: { type: "string" },
+          minItems: 2,
+          maxItems: 8,
+          description: "The stops in order, e.g. [\"Newark airport\", \"123 Main St, Brooklyn NY\"]",
+        },
+      },
+      ["places"],
+    ),
+  },
+  {
     name: "draft_email_reply",
     description:
       "Save a reply to the email the user is viewing into their Gmail Drafts (threaded, addressed to the sender). Nothing is sent.",
@@ -636,6 +663,41 @@ async function runToolUnsafe(
       return {
         summary: projectId ? `Linked the invoice to "${projectTitle}".` : "Unlinked the invoice from its project.",
         data: { link: projectId ? `/projects/${projectId}` : null },
+      };
+    }
+    case "find_place": {
+      const place = await findPlace(str(args.query));
+      if (!place) return { summary: `find_place: nothing found for "${str(args.query)}" — try adding a city or state.` };
+      return { summary: `Found ${place.name}.`, data: { name: place.name, lat: place.lat, lng: place.lng } };
+    }
+    case "get_route": {
+      const names = (Array.isArray(args.places) ? args.places : []).map(str).filter(Boolean).slice(0, 8);
+      if (names.length < 2) return { summary: "get_route failed: give at least two places." };
+      // One lookup a second (Nominatim's limit); repeated names reuse the first lookup.
+      const found = new Map<string, Place | null>();
+      for (const name of names) {
+        if (found.has(name)) continue;
+        if (found.size > 0) await geocodePause();
+        found.set(name, await findPlace(name));
+      }
+      const missing = names.filter((n) => !found.get(n));
+      if (missing.length) {
+        return { summary: `get_route: couldn't find ${missing.map((m) => `"${m}"`).join(", ")} — try a fuller address.` };
+      }
+      const stops = names.map((n) => found.get(n)!);
+      const route = await drivingRoute(stops);
+      const straight = stops.slice(1).reduce((sum, s, i) => sum + milesBetween(stops[i], s), 0);
+      const link = directionsUrl(stops);
+      return {
+        summary: route
+          ? `Driving: ${route.miles} mi, about ${route.minutes} min (no live traffic).`
+          : "No driving route found (or the route service is down) — straight-line distance only.",
+        data: {
+          stops: stops.map((s, i) => ({ asked: names[i], found: s.name })),
+          driving: route,
+          straightLineMiles: Math.round(straight * 10) / 10,
+          directions: link,
+        },
       };
     }
     case "list_schedule": {
