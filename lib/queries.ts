@@ -203,19 +203,6 @@ export async function needsAttention(orgId: string): Promise<AttentionItem[]> {
   return items.slice(0, 3);
 }
 
-/** The newest thing the assistant said, for the overview teaser. */
-export async function latestAgentLine(orgId: string) {
-  const row = await queryOne<{ body: string }>(
-    `SELECT m.body
-       FROM agent_messages m
-       JOIN agent_conversations c ON c.id = m.conversation_id
-      WHERE c.org_id = $1 AND m.role = 'assistant'
-      ORDER BY m.created_at DESC LIMIT 1`,
-    [orgId],
-  );
-  return row?.body ?? null;
-}
-
 /* ── Invoices ─────────────────────────────────────────────── */
 
 export type InvoiceListRow = {

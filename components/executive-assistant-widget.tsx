@@ -161,6 +161,30 @@ export function ExecutiveAssistantWidget({
       .catch(() => setTurns([]));
   }
 
+  // A question handed over by an "Ask the assistant" button elsewhere (OpenAssistantButton's `prompt`):
+  // asked in a fresh conversation as soon as the panel is open and its history has loaded.
+  const [queuedPrompt, setQueuedPrompt] = useState<string | null>(null);
+  useEffect(() => {
+    const onOpen = (e: Event) => {
+      const prompt = (e as CustomEvent<{ prompt?: string }>).detail?.prompt;
+      if (prompt) setQueuedPrompt(prompt);
+    };
+    window.addEventListener("clandar:open-assistant", onOpen);
+    return () => window.removeEventListener("clandar:open-assistant", onOpen);
+  }, []);
+  const sendRef = useRef(send);
+  sendRef.current = send;
+  useEffect(() => {
+    if (!open || !queuedPrompt || turns === null || pending) return;
+    const prompt = queuedPrompt;
+    queueMicrotask(() => {
+      setQueuedPrompt(null);
+      setSwitcherOpen(false);
+      setConversationId(null);
+      void sendRef.current(prompt, { fresh: true });
+    });
+  }, [open, queuedPrompt, turns, pending]);
+
   function startNewConversation() {
     setSwitcherOpen(false);
     setConversationId(null);
@@ -223,7 +247,7 @@ export function ExecutiveAssistantWidget({
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
-  async function send(text?: string) {
+  async function send(text?: string, options: { fresh?: boolean } = {}) {
     const q = (text ?? question).trim();
     if (!q || pending) return;
     setPending(true);
@@ -237,7 +261,7 @@ export function ExecutiveAssistantWidget({
     // the server's authoritative version (real ids, so attachments reload
     // correctly later) once the stream reports the saved conversation.
     setTurns((prev) => [
-      ...(prev ?? []),
+      ...(options.fresh ? [] : (prev ?? [])),
       {
         id: "pending",
         role: "user",
@@ -262,7 +286,7 @@ export function ExecutiveAssistantWidget({
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          conversationId,
+          conversationId: options.fresh ? null : conversationId,
           question: q,
           attachments: sentAttachments,
           pageContext,

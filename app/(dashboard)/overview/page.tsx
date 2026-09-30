@@ -7,21 +7,27 @@ import { Card, CardTitle, EmptyRow, PageBody, StatCard, StatRow, TableCard } fro
 import { count, delta, money0 } from "@/lib/data";
 import { requireSession } from "@/lib/auth";
 import {
-  latestAgentLine,
   needsAttention,
   overviewStats,
   recentInvoices,
   spendByCategory,
 } from "@/lib/queries";
 
+/** One-tap questions on the assistant card — each opens the chat and asks it in a fresh conversation. */
+const QUICK_QUESTIONS = [
+  "What's the project status today?",
+  "Any to-do items today?",
+  "What's on the schedule this week?",
+  "Any invoices waiting for review?",
+];
+
 export default async function OverviewPage() {
   const { org } = await requireSession();
-  const [stats, slices, attention, invoices, agentLine] = await Promise.all([
+  const [stats, slices, attention, invoices] = await Promise.all([
     overviewStats(org.id),
     spendByCategory(org.id),
     needsAttention(org.id),
     recentInvoices(org.id, 5),
-    latestAgentLine(org.id),
   ]);
 
   const cards = [
@@ -135,14 +141,17 @@ export default async function OverviewPage() {
             <Icon name="bot" size={18} />
             <CardTitle>Executive Assistant</CardTitle>
           </div>
-          <p className="m-0 text-[12.5px] leading-[1.55] text-[#3f4b28]">
-            {agentLine
-              ? `“${agentLine}”`
-              : "Ask about any bill, category or trend and your assistant will query your spend."}
-          </p>
-          <OpenAssistantButton className="cursor-pointer rounded-full bg-ink px-[15px] py-[9px] text-center text-[12.5px] font-semibold text-bg">
-            Ask about this
-          </OpenAssistantButton>
+          <div className="flex flex-col gap-[7px]">
+            {QUICK_QUESTIONS.map((q) => (
+              <OpenAssistantButton
+                key={q}
+                prompt={q}
+                className="cursor-pointer rounded-[12px] bg-surface/70 px-[13px] py-[9px] text-left text-[12.5px] font-medium text-ink hover:bg-surface"
+              >
+                {q}
+              </OpenAssistantButton>
+            ))}
+          </div>
         </div>
       </div>
     </PageBody>
