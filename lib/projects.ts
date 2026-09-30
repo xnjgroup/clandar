@@ -271,7 +271,7 @@ export async function projectOverview(orgId: string): Promise<ProjectOverview> {
        (SELECT coalesce(sum(total), 0)::text FROM estimates WHERE org_id = $1 AND status = 'sent') AS quotes_out,
        (SELECT count(*)::int FROM tasks WHERE org_id = $1 AND NOT is_done AND due_date = current_date) AS tasks_today,
        (SELECT count(*)::int FROM tasks WHERE org_id = $1 AND NOT is_done AND due_date < current_date) AS tasks_overdue,
-       (SELECT count(*)::int FROM schedule_entries WHERE org_id = $1
+       (SELECT count(*)::int FROM schedule_entries WHERE org_id = $1 AND project_id IS NOT NULL
           AND starts_at >= now() AND starts_at < now() + interval '7 days') AS jobs_week,
        (SELECT count(*)::int FROM email_leads WHERE org_id = $1 AND status = 'new') AS new_leads`,
     [orgId],

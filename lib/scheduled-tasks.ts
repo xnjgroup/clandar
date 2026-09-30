@@ -216,21 +216,22 @@ export type TaskPreset = {
 async function buildContext(orgId: string): Promise<string> {
   const [today, tasks, staleLeads, staleEstimates, recentlyCompleted] = await Promise.all([
     query<{
-      project_title: string;
-      customer_name: string;
+      what: string;
+      project_title: string | null;
+      customer_name: string | null;
       customer_phone: string | null;
       customer_email: string | null;
-      project_address: string;
-      project_notes: string;
+      project_address: string | null;
+      project_notes: string | null;
       starts_at: Date;
       ends_at: Date;
     }>(
-      `SELECT j.title AS project_title, c.name AS customer_name, c.phone AS customer_phone,
+      `SELECT s.notes AS what, j.title AS project_title, c.name AS customer_name, c.phone AS customer_phone,
               c.email AS customer_email, j.address AS project_address, j.notes AS project_notes,
               s.starts_at, s.ends_at
          FROM schedule_entries s
-         JOIN projects j ON j.id = s.project_id
-         JOIN customers c ON c.id = j.customer_id
+         LEFT JOIN projects j ON j.id = s.project_id
+         LEFT JOIN customers c ON c.id = j.customer_id
         WHERE s.org_id = $1 AND s.starts_at::date = current_date
         ORDER BY s.starts_at`,
       [orgId],

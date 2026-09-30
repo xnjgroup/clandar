@@ -251,7 +251,7 @@ export const NAV_TOP: NavItem[] = [
   { label: "Overview", icon: "home", href: "/overview" },
   { label: "Projects", icon: "briefcase", href: "/projects" },
   { label: "Customers", icon: "users", href: "/customers" },
-  { label: "Schedule", icon: "calendar", href: "/schedule" },
+  { label: "Scheduled", icon: "calendar", href: "/schedule" },
   { label: "Tasks", icon: "clipboard", href: "/tasks" },
   { label: "Email", icon: "mail", href: "/email" },
 ];
@@ -290,7 +290,7 @@ export const NAV_FOOTER: NavItem[] = [
 export const MOBILE_TABS: { label: string; icon: IconName; href: string }[] = [
   { label: "Overview", icon: "home", href: "/overview" },
   { label: "Projects", icon: "briefcase", href: "/projects" },
-  { label: "Schedule", icon: "calendar", href: "/schedule" },
+  { label: "Scheduled", icon: "calendar", href: "/schedule" },
   { label: "Tasks", icon: "clipboard", href: "/tasks" },
 ];
 
@@ -305,7 +305,7 @@ export const PAGE_TITLES: Record<string, [crumb: string, title: string]> = {
   admin: ["Platform", "Admin"],
   projects: ["Work", "Projects"],
   customers: ["Work", "Customers"],
-  schedule: ["Work", "Schedule"],
+  schedule: ["Work", "Scheduled"],
   tasks: ["Work", "Tasks"],
   invoices: ["Invoices", "Invoices & extraction"],
   email: ["Workspace", "Email"],

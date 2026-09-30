@@ -321,17 +321,17 @@ const TOOLS: { name: string; description: string; parameters: JsonSchema; emailO
   {
     name: "create_schedule_entry",
     description:
-      "Put a project on the calendar: a date and time window, optionally assigned to a team member. Times are the user's local time.",
+      "Add a block to the schedule (calendar): what's happening, a date and time window, optionally on a project and assigned to a team member. Use it for project work days and for anything else with a time — a trip, an appointment. Times are the user's local time.",
     parameters: obj(
       {
-        projectTitle: PROJECT_TITLE,
+        notes: str("What's happening, e.g. \"Tile install\" or \"Flight to Nashville\""),
+        projectTitle: str("The project it's for, if any — leave out for non-project events"),
         date: str("YYYY-MM-DD"),
         startTime: str("HH:MM, 24-hour"),
         endTime: str("HH:MM, 24-hour"),
         assigneeName: str("A team member's name"),
-        notes: str(),
       },
-      ["projectTitle", "date", "startTime", "endTime"],
+      ["notes", "date", "startTime", "endTime"],
     ),
   },
   {
@@ -577,8 +577,10 @@ async function runToolUnsafe(
       };
     }
     case "create_schedule_entry": {
-      const projectId = await findProjectIdByTitle(orgId, str(args.projectTitle) || undefined);
-      if (!projectId) return { summary: `create_schedule_entry failed: no project matches "${str(args.projectTitle)}".` };
+      const projectTitle = str(args.projectTitle);
+      const projectId = projectTitle ? await findProjectIdByTitle(orgId, projectTitle) : null;
+      if (projectTitle && !projectId) return { summary: `create_schedule_entry failed: no project matches "${projectTitle}".` };
+      if (!projectId && !str(args.notes)) return { summary: "create_schedule_entry failed: say what's happening (notes)." };
       const startsAt = zonedTimeToUtc(str(args.date), str(args.startTime), context.timeZone);
       const endsAt = zonedTimeToUtc(str(args.date), str(args.endTime), context.timeZone);
       if (!startsAt || !endsAt) return { summary: "create_schedule_entry failed: date must be YYYY-MM-DD and times HH:MM." };
@@ -592,7 +594,7 @@ async function runToolUnsafe(
       }
       const id = await createScheduleEntry({ orgId, projectId, assignedTo, startsAt, endsAt, notes: str(args.notes) });
       return {
-        summary: `Scheduled ${str(args.projectTitle)} on ${str(args.date)} ${str(args.startTime)}–${str(args.endTime)}.`,
+        summary: `Scheduled ${[str(args.notes), projectTitle].filter(Boolean).join(" — ")} on ${str(args.date)} ${str(args.startTime)}–${str(args.endTime)}.`,
         data: { id, link: "/schedule" },
       };
     }

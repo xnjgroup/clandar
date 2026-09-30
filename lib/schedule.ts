@@ -1,6 +1,6 @@
 /**
- * Scheduling: one calendar entry ties a project to a crew member and a time
- * window. The daily "route" (lib/data doesn't need this — see
+ * Scheduling: one calendar entry is a time window — "what's happening"
+ * (`notes`), optionally on a project and assigned to a crew member. The daily "route" (lib/data doesn't need this — see
  * app/(dashboard)/schedule/page.tsx) is just this list filtered to one day
  * and person, ordered by start time.
  */
@@ -8,10 +8,10 @@ import { query, queryOne } from "@/lib/db";
 
 export type ScheduleEntry = {
   id: string;
-  projectId: string;
-  projectTitle: string;
-  projectAddress: string;
-  customerName: string;
+  projectId: string | null;
+  projectTitle: string | null;
+  projectAddress: string | null;
+  customerName: string | null;
   assignedTo: string | null;
   assignedName: string | null;
   startsAt: Date;
@@ -21,10 +21,10 @@ export type ScheduleEntry = {
 
 type ScheduleRow = {
   id: string;
-  project_id: string;
-  project_title: string;
-  project_address: string;
-  customer_name: string;
+  project_id: string | null;
+  project_title: string | null;
+  project_address: string | null;
+  customer_name: string | null;
   assigned_to: string | null;
   assigned_name: string | null;
   starts_at: Date;
@@ -51,8 +51,8 @@ const SELECT = `SELECT s.id, s.project_id, j.title AS project_title, j.address A
        c.name AS customer_name, s.assigned_to, p.name AS assigned_name,
        s.starts_at, s.ends_at, s.notes
   FROM schedule_entries s
-  JOIN projects j ON j.id = s.project_id
-  JOIN customers c ON c.id = j.customer_id
+  LEFT JOIN projects j ON j.id = s.project_id
+  LEFT JOIN customers c ON c.id = j.customer_id
   LEFT JOIN people p ON p.id = s.assigned_to`;
 
 export async function listSchedule(
@@ -79,7 +79,7 @@ export async function listSchedule(
 
 export async function createScheduleEntry(input: {
   orgId: string;
-  projectId: string;
+  projectId: string | null;
   assignedTo: string | null;
   startsAt: Date;
   endsAt: Date;

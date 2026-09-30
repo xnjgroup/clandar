@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { Icon } from "@/components/icons";
-import { LocalTime } from "@/components/local-time";
-import { Card, CardTitle, EmptyRow, PageBody, TableCard, TableHeader, TableTitle } from "@/components/ui";
+import { Card, EmptyRow, PageBody, TableCard, TableHeader, TableTitle } from "@/components/ui";
 import { firstParam, hrefWith } from "@/lib/data";
 import { listTeam, requireSession } from "@/lib/auth";
 import { listProjects } from "@/lib/projects";
@@ -9,8 +8,8 @@ import { listUpcomingReminders } from "@/lib/reminders";
 import { listSchedule } from "@/lib/schedule";
 import { formatSchedule, listScheduledTasks } from "@/lib/scheduled-tasks";
 import { REPEATS } from "@/lib/task-kinds";
-import { removeScheduleEntry } from "./actions";
-import { ScheduleForm } from "./schedule-form";
+import { AddToScheduleDialog } from "./add-to-schedule-dialog";
+import { ScheduleList } from "./schedule-list";
 
 export default async function SchedulePage({ searchParams }: PageProps<"/schedule">) {
   const params = await searchParams;
@@ -31,59 +30,20 @@ export default async function SchedulePage({ searchParams }: PageProps<"/schedul
   ]);
   const activeAutomations = automations.filter((a) => a.isEnabled);
 
-  const days = new Map<string, typeof entries>();
-  for (const entry of entries) {
-    const key = entry.startsAt.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
-    days.set(key, [...(days.get(key) ?? []), entry]);
-  }
-
   return (
     <PageBody>
-      {/* Automations (AI jobs on a timer) live under /tasks/scheduled — surfaced here too, since "schedule" is where people look. */}
-      <Card className="flex flex-wrap items-center gap-[12px]">
-        <span className="flex size-[38px] shrink-0 items-center justify-center rounded-[12px] bg-lime">
-          <Icon name="bot" size={18} />
-        </span>
-        <div className="flex min-w-0 flex-1 flex-col gap-[3px]">
-          <span className="text-[13.5px] font-semibold">Automations</span>
-          {activeAutomations.length > 0 ? (
-            <span className="flex flex-wrap gap-x-[14px] gap-y-[2px] text-[12px] text-muted">
-              {activeAutomations.slice(0, 3).map((a) => (
-                <span key={a.id} className="flex items-center gap-[5px]">
-                  <Icon name="clock" size={11} />
-                  <span className="font-medium text-ink">{a.name}</span>
-                  · {formatSchedule(a.frequency, a.runTime, a.runWeekday)}
-                </span>
-              ))}
-              {activeAutomations.length > 3 ? <span>+{activeAutomations.length - 3} more</span> : null}
-            </span>
-          ) : (
-            <span className="text-[12px] text-muted">
-              Let AI handle recurring work — a daily briefing every morning, a weekly review on Friday, inbox triage.
-            </span>
-          )}
-        </div>
-        <Link
-          href="/tasks/scheduled"
-          className="shrink-0 rounded-full bg-ink px-4 py-[9px] text-[12.5px] font-semibold text-bg"
-        >
-          {activeAutomations.length > 0 ? "Manage automations" : "Set up automations"}
-        </Link>
-      </Card>
-
-      <Card className="flex flex-col gap-[13px]">
-        <CardTitle>Schedule a project</CardTitle>
-        <ScheduleForm
+      <div className="flex items-center gap-[10px]">
+        <AddToScheduleDialog
           projects={projects.map((j) => ({ id: j.id, title: `${j.title} — ${j.customerName}` }))}
           members={team}
           redirectPath="/schedule"
         />
-      </Card>
+      </div>
 
-      <div className="flex flex-wrap gap-[7px]">
+      <div className="-mx-[14px] flex gap-[7px] overflow-x-auto px-[14px] [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:px-0">
         <Link
           href={hrefWith("/schedule", params, { who: null })}
-          className={`rounded-full px-[14px] py-[8px] text-[12.5px] font-medium ${
+          className={`shrink-0 rounded-full px-[14px] py-[8px] text-[12.5px] font-medium ${
             !assignedTo ? "bg-ink text-bg" : "border border-line bg-surface text-body"
           }`}
         >
@@ -93,7 +53,7 @@ export default async function SchedulePage({ searchParams }: PageProps<"/schedul
           <Link
             key={m.id}
             href={hrefWith("/schedule", params, { who: m.id })}
-            className={`rounded-full px-[14px] py-[8px] text-[12.5px] font-medium ${
+            className={`shrink-0 rounded-full px-[14px] py-[8px] text-[12.5px] font-medium ${
               assignedTo === m.id ? "bg-ink text-bg" : "border border-line bg-surface text-body"
             }`}
           >
@@ -101,6 +61,13 @@ export default async function SchedulePage({ searchParams }: PageProps<"/schedul
           </Link>
         ))}
       </div>
+
+      <TableCard>
+        <TableHeader>
+          <TableTitle>Next 30 days</TableTitle>
+        </TableHeader>
+        <ScheduleList entries={entries} redirectPath="/schedule" />
+      </TableCard>
 
       <TableCard>
         <TableHeader>
@@ -151,49 +118,39 @@ export default async function SchedulePage({ searchParams }: PageProps<"/schedul
         )}
       </TableCard>
 
-      <TableCard>
-        <TableHeader>
-          <TableTitle>Next 30 days</TableTitle>
-        </TableHeader>
-        {entries.length === 0 ? (
-          <EmptyRow>Nothing scheduled in the next 30 days.</EmptyRow>
-        ) : (
-          Array.from(days.entries()).map(([day, dayEntries]) => (
-            <div key={day} className="border-t border-line-soft">
-              <div className="bg-[#fafbf9] px-[18px] py-[8px] text-[11.5px] font-semibold text-body-soft">{day}</div>
-              {dayEntries.map((entry) => (
-                <div key={entry.id} className="flex min-h-[56px] flex-wrap items-center gap-3 border-t border-line-soft px-[18px] py-[11px]">
-                  <span className="font-mono text-[11.5px] text-muted">
-                    <LocalTime value={entry.startsAt} options={{ hour: "numeric", minute: "2-digit" }} /> –{" "}
-                    <LocalTime value={entry.endsAt} options={{ hour: "numeric", minute: "2-digit" }} />
+      {/* Automations (AI jobs on a timer) live under /tasks/scheduled — surfaced here too, since "schedule" is where people look. */}
+      <Card className="flex flex-col gap-[12px] sm:flex-row sm:items-center">
+        <div className="flex min-w-0 flex-1 items-center gap-[12px]">
+          <span className="flex size-[38px] shrink-0 items-center justify-center rounded-[12px] bg-lime">
+            <Icon name="bot" size={18} />
+          </span>
+          <div className="flex min-w-0 flex-1 flex-col gap-[3px]">
+            <span className="text-[13.5px] font-semibold">Automations</span>
+            {activeAutomations.length > 0 ? (
+              <span className="flex flex-col gap-[2px] text-[12px] text-muted">
+                {activeAutomations.slice(0, 3).map((a) => (
+                  <span key={a.id} className="truncate">
+                    <span className="font-medium text-ink">{a.name}</span> ·{" "}
+                    {formatSchedule(a.frequency, a.runTime, a.runWeekday)}
                   </span>
-                  <div className="flex min-w-0 flex-1 flex-col leading-[1.35]">
-                    <Link href={`/projects/${entry.projectId}`} className="truncate text-[13px] font-semibold underline">
-                      {entry.projectTitle}
-                    </Link>
-                    <span className="truncate text-[11.5px] text-muted">
-                      {[entry.notes, entry.customerName].filter(Boolean).join(" · ")}
-                    </span>
-                  </div>
-                  {entry.assignedName ? (
-                    <span className="flex shrink-0 items-center gap-[5px] rounded-full border border-line px-[9px] py-[4px] text-[11px] text-body-soft">
-                      <Icon name="user" size={12} />
-                      {entry.assignedName}
-                    </span>
-                  ) : null}
-                  <form action={removeScheduleEntry}>
-                    <input type="hidden" name="id" value={entry.id} />
-                    <input type="hidden" name="redirectPath" value="/schedule" />
-                    <button type="submit" aria-label="Remove" className="cursor-pointer text-faint hover:text-bad-fg">
-                      <Icon name="close" size={14} />
-                    </button>
-                  </form>
-                </div>
-              ))}
-            </div>
-          ))
-        )}
-      </TableCard>
+                ))}
+                {activeAutomations.length > 3 ? <span>+{activeAutomations.length - 3} more</span> : null}
+              </span>
+            ) : (
+              <span className="text-[12px] text-muted">
+                Let AI handle recurring work — a daily briefing every morning, a weekly review on Friday, inbox triage.
+              </span>
+            )}
+          </div>
+        </div>
+        <Link
+          href="/tasks/scheduled"
+          className="flex h-[38px] shrink-0 items-center justify-center rounded-full border border-line px-4 text-[12.5px] font-semibold"
+        >
+          {activeAutomations.length > 0 ? "Manage automations" : "Set up automations"}
+        </Link>
+      </Card>
+
     </PageBody>
   );
 }

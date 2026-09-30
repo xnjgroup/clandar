@@ -19,7 +19,8 @@ export async function addScheduleEntry(_prev: FormState, form: FormData): Promis
   const startTime = field(form, "startTime") || "09:00";
   const endTime = field(form, "endTime") || "17:00";
   const redirectPath = field(form, "redirectPath") || "/schedule";
-  if (!projectId) return { error: "Pick a project." };
+  const notes = field(form, "notes");
+  if (!notes && !projectId) return { error: "Say what's happening." };
   if (!date) return { error: "Pick a date." };
 
   // Wall-clock times in the person's zone (from their browser) — the server may run in UTC.
@@ -32,11 +33,11 @@ export async function addScheduleEntry(_prev: FormState, form: FormData): Promis
 
   await createScheduleEntry({
     orgId: org.id,
-    projectId,
+    projectId: projectId || null,
     assignedTo: field(form, "assignedTo") || null,
     startsAt,
     endsAt,
-    notes: field(form, "notes"),
+    notes,
   });
 
   revalidatePath(redirectPath);

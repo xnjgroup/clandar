@@ -734,6 +734,9 @@ CREATE TABLE IF NOT EXISTS schedule_entries (
 CREATE INDEX IF NOT EXISTS schedule_entries_org_idx ON schedule_entries (org_id, starts_at);
 CREATE INDEX IF NOT EXISTS schedule_entries_job_idx ON schedule_entries (project_id);
 CREATE INDEX IF NOT EXISTS schedule_entries_assignee_idx ON schedule_entries (assigned_to, starts_at);
+-- A schedule entry needn't be project work (a trip, an appointment): the project
+-- is optional, and `notes` ("what's happening") is then its title.
+ALTER TABLE schedule_entries ALTER COLUMN project_id DROP NOT NULL;
 
 /* ── Tasks ──────────────────────────────────────────────────── */
 

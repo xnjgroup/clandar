@@ -17,7 +17,7 @@ import { listSchedule } from "@/lib/schedule";
 import { listTasks } from "@/lib/tasks";
 import { AddTaskForm } from "../../tasks/add-task-form";
 import { TaskList } from "../../tasks/task-list";
-import { ScheduleForm } from "../../schedule/schedule-form";
+import { AddToScheduleDialog } from "../../schedule/add-to-schedule-dialog";
 import { removeScheduleEntry } from "../../schedule/actions";
 import { changeProjectAssignee, changeProjectStatus, saveProject } from "../actions";
 import { DeleteProjectDialog } from "./delete-project-dialog";
@@ -392,17 +392,17 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
       <TableCard>
         <TableHeader>
           <TableTitle>Schedule</TableTitle>
-          <Link href="/schedule" className="ml-auto text-[11.5px] font-medium underline">
-            Full schedule
-          </Link>
-        </TableHeader>
-        <div className="flex flex-col gap-[10px] border-t border-line-soft px-[18px] py-[13px]">
-          <span className="text-[12px] leading-[1.5] text-muted">
-            Book the days you (or your crew) will be working on this job. They show on the Schedule page and in the
-            morning briefing. For one-off to-dos and reminders, use Tasks below.
+          <span className="ml-auto flex items-center gap-[12px]">
+            <AddToScheduleDialog compact projectId={project.id} members={team} redirectPath={`/projects/${project.id}`} />
+            <Link href="/schedule" className="text-[11.5px] font-medium underline">
+              All scheduled
+            </Link>
           </span>
-          <ScheduleForm projectId={project.id} members={team} redirectPath={`/projects/${project.id}`} />
-        </div>
+        </TableHeader>
+        <span className="border-t border-line-soft px-[18px] py-[10px] text-[12px] leading-[1.5] text-muted">
+          The days you (or your crew) will be working on this job. They show on the Scheduled page and in the morning
+          briefing. For to-dos and reminders, use Tasks below.
+        </span>
         {schedule.length === 0 ? (
           <EmptyRow>Not scheduled yet.</EmptyRow>
         ) : (
