@@ -447,6 +447,22 @@ ALTER TABLE people ADD COLUMN IF NOT EXISTS org_id uuid REFERENCES organizations
 ALTER TABLE people ADD COLUMN IF NOT EXISTS google_sub text UNIQUE;
 ALTER TABLE people ADD COLUMN IF NOT EXISTS avatar_url text;
 ALTER TABLE people ADD COLUMN IF NOT EXISTS last_login_at timestamptz;
+-- Sign in with Apple: Apple's stable user id (the email may be a private relay address).
+ALTER TABLE people ADD COLUMN IF NOT EXISTS apple_sub text UNIQUE;
+
+-- "Continue with email": one row per emailed sign-in — a single-use link token and a 6-digit
+-- code, both stored only as SHA-256 hashes, valid 15 minutes, the code good for 5 tries.
+CREATE TABLE IF NOT EXISTS email_login_codes (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  email       text NOT NULL,
+  token_hash  text NOT NULL UNIQUE,
+  code_hash   text NOT NULL,
+  attempts    integer NOT NULL DEFAULT 0,
+  expires_at  timestamptz NOT NULL,
+  consumed_at timestamptz,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS email_login_codes_email_idx ON email_login_codes (lower(email), created_at DESC);
 CREATE INDEX IF NOT EXISTS people_org_idx ON people (org_id);
 
 ALTER TABLE people DROP CONSTRAINT IF EXISTS people_role_check;

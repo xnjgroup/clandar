@@ -258,73 +258,111 @@ function orgNameFromEmail(email: string): string {
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
+/** Who someone proved to be, by any sign-in method. `email` is always verified by that method. */
+export type LoginIdentity = {
+  provider: "google" | "apple" | "email";
+  /** The provider's stable user id (Google's / Apple's `sub`); none for email. */
+  sub?: string;
+  email: string;
+  name?: string | null;
+  picture?: string | null;
+};
+
+const SUB_COLUMN = { google: "google_sub", apple: "apple_sub" } as const;
+
 /**
- * Finds or creates the `people` row for a Google profile, resolving which org
- * it belongs to:
- *  1. Already linked (signed in before) — reuse it.
- *  2. A pending invite for this email — join that org with the invited role.
- *  3. Nobody has ever signed in with a real Google account yet — claim the
- *     bootstrap org (the one pre-existing connectors/LLM providers were
- *     migrated onto), as its owner.
- *  4. Otherwise — a brand-new signup with no invite: a fresh, isolated org,
- *     as its owner.
+ * Finds or creates the `people` row for a sign-in, resolving which org it belongs to:
+ *  1. This provider's account has signed in before — reuse it.
+ *  2. Someone with this verified email has signed in before (by any method) — the same person:
+ *     link this method to them. (One account per email, whether they use Google, Apple or email.)
+ *  3. A pending invite for this email — join that org with the invited role.
+ *  4. Nobody has ever signed in yet — claim the bootstrap org (the one pre-existing
+ *     connectors/LLM providers were migrated onto), as its owner.
+ *  5. Otherwise — a brand-new signup with no invite: a fresh, isolated org, as its owner.
  */
-async function resolvePersonForLogin(profile: GoogleProfile): Promise<string> {
-  const existing = await queryOne<{ id: string }>(`SELECT id FROM people WHERE google_sub = $1`, [
-    profile.sub,
-  ]);
-  if (existing) {
-    await query(
-      `UPDATE people SET last_login_at = now(), name = $2, avatar_url = $3 WHERE id = $1`,
-      [existing.id, profile.name || profile.email, profile.picture ?? null],
-    );
-    return existing.id;
+async function resolvePersonForLogin(identity: LoginIdentity): Promise<string> {
+  const subColumn = identity.provider === "email" ? null : SUB_COLUMN[identity.provider];
+  const name = identity.name?.trim() || null;
+
+  if (subColumn && identity.sub) {
+    const existing = await queryOne<{ id: string }>(`SELECT id FROM people WHERE ${subColumn} = $1`, [identity.sub]);
+    if (existing) {
+      await query(
+        `UPDATE people SET last_login_at = now(), name = coalesce($2, name), avatar_url = coalesce($3, avatar_url)
+          WHERE id = $1`,
+        [existing.id, name, identity.picture ?? null],
+      );
+      return existing.id;
+    }
   }
 
+  const sameEmail = await queryOne<{ id: string }>(
+    `SELECT id FROM people WHERE lower(email) = lower($1) AND last_login_at IS NOT NULL
+      ORDER BY last_login_at DESC LIMIT 1`,
+    [identity.email],
+  );
+  if (sameEmail) {
+    await query(
+      `UPDATE people SET last_login_at = now(), avatar_url = coalesce(avatar_url, $2)
+              ${subColumn ? `, ${subColumn} = coalesce(${subColumn}, $3)` : ""}
+        WHERE id = $1`,
+      subColumn ? [sameEmail.id, identity.picture ?? null, identity.sub ?? null] : [sameEmail.id, identity.picture ?? null],
+    );
+    return sameEmail.id;
+  }
+
+  const displayName = name || identity.email;
+  const subs = {
+    google: identity.provider === "google" ? (identity.sub ?? null) : null,
+    apple: identity.provider === "apple" ? (identity.sub ?? null) : null,
+  };
   return transaction(async (client) => {
+    const insertPerson = async (role: string, orgId: string) =>
+      (
+        await client.query<{ id: string }>(
+          `INSERT INTO people (name, email, role, org_id, google_sub, apple_sub, avatar_url, last_login_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, now()) RETURNING id`,
+          [displayName, identity.email, role, orgId, subs.google, subs.apple, identity.picture ?? null],
+        )
+      ).rows[0].id;
+
     const invite = await client.query<{ id: string; org_id: string; role: string }>(
       `SELECT id, org_id, role FROM org_invites WHERE lower(email) = lower($1) AND accepted_at IS NULL`,
-      [profile.email],
+      [identity.email],
     );
     if (invite.rows[0]) {
       const inv = invite.rows[0];
-      const inserted = await client.query<{ id: string }>(
-        `INSERT INTO people (name, email, role, org_id, google_sub, avatar_url, last_login_at)
-         VALUES ($1, $2, $3, $4, $5, $6, now()) RETURNING id`,
-        [profile.name || profile.email, profile.email, inv.role, inv.org_id, profile.sub, profile.picture ?? null],
-      );
+      const id = await insertPerson(inv.role, inv.org_id);
       await client.query(`UPDATE org_invites SET accepted_at = now() WHERE id = $1`, [inv.id]);
-      return inserted.rows[0].id;
+      return id;
     }
 
-    const anyRealAccount = await client.query(`SELECT 1 FROM people WHERE google_sub IS NOT NULL LIMIT 1`);
+    const anyRealAccount = await client.query(`SELECT 1 FROM people WHERE last_login_at IS NOT NULL LIMIT 1`);
     let orgId: string;
     if (anyRealAccount.rows.length === 0) {
-      const bootstrap = await client.query<{ id: string }>(
-        `SELECT id FROM organizations ORDER BY created_at LIMIT 1`,
-      );
+      const bootstrap = await client.query<{ id: string }>(`SELECT id FROM organizations ORDER BY created_at LIMIT 1`);
       orgId =
         bootstrap.rows[0]?.id ??
         (
           await client.query<{ id: string }>(`INSERT INTO organizations (name) VALUES ($1) RETURNING id`, [
-            orgNameFromEmail(profile.email),
+            orgNameFromEmail(identity.email),
           ])
         ).rows[0].id;
     } else {
       orgId = (
         await client.query<{ id: string }>(`INSERT INTO organizations (name) VALUES ($1) RETURNING id`, [
-          orgNameFromEmail(profile.email),
+          orgNameFromEmail(identity.email),
         ])
       ).rows[0].id;
     }
-
-    const inserted = await client.query<{ id: string }>(
-      `INSERT INTO people (name, email, role, org_id, google_sub, avatar_url, last_login_at)
-       VALUES ($1, $2, 'owner', $3, $4, $5, now()) RETURNING id`,
-      [profile.name || profile.email, profile.email, orgId, profile.sub, profile.picture ?? null],
-    );
-    return inserted.rows[0].id;
+    return insertPerson("owner", orgId);
   });
+}
+
+/** Signs someone in by any method: resolves (or creates) their account and starts a session. */
+export async function signInWithIdentity(identity: LoginIdentity): Promise<void> {
+  const personId = await resolvePersonForLogin(identity);
+  await createSession(personId);
 }
 
 type GoogleTokens = { access_token: string; id_token?: string };
@@ -361,8 +399,13 @@ export async function completeGoogleLogin(code: string, origin: string): Promise
   if (!profile.email) throw new Error("Google did not share an email address");
   if (profile.email_verified === false) throw new Error("That Google account's email isn't verified");
 
-  const personId = await resolvePersonForLogin(profile);
-  await createSession(personId);
+  await signInWithIdentity({
+    provider: "google",
+    sub: profile.sub,
+    email: profile.email,
+    name: profile.name,
+    picture: profile.picture,
+  });
 }
 
 /* ── Team (invites) ───────────────────────────────────────────────────── */
