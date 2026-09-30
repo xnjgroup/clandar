@@ -26,7 +26,6 @@ const QUICK_ASKS: { group: "Ask" | "Do"; label: string; prompt: string }[] = [
   { group: "Ask", label: "What's the project status today?", prompt: "What's the project status today?" },
   { group: "Ask", label: "Any to-do items today?", prompt: "Any to-do items today?" },
   { group: "Ask", label: "What's on the schedule this week?", prompt: "What's on the schedule this week?" },
-  { group: "Ask", label: "Any invoices waiting for review?", prompt: "Any invoices waiting for review?" },
   {
     group: "Do",
     label: "Create a project",
