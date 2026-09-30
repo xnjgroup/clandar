@@ -4,6 +4,7 @@ import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
 import { defaultEstimateMessage, renderEstimateEmail, type EmailEstimate, type Letterhead } from "@/lib/estimate-email";
+import { shrinkImage } from "@/lib/shrink-image";
 import { sendEstimate, type FormState } from "./actions";
 
 type Attachable = { id: string; name: string; sizeBytes: number };
@@ -250,7 +251,7 @@ export function SendEstimateDialog({
                     onChange={(e) => {
                       const file = e.currentTarget.files?.[0];
                       e.currentTarget.value = "";
-                      if (file) upload(file);
+                      if (file) void shrinkImage(file).then(upload);
                     }}
                   />
                   <button

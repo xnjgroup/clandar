@@ -1,11 +1,22 @@
 import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
+import { unstable_rethrow } from "next/navigation";
 import { requireSession } from "@/lib/auth";
 import { getProject } from "@/lib/projects";
 import { addProjectPhoto } from "@/lib/project-photos";
 
 /** Uploads one photo to a project — see ../files/route.ts for why this is a route rather than a server action. */
-export async function POST(request: Request, { params }: { params: Promise<{ projectId: string }> }) {
+export async function POST(request: Request, context: { params: Promise<{ projectId: string }> }) {
+  // Any failure comes back as JSON the uploader can show ("File storage isn't set up…"), not a bare 500.
+  try {
+    return await upload(request, context);
+  } catch (error) {
+    unstable_rethrow(error); // let Next's own signals through (e.g. the redirect to sign-in)
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Upload failed." }, { status: 500 });
+  }
+}
+
+async function upload(request: Request, { params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params;
   const session = await requireSession();
   const project = await getProject(projectId, session.org.id);
