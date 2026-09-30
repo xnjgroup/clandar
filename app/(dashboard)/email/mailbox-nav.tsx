@@ -2,13 +2,15 @@ import Link from "next/link";
 import { Icon, type IconName } from "@/components/icons";
 import { count } from "@/lib/data";
 
-export type MailboxNavItem = { id: string; label: string; icon: IconName; href: string; count?: number; badge?: number };
+export type MailboxNavItem = { id: string; label: string; icon: IconName; href: string; count?: number; unread?: number; badge?: number };
 /** A small section title in the side column (desktop only). */
 export type MailboxNavHeading = { heading: string };
 
 /**
  * The email page's views. Desktop: a left side column (like Gmail's), with
  * counts. Phones: the same items as one sideways-scrolling row of chips.
+ * Unread counts show everywhere (bold, like Gmail); totals only on desktop,
+ * for views with nothing unread.
  */
 export function MailboxNav({ items, active }: { items: (MailboxNavItem | MailboxNavHeading)[]; active: string }) {
   return (
@@ -44,6 +46,10 @@ export function MailboxNav({ items, active }: { items: (MailboxNavItem | Mailbox
             {item.badge ? (
               <span className={`rounded-full px-[7px] py-[1px] font-mono text-[10.5px] font-semibold ${on ? "bg-lime text-ink" : "bg-ok-bg text-ok-fg"}`}>
                 {count(item.badge)}
+              </span>
+            ) : item.unread ? (
+              <span className={`font-mono text-[11px] font-semibold ${on ? "text-lime" : "text-ink"}`} title={`${item.unread} unread`}>
+                {count(item.unread)}
               </span>
             ) : item.count !== undefined ? (
               <span className={`hidden font-mono text-[11px] lg:inline ${on ? "text-bg/70" : "text-faint"}`}>{count(item.count)}</span>

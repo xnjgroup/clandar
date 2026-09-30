@@ -139,6 +139,7 @@ export default async function EmailPage({ searchParams }: PageProps<"/email">) {
     listUserLabels(org.id, account.id).catch(() => [] as { id: string; name: string }[]),
   ]);
   const totalOf = (id: string) => systemLabels.find((l) => l.id === id)?.total;
+  const unreadOf = (id: string) => systemLabels.find((l) => l.id === id)?.unread;
   const LABEL_ICONS: Record<string, IconName> = {
     STARRED: "alertSm",
     CATEGORY_PROMOTIONS: "card",
@@ -166,6 +167,7 @@ export default async function EmailPage({ searchParams }: PageProps<"/email">) {
       icon: VIEW_ICONS[v.id] ?? "mail",
       href: hrefWith(PATH, {}, { view: v.id, account: accounts.length > 1 ? account.id : null }),
       count: v.id === "inbox" ? totalOf("INBOX") : v.id === "unread" ? totalOf("UNREAD") : undefined,
+      unread: v.id === "inbox" ? unreadOf("INBOX") : v.id === "unread" ? totalOf("UNREAD") : undefined,
     })),
     { heading: "Labels" },
     ...systemLabels
@@ -176,6 +178,8 @@ export default async function EmailPage({ searchParams }: PageProps<"/email">) {
         icon: LABEL_ICONS[l.id] ?? "layers",
         href: labelHref(l.id),
         count: l.total,
+        // Gmail's own convention: no unread badge on Spam/Trash.
+        unread: l.id === "SPAM" || l.id === "TRASH" ? undefined : l.unread,
       })),
     ...userLabels.map((l) => ({ id: `label:${l.id}`, label: l.name, icon: "layers" as IconName, href: labelHref(l.id) })),
   ];
