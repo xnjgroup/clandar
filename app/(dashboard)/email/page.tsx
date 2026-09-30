@@ -25,13 +25,15 @@ import {
   LABEL_QUERIES,
   DEFAULT_MAILBOX_VIEW,
   MAILBOX_VIEWS,
-  labelCount,
+  labelCounts,
   listMail,
+  listUserLabels,
   mailboxView,
+  type LabelCount,
 } from "@/lib/gmail";
 import { bulkTrashJobId, bulkTrashStatus } from "@/lib/queue";
 import { LeadsView } from "./leads-view";
-import { MailboxNav, type MailboxNavItem } from "./mailbox-nav";
+import { MailboxNav, type MailboxNavHeading, type MailboxNavItem } from "./mailbox-nav";
 import { TrashLabelButton } from "./trash-label-button";
 import { TrashProgressPanel } from "./trash-progress-panel";
 
@@ -72,8 +74,10 @@ export default async function EmailPage({ searchParams }: PageProps<"/email">) {
   const search = firstParam(params.q);
   // The quick-trash label the current search exactly matches, if any — decides
   // which "Trash all X" button (if any) shows in the table header.
+  // A Gmail label opened from the side column (?view=label&label=<id>).
+  const labelParam = firstParam(params.label);
   const viewingLabel = QUICK_TRASH_LABELS.find(
-    (id) => search.trim().toLowerCase() === LABEL_QUERIES[id],
+    (id) => labelParam === id || search.trim().toLowerCase() === LABEL_QUERIES[id],
   );
   // Gmail pages with opaque tokens, so the trail of visited pages lives in the
   // URL — the last entry is this page, dropping it goes back.
@@ -118,7 +122,7 @@ export default async function EmailPage({ searchParams }: PageProps<"/email">) {
   // Leads: the lead finder's review queue — opened by default once the finder is on (it's what matters most).
   const viewParam = firstParam(params.view);
   const [leadSettings, openLeads] = await Promise.all([getLeadFinderSettings(org.id), countOpenLeads(org.id)]);
-  const showLeads = viewParam === "leads" || (!viewParam && !search && leadSettings.isEnabled);
+  const showLeads = viewParam === "leads" || (!viewParam && !search && !labelParam && leadSettings.isEnabled);
 
   // Views: a left side column on desktop (like Gmail's), a sideways-scrolling chip row on phones.
   // Always explicit in links (?view=…), since the default depends on whether the lead finder is on.
@@ -129,11 +133,26 @@ export default async function EmailPage({ searchParams }: PageProps<"/email">) {
     attachments: "link2",
     all: "layers",
   };
-  const [inboxCount, unreadCount] = await Promise.all([
-    labelCount("INBOX", org.id, account.id).catch(() => undefined),
-    labelCount("UNREAD", org.id, account.id).catch(() => undefined),
+  // Gmail's system labels (with counts) and the person's own labels, for the side column.
+  const [systemLabels, userLabels] = await Promise.all([
+    labelCounts(org.id, account.id).catch(() => [] as LabelCount[]),
+    listUserLabels(org.id, account.id).catch(() => [] as { id: string; name: string }[]),
   ]);
-  const navItems: MailboxNavItem[] = [
+  const totalOf = (id: string) => systemLabels.find((l) => l.id === id)?.total;
+  const LABEL_ICONS: Record<string, IconName> = {
+    STARRED: "alertSm",
+    CATEGORY_PROMOTIONS: "card",
+    CATEGORY_SOCIAL: "users",
+    CATEGORY_UPDATES: "refresh",
+    CATEGORY_FORUMS: "chat",
+    SPAM: "shield",
+    TRASH: "close",
+  };
+  const labelHref = (id: string) =>
+    hrefWith(PATH, {}, { view: "label", label: id, account: accounts.length > 1 ? account.id : null });
+  const labelName =
+    systemLabels.find((l) => l.id === labelParam)?.label ?? userLabels.find((l) => l.id === labelParam)?.name ?? labelParam;
+  const navItems: (MailboxNavItem | MailboxNavHeading)[] = [
     {
       id: "leads",
       label: "Leads",
@@ -146,8 +165,19 @@ export default async function EmailPage({ searchParams }: PageProps<"/email">) {
       label: v.label,
       icon: VIEW_ICONS[v.id] ?? "mail",
       href: hrefWith(PATH, {}, { view: v.id, account: accounts.length > 1 ? account.id : null }),
-      count: v.id === "inbox" ? inboxCount : v.id === "unread" ? unreadCount : undefined,
+      count: v.id === "inbox" ? totalOf("INBOX") : v.id === "unread" ? totalOf("UNREAD") : undefined,
     })),
+    { heading: "Labels" },
+    ...systemLabels
+      .filter((l) => l.id !== "INBOX" && l.id !== "UNREAD")
+      .map((l) => ({
+        id: `label:${l.id}`,
+        label: l.label,
+        icon: LABEL_ICONS[l.id] ?? "layers",
+        href: labelHref(l.id),
+        count: l.total,
+      })),
+    ...userLabels.map((l) => ({ id: `label:${l.id}`, label: l.name, icon: "layers" as IconName, href: labelHref(l.id) })),
   ];
   const searchRow = (
     <div className="flex items-center gap-[9px]">
@@ -173,7 +203,7 @@ export default async function EmailPage({ searchParams }: PageProps<"/email">) {
   /** Side column of views + the main column (search row, then the page's content). */
   const layout = (content: React.ReactNode) => (
     <div className="grid min-w-0 grid-cols-1 items-start gap-[12px] lg:grid-cols-[210px_minmax(0,1fr)] lg:gap-[18px]">
-      <MailboxNav items={navItems} active={showLeads ? "leads" : view.id} />
+      <MailboxNav items={navItems} active={labelParam ? `label:${labelParam}` : showLeads ? "leads" : view.id} />
       <div className="flex min-w-0 flex-col gap-[12px]">
         {searchRow}
         {accountSwitcher}
@@ -227,13 +257,14 @@ export default async function EmailPage({ searchParams }: PageProps<"/email">) {
       listMail({
         orgId: org.id,
         connectorId: account.id,
-        query: view.query,
+        query: labelParam ? "" : view.query,
+        labelId: labelParam || undefined,
         search,
         pageToken: trail.at(-1),
         pageSize: PAGE_SIZE,
       }),
-      // Only the label being viewed, for its "Trash all" button's count.
-      viewingLabel ? labelCount(viewingLabel, org.id, account.id).catch(() => 0) : Promise.resolve(0),
+      // The label being viewed, for its "Trash all" button's count (already loaded for the side column).
+      Promise.resolve(viewingLabel ? (totalOf(viewingLabel) ?? 0) : 0),
       // Checked regardless of which view is open — a bulk trash keeps running
       // in the background no matter where you navigate within /email.
       Promise.all(QUICK_TRASH_LABELS.map((id) => bulkTrashStatus(account.id, id))),
@@ -260,7 +291,8 @@ export default async function EmailPage({ searchParams }: PageProps<"/email">) {
 
   const messageHref = (id: string) =>
     hrefWith(`${PATH}/${id}`, {}, {
-      view: view.id,
+      view: labelParam ? "label" : view.id,
+      label: labelParam || null,
       q: search || null,
       account: accounts.length > 1 ? account.id : null,
     });
@@ -290,7 +322,7 @@ export default async function EmailPage({ searchParams }: PageProps<"/email">) {
       {layout(
       <TableCard>
         <TableHeader>
-          <TableTitle>{search ? `Messages matching “${search}”` : view.label}</TableTitle>
+          <TableTitle>{search ? `Messages matching “${search}”` : labelParam ? labelName : view.label}</TableTitle>
           <span className="font-mono text-[10.5px] text-faint">
             {mailbox.messages.length === 0
               ? "no messages"

@@ -200,12 +200,19 @@ export async function listMail(options: {
   search?: string;
   pageToken?: string;
   pageSize?: number;
+  /** Restrict to one Gmail label by id — exact for any label name, unlike search syntax. */
+  labelId?: string;
 }): Promise<Mailbox> {
   const connector = await resolveConnector(options.orgId, options.connectorId);
 
   const terms = [options.query, options.search?.trim()].filter(Boolean).join(" ");
   const params = new URLSearchParams({ maxResults: String(options.pageSize ?? 25) });
   if (terms) params.set("q", terms);
+  if (options.labelId) {
+    params.set("labelIds", options.labelId);
+    // Gmail leaves spam and trash out of every listing unless asked.
+    if (options.labelId === "SPAM" || options.labelId === "TRASH") params.set("includeSpamTrash", "true");
+  }
   if (options.pageToken) params.set("pageToken", options.pageToken);
 
   const list = await call<{
@@ -688,6 +695,16 @@ async function fetchLabelCount(
 export async function labelCounts(orgId: string, connectorId?: string): Promise<LabelCount[]> {
   const connector = await resolveConnector(orgId, connectorId);
   return mapLimit(DASHBOARD_LABELS, 6, ({ id, label }) => fetchLabelCount(connector, id, label));
+}
+
+/** The labels the person created in Gmail (not system ones), by name — for the email page's side column. */
+export async function listUserLabels(orgId: string, connectorId?: string): Promise<{ id: string; name: string }[]> {
+  const connector = await resolveConnector(orgId, connectorId);
+  const { labels = [] } = await call<{ labels?: { id: string; name: string; type?: string }[] }>(connector, `/labels`);
+  return labels
+    .filter((l) => l.type === "user")
+    .map((l) => ({ id: l.id, name: l.name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /** One label's count — a bulk-trash confirmation dialog and progress bar's denominator, without fetching all nine dashboard labels. */
