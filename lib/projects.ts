@@ -30,6 +30,9 @@ export type Project = {
   assignedName: string | null;
   /** "YYYY-MM-DD", or null when no due date is set. */
   dueDate: string | null;
+  /** Sum and count of the invoices/receipts linked to the project (its spend). */
+  invoicesTotal: number;
+  invoiceCount: number;
   /** The most recent estimate (quote) on the project, if any. */
   latestEstimate: { total: number; status: "draft" | "sent" | "accepted" | "declined" } | null;
   /** The project's tasks, and how many are marked done — its progress. */
@@ -55,6 +58,8 @@ type ProjectRow = {
   assigned_to: string | null;
   assigned_name: string | null;
   due_date: string | null;
+  invoices_total: string;
+  invoice_count: number;
   estimate_total: string | null;
   estimate_status: "draft" | "sent" | "accepted" | "declined" | null;
   task_count: number;
@@ -80,6 +85,8 @@ function toProject(row: ProjectRow): Project {
     assignedTo: row.assigned_to,
     assignedName: row.assigned_name,
     dueDate: row.due_date,
+    invoicesTotal: Number(row.invoices_total),
+    invoiceCount: row.invoice_count,
     latestEstimate:
       row.estimate_status !== null ? { total: Number(row.estimate_total), status: row.estimate_status } : null,
     taskCount: row.task_count,
@@ -94,6 +101,8 @@ const SELECT = `SELECT j.id, j.title, j.project_type_id, pt.name AS project_type
        c.id AS customer_id, c.name AS customer_name, c.email AS customer_email, c.phone AS customer_phone,
        p.id AS assigned_to, p.name AS assigned_name,
        le.total::text AS estimate_total, le.status AS estimate_status,
+       (SELECT coalesce(sum(i.amount), 0)::text FROM invoices i WHERE i.project_id = j.id) AS invoices_total,
+       (SELECT count(*)::int FROM invoices i WHERE i.project_id = j.id) AS invoice_count,
        (SELECT count(*)::int FROM tasks t WHERE t.project_id = j.id) AS task_count,
        (SELECT count(*)::int FROM tasks t WHERE t.project_id = j.id AND t.is_done) AS tasks_done
   FROM projects j

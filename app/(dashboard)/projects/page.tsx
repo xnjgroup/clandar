@@ -37,7 +37,28 @@ function EstimateAmount({ estimate }: { estimate: Project["latestEstimate"] }) {
       {estimate ? (
         <>
           <span className="font-mono text-[12.5px] font-semibold">{money(estimate.total)}</span>
-          <span className={`text-[10.5px] font-medium capitalize ${ESTIMATE_TONE[estimate.status]}`}>{estimate.status}</span>
+          <span className={`text-[10.5px] font-medium ${ESTIMATE_TONE[estimate.status]}`}>
+            Quote · {estimate.status}
+          </span>
+        </>
+      ) : null}
+    </span>
+  );
+}
+
+/** What's been spent on the project — the sum of its linked invoices/receipts; an empty slot when there are none. */
+function SpentAmount({ total, count }: { total: number; count: number }) {
+  return (
+    <span
+      className={`shrink-0 flex-col leading-[1.3] sm:flex sm:w-[96px] sm:items-end ${count ? "flex items-start" : "hidden"}`}
+      title={count ? `${count} invoice${count === 1 ? "" : "s"} linked` : undefined}
+    >
+      {count ? (
+        <>
+          <span className="font-mono text-[12.5px] font-semibold">{money(total)}</span>
+          <span className="text-[10.5px] font-medium text-muted">
+            Spent · {count} invoice{count === 1 ? "" : "s"}
+          </span>
         </>
       ) : null}
     </span>
@@ -171,6 +192,7 @@ export default async function ProjectsPage({ searchParams }: PageProps<"/project
               ) : null}
               <div className="flex w-full min-w-0 items-center gap-3 pl-[46px] sm:w-auto sm:pl-0">
                 <EstimateAmount estimate={project.latestEstimate} />
+                <SpentAmount total={project.invoicesTotal} count={project.invoiceCount} />
                 <TaskProgress done={project.tasksDone} total={project.taskCount} />
                 <Pill tone={STATUS_TONE[project.status]}>
                   {PROJECT_STATUSES.find((s) => s.id === project.status)?.label ?? project.status}
