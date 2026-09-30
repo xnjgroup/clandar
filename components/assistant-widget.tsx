@@ -7,6 +7,8 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { ChatMarkdown } from "@/components/chat-markdown";
 import { AssistantUpdates } from "@/components/assistant-updates";
 import { Icon } from "@/components/icons";
+import { playSound } from "@/components/notification-sound";
+import { playSound } from "@/components/notification-sound";
 import { JOBS_CHANGED_EVENT, type Notifications } from "@/components/use-notifications";
 import type { AgentAttachment, AgentTurn, ConversationSummary } from "@/lib/assistant";
 
@@ -435,6 +437,16 @@ export function AssistantWidget({
       stopRef.current = null;
       setPending(false);
       onActivity(openRef.current ? "idle" : "replied");
+      // Open, but they've gone elsewhere (another tab, another app): the reply sound still tells them.
+      // (Closed is covered by the "replied" state above, which plays it.)
+      if (openRef.current && !controller.signal.aborted && (document.hidden || !document.hasFocus())) {
+        playSound("reply");
+      }
+      // Open, but they've gone elsewhere (another tab, another app): the reply sound still tells them.
+      // (Closed is covered by the "replied" state above, which plays it.)
+      if (openRef.current && !controller.signal.aborted && (document.hidden || !document.hasFocus())) {
+        playSound("reply");
+      }
     }
   }
 
