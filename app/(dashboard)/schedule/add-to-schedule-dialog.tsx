@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, type ReactNode, type RefObject } from "react";
+import { headerIconClass } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import type { ScheduleEntry } from "@/lib/schedule";
 import { ScheduleForm } from "./schedule-form";
@@ -76,7 +77,7 @@ export function AddToScheduleDialog({
           onClick={() => dialogRef.current?.showModal()}
           aria-label="Add to schedule"
           title="Add to schedule"
-          className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-[12px] border border-line bg-surface text-ink hover:bg-bg"
+          className={headerIconClass}
         >
           <Icon name="plus" size={18} />
         </button>

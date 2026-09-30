@@ -288,3 +288,7 @@ export function CardGrid({ children }: { children: ReactNode }) {
     </div>
   );
 }
+
+/** A square icon button for the page header's action slot (<HeaderActions>) — same size as the menu button. */
+export const headerIconClass =
+  "flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-[12px] border border-line bg-surface text-ink hover:bg-bg";

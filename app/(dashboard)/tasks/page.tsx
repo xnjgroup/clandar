@@ -1,6 +1,7 @@
 import Link from "next/link";
+import { HeaderActions } from "@/components/header-actions";
 import { Icon } from "@/components/icons";
-import { PageBody, TableCard, TableHeader, TableTitle } from "@/components/ui";
+import { headerIconClass, PageBody, TableCard, TableHeader, TableTitle } from "@/components/ui";
 import { firstParam, hrefWith } from "@/lib/data";
 import { listTeam, requireSession } from "@/lib/auth";
 import { listTasks, type TaskKind } from "@/lib/tasks";
@@ -21,17 +22,12 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
 
   return (
     <PageBody>
-      {/* Top row: add a task (opens a modal) and the automations page, same height. */}
-      <div className="flex items-center justify-between gap-[9px]">
-        <NewTaskDialog defaultKind={kind ?? "todo"} members={team} />
-        <Link
-          href="/tasks/scheduled"
-          className="flex h-[38px] shrink-0 items-center gap-[6px] rounded-full border border-line bg-surface px-[14px] text-[12.5px] font-medium"
-        >
-          <Icon name="clock" size={14} />
-          Automations
+      <HeaderActions>
+        <Link href="/tasks/scheduled" aria-label="Automations" title="Automations" className={headerIconClass}>
+          <Icon name="clock" size={17} />
         </Link>
-      </div>
+        <NewTaskDialog iconOnly defaultKind={kind ?? "todo"} members={team} />
+      </HeaderActions>
 
       {/* Kind filters: one row, sideways-scrolling on phones. */}
       <div className="-mx-[14px] flex min-w-0 gap-[7px] overflow-x-auto px-[14px] [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">

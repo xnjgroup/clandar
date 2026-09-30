@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useRef } from "react";
+import { headerIconClass } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import type { TaskKind } from "@/lib/task-kinds";
 import { AddTaskForm } from "./add-task-form";
@@ -15,7 +16,10 @@ export function NewTaskDialog({
   projectId,
   redirectPath = "/tasks",
   compact = false,
+  iconOnly = false,
 }: {
+  /** A square "+" icon button (for the page header). */
+  iconOnly?: boolean;
   defaultKind?: TaskKind;
   members: { id: string; name: string }[];
   projectId?: string;
@@ -27,18 +31,30 @@ export function NewTaskDialog({
   const close = useCallback(() => dialogRef.current?.close(), []);
   return (
     <>
-      <button
-        type="button"
-        onClick={() => dialogRef.current?.showModal()}
-        className={
-          compact
-            ? "cursor-pointer text-[11.5px] font-medium underline"
-            : "flex h-[38px] shrink-0 cursor-pointer items-center gap-[6px] rounded-full bg-ink px-4 text-[12.5px] font-semibold text-bg"
-        }
-      >
-        {compact ? null : <span className="text-[16px] leading-none">+</span>}
-        {compact ? "+ New task" : "New task"}
-      </button>
+      {iconOnly ? (
+        <button
+          type="button"
+          onClick={() => dialogRef.current?.showModal()}
+          aria-label="New task"
+          title="New task"
+          className={headerIconClass}
+        >
+          <Icon name="plus" size={18} />
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => dialogRef.current?.showModal()}
+          className={
+            compact
+              ? "cursor-pointer text-[11.5px] font-medium underline"
+              : "flex h-[38px] shrink-0 cursor-pointer items-center gap-[6px] rounded-full bg-ink px-4 text-[12.5px] font-semibold text-bg"
+          }
+        >
+          {compact ? null : <span className="text-[16px] leading-none">+</span>}
+          {compact ? "+ New task" : "New task"}
+        </button>
+      )}
       <dialog
         ref={dialogRef}
         onClick={(e) => {
