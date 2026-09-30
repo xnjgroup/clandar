@@ -412,9 +412,20 @@ export function AppShell({
         >
           <span
             className={`relative ${
-              assistantOpen ? "" : assistantActivity === "replied" ? "reply-bounce" : assistantActivity === "working" ? "animate-pulse" : ""
+              assistantOpen ? "" : assistantActivity === "replied" ? "reply-bounce" : ""
             }`}
           >
+            {!assistantOpen && assistantActivity === "working" ? (
+              // Still writing a reply with the chat closed.
+              <span
+                aria-label="Writing a reply"
+                className="typing-dots absolute -top-[6px] -right-[12px] rounded-full border-2 border-surface bg-lime px-[4px] py-[3px] text-ink"
+              >
+                <span />
+                <span />
+                <span />
+              </span>
+            ) : null}
             {!assistantOpen && assistantActivity === "replied" && notifications.unread === 0 ? (
               <span aria-label="New reply" className="absolute -top-[4px] -right-[6px] size-[10px] rounded-full border-2 border-surface bg-lime" />
             ) : null}

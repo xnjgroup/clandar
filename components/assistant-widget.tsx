@@ -455,6 +455,17 @@ export function AssistantWidget({
         <span key={notifications.ring} className={notifications.ring ? "ring-once" : "inline-flex"}>
           <Icon name="bot" size={22} />
         </span>
+        {activity === "working" ? (
+          // Still writing a reply with the chat closed.
+          <span
+            aria-label="Writing a reply"
+            className="typing-dots absolute -top-[5px] -right-[7px] rounded-full border-2 border-surface bg-lime px-[5px] py-[4px] text-ink"
+          >
+            <span />
+            <span />
+            <span />
+          </span>
+        ) : null}
         {activity === "replied" && notifications.unread === 0 ? (
           // A reply finished while the panel was closed.
           <span
