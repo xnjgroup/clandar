@@ -17,23 +17,43 @@ import {
   spendByCategory,
 } from "@/lib/queries";
 
-/** One-tap questions on the assistant card — each opens the chat and asks it in a fresh conversation. */
-const QUICK_QUESTIONS = [
-  "What's the project status today?",
-  "Any to-do items today?",
-  "What's on the schedule this week?",
-  "Any invoices waiting for review?",
+/**
+ * One-tap asks on the assistant card — each opens the chat and sends its prompt in a fresh
+ * conversation. Questions go as-is; actions carry a fuller prompt so the assistant asks for
+ * what it needs instead of guessing.
+ */
+const QUICK_ASKS: { group: "Ask" | "Do"; label: string; prompt: string }[] = [
+  { group: "Ask", label: "What's the project status today?", prompt: "What's the project status today?" },
+  { group: "Ask", label: "Any to-do items today?", prompt: "Any to-do items today?" },
+  { group: "Ask", label: "What's on the schedule this week?", prompt: "What's on the schedule this week?" },
+  { group: "Ask", label: "Any invoices waiting for review?", prompt: "Any invoices waiting for review?" },
+  {
+    group: "Do",
+    label: "Create a project",
+    prompt: "I want to create a new project. Ask me for the customer, the job and anything else you need.",
+  },
+  { group: "Do", label: "Set a reminder", prompt: "Set a reminder for me. Ask me what it's for and when." },
+  {
+    group: "Do",
+    label: "Schedule a job",
+    prompt: "Add a job to the calendar. Ask me which project, the date and time, and who's working it.",
+  },
+  {
+    group: "Do",
+    label: "Plan a trip",
+    prompt: "Help me plan a trip. Ask me where, when and what it's for, then write out a plan.",
+  },
 ];
 
 /** Where each widget starts (12-column grid, 30px rows) — also what "Reset layout" restores. */
 const DEFAULT_LAYOUT: Placement[] = [
   { i: "project-stats", x: 0, y: 0, w: 12, h: 3, minW: 6, minH: 3 },
-  { i: "active-projects", x: 0, y: 3, w: 8, h: 7, minW: 4, minH: 4 },
-  { i: "assistant", x: 8, y: 3, w: 4, h: 7, minW: 3, minH: 5 },
-  { i: "finance-stats", x: 0, y: 10, w: 12, h: 3, minW: 6, minH: 3 },
-  { i: "spend", x: 0, y: 13, w: 6, h: 10, minW: 4, minH: 6 },
-  { i: "attention", x: 6, y: 13, w: 6, h: 10, minW: 4, minH: 5 },
-  { i: "invoices", x: 0, y: 23, w: 12, h: 9, minW: 4, minH: 4 },
+  { i: "active-projects", x: 0, y: 3, w: 8, h: 8, minW: 4, minH: 4 },
+  { i: "assistant", x: 8, y: 3, w: 4, h: 8, minW: 3, minH: 6 },
+  { i: "finance-stats", x: 0, y: 11, w: 12, h: 3, minW: 6, minH: 3 },
+  { i: "spend", x: 0, y: 14, w: 6, h: 10, minW: 4, minH: 6 },
+  { i: "attention", x: 6, y: 14, w: 6, h: 10, minW: 4, minH: 5 },
+  { i: "invoices", x: 0, y: 24, w: 12, h: 9, minW: 4, minH: 4 },
 ];
 
 export default async function OverviewPage() {
@@ -165,17 +185,22 @@ export default async function OverviewPage() {
                   <Icon name="bot" size={18} />
                   <CardTitle>Executive Assistant</CardTitle>
                 </div>
-                <div className="flex flex-col gap-[7px]">
-                  {QUICK_QUESTIONS.map((q) => (
-                    <OpenAssistantButton
-                      key={q}
-                      prompt={q}
-                      className="cursor-pointer rounded-full bg-ink px-[15px] py-[9px] text-left text-[12.5px] font-semibold text-bg hover:bg-ink/85"
-                    >
-                      {q}
-                    </OpenAssistantButton>
-                  ))}
-                </div>
+                {(["Ask", "Do"] as const).map((group) => (
+                  <div key={group} className="flex flex-col gap-[6px]">
+                    <span className="text-[10.5px] font-semibold tracking-[0.06em] text-[#3f4b28] uppercase">{group}</span>
+                    <div className="flex flex-wrap gap-[6px]">
+                      {QUICK_ASKS.filter((q) => q.group === group).map((q) => (
+                        <OpenAssistantButton
+                          key={q.label}
+                          prompt={q.prompt}
+                          className="cursor-pointer rounded-full bg-ink px-[13px] py-[7px] text-left text-[12px] font-semibold text-bg hover:bg-ink/85"
+                        >
+                          {q.label}
+                        </OpenAssistantButton>
+                      ))}
+                    </div>
+                  </div>
+                ))}
               </div>
       ),
     },
