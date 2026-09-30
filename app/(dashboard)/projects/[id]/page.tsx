@@ -18,7 +18,7 @@ import { listTasks } from "@/lib/tasks";
 import { NewTaskDialog } from "../../tasks/new-task-dialog";
 import { TaskList } from "../../tasks/task-list";
 import { AddToScheduleDialog } from "../../schedule/add-to-schedule-dialog";
-import { ProjectSchedule } from "../../schedule/schedule-timeline";
+import { ScheduleViews } from "../../schedule/schedule-timeline";
 import { changeProjectAssignee, changeProjectStatus, saveProject } from "../actions";
 import { DeleteProjectDialog } from "./delete-project-dialog";
 import { EditableEstimate } from "./editable-estimate";
@@ -407,7 +407,8 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
           The days you (or your crew) will be working on this job. They show on the Scheduled page and in the morning
           briefing. For to-dos and reminders, use Tasks below.
         </p>
-        <ProjectSchedule
+        <ScheduleViews
+          storageKey="clandar.project-schedule-view"
           entries={schedule}
           projectId={project.id}
           members={team}

@@ -1,15 +1,16 @@
 import Link from "next/link";
+import { after } from "next/server";
 import { Icon } from "@/components/icons";
 import { Card, EmptyRow, PageBody, TableCard, TableHeader, TableTitle } from "@/components/ui";
 import { firstParam, hrefWith } from "@/lib/data";
 import { listTeam, requireSession } from "@/lib/auth";
 import { listProjects } from "@/lib/projects";
 import { listUpcomingReminders } from "@/lib/reminders";
-import { listSchedule } from "@/lib/schedule";
+import { listSchedule, locateScheduleEntries } from "@/lib/schedule";
 import { formatSchedule, listScheduledTasks } from "@/lib/scheduled-tasks";
 import { REPEATS } from "@/lib/task-kinds";
 import { AddToScheduleDialog } from "./add-to-schedule-dialog";
-import { ScheduleList } from "./schedule-list";
+import { ScheduleViews } from "./schedule-timeline";
 
 export default async function SchedulePage({ searchParams }: PageProps<"/schedule">) {
   const params = await searchParams;
@@ -29,6 +30,10 @@ export default async function SchedulePage({ searchParams }: PageProps<"/schedul
     listScheduledTasks(org.id),
   ]);
   const activeAutomations = automations.filter((a) => a.isEnabled);
+  // Places for the map: look up any entries still missing coordinates after the response.
+  if (entries.some((e) => e.lat === null && (e.location || e.projectAddress))) {
+    after(() => locateScheduleEntries(org.id, entries));
+  }
   const projectOptions = projects.map((j) => ({ id: j.id, title: `${j.title} — ${j.customerName}` }));
 
   return (
@@ -67,7 +72,14 @@ export default async function SchedulePage({ searchParams }: PageProps<"/schedul
         <TableHeader>
           <TableTitle>Next 30 days</TableTitle>
         </TableHeader>
-        <ScheduleList entries={entries} projects={projectOptions} members={team} redirectPath="/schedule" />
+        <ScheduleViews
+          storageKey="clandar.scheduled-page-view"
+          entries={entries}
+          projects={projectOptions}
+          members={team}
+          redirectPath="/schedule"
+          emptyLabel="Nothing scheduled in the next 30 days."
+        />
       </TableCard>
 
       <TableCard>

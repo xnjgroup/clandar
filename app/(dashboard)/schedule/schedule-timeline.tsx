@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useSyncExternalStore } from "react";
 import { Icon } from "@/components/icons";
 import { EmptyRow } from "@/components/ui";
@@ -9,6 +10,20 @@ import { EditScheduleDialog } from "./add-to-schedule-dialog";
 import { ScheduleMap } from "./schedule-map";
 
 const noSubscribe = () => () => {};
+
+/** On the Scheduled page (not inside a project), which project an entry belongs to. */
+function ProjectLine({ entry, className }: { entry: ScheduleEntry; className: string }) {
+  if (!entry.projectId || !entry.projectTitle) return null;
+  return (
+    <Link href={`/projects/${entry.projectId}`} className={`flex min-w-0 items-center gap-[5px] hover:underline ${className}`}>
+      <Icon name="briefcase" size={11} className="shrink-0" />
+      <span className="truncate">
+        {entry.projectTitle}
+        {entry.customerName ? ` · ${entry.customerName}` : ""}
+      </span>
+    </Link>
+  );
+}
 const time = (d: Date) => d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 const dayKey = (d: Date) => d.toLocaleDateString("en-CA");
 
@@ -22,11 +37,13 @@ function Timeline({
   entries,
   redirectPath,
   now,
+  showProject,
   onEdit,
 }: {
   entries: ScheduleEntry[];
   redirectPath: string;
   now: number;
+  showProject: boolean;
   onEdit: (entry: ScheduleEntry) => void;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -95,6 +112,7 @@ function Timeline({
                       ) : (
                         <span className="text-[12.5px] text-muted">Scheduled</span>
                       )}
+                      {showProject ? <ProjectLine entry={entry} className="text-[11px] text-body-soft" /> : null}
                       {entry.location ? (
                         <span className="flex items-start gap-[5px] text-[11px] text-body-soft">
                           <Icon name="pin" size={11} className="mt-[2px] shrink-0" />
@@ -141,10 +159,12 @@ function Timeline({
 function List({
   entries,
   redirectPath,
+  showProject,
   onEdit,
 }: {
   entries: ScheduleEntry[];
   redirectPath: string;
+  showProject: boolean;
   onEdit: (entry: ScheduleEntry) => void;
 }) {
   return entries.map((entry) => (
@@ -158,6 +178,7 @@ function List({
           </span>
         </span>
         {entry.notes ? <span className="text-[12px] text-body">{entry.notes}</span> : null}
+        {showProject ? <ProjectLine entry={entry} className="text-[11.5px] text-muted" /> : null}
         {entry.location ? (
           <span className="flex items-start gap-[5px] text-[11.5px] text-muted">
             <Icon name="pin" size={12} className="mt-[2px] shrink-0" />
@@ -194,26 +215,25 @@ function List({
 }
 
 type View = "list" | "timeline" | "map";
-const VIEW_KEY = "clandar.project-schedule-view";
 const viewListeners = new Set<() => void>();
-let memoryView: View | null = null; // when storage is blocked (private mode)
+const memoryViews = new Map<string, View>(); // when storage is blocked (private mode)
 
-// The chosen view is a per-device convenience (localStorage), read through
-// useSyncExternalStore so the server render and hydration agree.
-function readView(): View {
+// The chosen view is a per-device convenience (localStorage, one key per page),
+// read through useSyncExternalStore so the server render and hydration agree.
+function readView(key: string): View {
   try {
-    const saved = localStorage.getItem(VIEW_KEY);
+    const saved = localStorage.getItem(key);
     return saved === "list" || saved === "map" ? saved : "timeline";
   } catch {
-    return memoryView ?? "timeline";
+    return memoryViews.get(key) ?? "timeline";
   }
 }
-function writeView(view: View) {
-  memoryView = view;
+function writeView(key: string, view: View) {
+  memoryViews.set(key, view);
   try {
-    localStorage.setItem(VIEW_KEY, view);
+    localStorage.setItem(key, view);
   } catch {
-    // Storage blocked: memoryView keeps the choice for this visit.
+    // Storage blocked: memoryViews keeps the choice for this visit.
   }
   viewListeners.forEach((l) => l());
 }
@@ -223,33 +243,44 @@ function subscribeView(listener: () => void) {
 }
 
 /**
- * A project's schedule with a Timeline / List / Map switch — Timeline by default, the
- * choice remembered per device.
+ * Schedule entries with a Timeline / List / Map switch — Timeline by default,
+ * the choice remembered per device (separately per `storageKey`). Inside a
+ * project (`projectId`) entries stay on it; elsewhere each shows its project,
+ * and editing can move it to another of `projects`.
  * Rendered in the browser so days and times are in the viewer's own zone.
  */
-export function ProjectSchedule({
+export function ScheduleViews({
   entries,
   projectId,
+  projects,
   members,
   redirectPath,
   emptyLabel,
+  storageKey,
 }: {
   entries: ScheduleEntry[];
-  projectId: string;
+  projectId?: string;
+  projects?: { id: string; title: string }[];
   members: { id: string; name: string }[];
   redirectPath: string;
   emptyLabel: string;
+  storageKey: string;
 }) {
   const [editing, setEditing] = useState<ScheduleEntry | null>(null);
   const now = useSyncExternalStore(noSubscribe, () => Date.now(), () => 0);
-  const view = useSyncExternalStore(subscribeView, readView, () => "timeline" as View);
+  const view = useSyncExternalStore(
+    subscribeView,
+    () => readView(storageKey),
+    () => "timeline" as View,
+  );
+  const showProject = !projectId;
   if (entries.length === 0) return <EmptyRow>{emptyLabel}</EmptyRow>;
   if (!now) return <div className="min-h-[120px] border-t border-line-soft" />;
 
   const tab = (id: View, label: string) => (
     <button
       type="button"
-      onClick={() => writeView(id)}
+      onClick={() => writeView(storageKey, id)}
       aria-pressed={view === id}
       className={`cursor-pointer rounded-full px-[12px] py-[4px] text-[11.5px] font-medium ${
         view === id ? "bg-ink text-bg" : "text-body-soft hover:text-ink"
@@ -269,18 +300,25 @@ export function ProjectSchedule({
         </div>
       </div>
       {view === "timeline" ? (
-        <Timeline entries={entries} redirectPath={redirectPath} now={now} onEdit={setEditing} />
+        <Timeline
+          entries={entries}
+          redirectPath={redirectPath}
+          now={now}
+          showProject={showProject}
+          onEdit={setEditing}
+        />
       ) : view === "map" ? (
         <ScheduleMap entries={entries} />
       ) : (
         <div className="pt-[6px]">
-          <List entries={entries} redirectPath={redirectPath} onEdit={setEditing} />
+          <List entries={entries} redirectPath={redirectPath} showProject={showProject} onEdit={setEditing} />
         </div>
       )}
       <EditScheduleDialog
         entry={editing}
         onClose={() => setEditing(null)}
         projectId={projectId}
+        projects={projects}
         members={members}
         redirectPath={redirectPath}
       />
