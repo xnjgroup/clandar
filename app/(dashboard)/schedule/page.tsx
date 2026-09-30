@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Icon } from "@/components/icons";
+import { LocalTime } from "@/components/local-time";
 import { Card, CardTitle, EmptyRow, PageBody, TableCard, TableHeader, TableTitle } from "@/components/ui";
 import { firstParam, hrefWith } from "@/lib/data";
 import { listTeam, requireSession } from "@/lib/auth";
@@ -163,13 +164,17 @@ export default async function SchedulePage({ searchParams }: PageProps<"/schedul
               {dayEntries.map((entry) => (
                 <div key={entry.id} className="flex min-h-[56px] flex-wrap items-center gap-3 border-t border-line-soft px-[18px] py-[11px]">
                   <span className="font-mono text-[11.5px] text-muted">
-                    {entry.startsAt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} –{" "}
-                    {entry.endsAt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                    <LocalTime value={entry.startsAt} options={{ hour: "numeric", minute: "2-digit" }} /> –{" "}
+                    <LocalTime value={entry.endsAt} options={{ hour: "numeric", minute: "2-digit" }} />
                   </span>
-                  <Link href={`/projects/${entry.projectId}`} className="min-w-0 flex-1 truncate text-[13px] font-semibold underline">
-                    {entry.projectTitle}
-                  </Link>
-                  <span className="truncate text-[11.5px] text-muted">{entry.customerName}</span>
+                  <div className="flex min-w-0 flex-1 flex-col leading-[1.35]">
+                    <Link href={`/projects/${entry.projectId}`} className="truncate text-[13px] font-semibold underline">
+                      {entry.projectTitle}
+                    </Link>
+                    <span className="truncate text-[11.5px] text-muted">
+                      {[entry.notes, entry.customerName].filter(Boolean).join(" · ")}
+                    </span>
+                  </div>
                   {entry.assignedName ? (
                     <span className="flex shrink-0 items-center gap-[5px] rounded-full border border-line px-[9px] py-[4px] text-[11px] text-body-soft">
                       <Icon name="user" size={12} />

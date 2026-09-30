@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { LocalTime } from "@/components/local-time";
 import { Icon } from "@/components/icons";
 import { TimeZoneField } from "@/components/time-zone-field";
 import { Card, CardTitle, EmptyRow, PageBody, Pill, TableCard, TableHeader, TableTitle } from "@/components/ui";
@@ -387,34 +388,44 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
         )}
       </TableCard>
 
-      {/* Scheduling */}
+      {/* Scheduling: booked time on site — shows on the Schedule page and in the morning briefing. */}
       <TableCard>
         <TableHeader>
           <TableTitle>Schedule</TableTitle>
+          <Link href="/schedule" className="ml-auto text-[11.5px] font-medium underline">
+            Full schedule
+          </Link>
         </TableHeader>
-        <div className="border-t border-line-soft px-[18px] py-[13px]">
+        <div className="flex flex-col gap-[10px] border-t border-line-soft px-[18px] py-[13px]">
+          <span className="text-[12px] leading-[1.5] text-muted">
+            Book the days you (or your crew) will be working on this job. They show on the Schedule page and in the
+            morning briefing. For one-off to-dos and reminders, use Tasks below.
+          </span>
           <ScheduleForm projectId={project.id} members={team} redirectPath={`/projects/${project.id}`} />
         </div>
         {schedule.length === 0 ? (
           <EmptyRow>Not scheduled yet.</EmptyRow>
         ) : (
           schedule.map((entry) => (
-            <div key={entry.id} className="flex min-h-[52px] items-center gap-3 border-t border-line-soft px-[18px] py-[11px]">
-              <Icon name="calendar" size={16} className="shrink-0 text-body-soft" />
-              <span className="text-[12.5px] font-medium">
-                {entry.startsAt.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
-              </span>
-              <span className="font-mono text-[11.5px] text-muted">
-                {entry.startsAt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} –{" "}
-                {entry.endsAt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
-              </span>
-              {entry.assignedName ? (
-                <span className="flex items-center gap-[5px] text-[11.5px] text-muted">
-                  <Icon name="user" size={12} />
-                  {entry.assignedName}
+            <div key={entry.id} className="flex min-h-[52px] items-start gap-3 border-t border-line-soft px-[18px] py-[11px]">
+              <Icon name="calendar" size={16} className="mt-[1px] shrink-0 text-body-soft" />
+              <div className="flex min-w-0 flex-1 flex-col gap-[2px] leading-[1.35]">
+                <span className="flex flex-wrap items-baseline gap-x-[8px] text-[12.5px] font-medium">
+                  <LocalTime value={entry.startsAt} options={{ weekday: "short", month: "short", day: "numeric" }} />
+                  <span className="font-mono text-[11.5px] font-normal text-muted">
+                    <LocalTime value={entry.startsAt} options={{ hour: "numeric", minute: "2-digit" }} /> –{" "}
+                    <LocalTime value={entry.endsAt} options={{ hour: "numeric", minute: "2-digit" }} />
+                  </span>
                 </span>
-              ) : null}
-              <form action={removeScheduleEntry} className="ml-auto">
+                {entry.notes ? <span className="text-[12px] text-body">{entry.notes}</span> : null}
+                {entry.assignedName ? (
+                  <span className="flex items-center gap-[5px] text-[11.5px] text-muted">
+                    <Icon name="user" size={12} />
+                    {entry.assignedName}
+                  </span>
+                ) : null}
+              </div>
+              <form action={removeScheduleEntry}>
                 <input type="hidden" name="id" value={entry.id} />
                 <input type="hidden" name="redirectPath" value={`/projects/${project.id}`} />
                 <button type="submit" aria-label="Remove" className="cursor-pointer text-faint hover:text-bad-fg">

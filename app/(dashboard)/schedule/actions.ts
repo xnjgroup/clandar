@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireSession } from "@/lib/auth";
 import { createScheduleEntry, deleteScheduleEntry } from "@/lib/schedule";
+import { zonedTimeToUtc } from "@/lib/time-zone";
 
 export type FormState = { error?: string; ok?: string };
 
@@ -21,9 +22,11 @@ export async function addScheduleEntry(_prev: FormState, form: FormData): Promis
   if (!projectId) return { error: "Pick a project." };
   if (!date) return { error: "Pick a date." };
 
-  const startsAt = new Date(`${date}T${startTime}:00`);
-  const endsAt = new Date(`${date}T${endTime}:00`);
-  if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime()) || endsAt <= startsAt) {
+  // Wall-clock times in the person's zone (from their browser) — the server may run in UTC.
+  const timeZone = field(form, "timeZone") || "UTC";
+  const startsAt = zonedTimeToUtc(date, startTime, timeZone);
+  const endsAt = zonedTimeToUtc(date, endTime, timeZone);
+  if (!startsAt || !endsAt || endsAt <= startsAt) {
     return { error: "Enter a valid start and end time." };
   }
 
