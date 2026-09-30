@@ -100,7 +100,8 @@ export async function signOutAction() {
 
 export type SessionInfo = {
   person: { id: string; name: string; email: string; role: string; avatarUrl: string | null };
-  org: { id: string; name: string; onboarded: boolean };
+  /** assistantName: what the team calls its assistant (Aide unless renamed in Settings). */
+  org: { id: string; name: string; onboarded: boolean; assistantName: string };
 };
 
 type SessionRow = {
@@ -112,6 +113,7 @@ type SessionRow = {
   org_id: string;
   org_name: string;
   org_onboarded: boolean;
+  org_assistant_name: string;
 };
 
 /**
@@ -130,7 +132,8 @@ export const currentSession = cache(async (): Promise<SessionInfo | null> => {
 
   const row = await queryOne<SessionRow>(
     `SELECT p.id AS person_id, p.name, p.email, p.role, p.avatar_url,
-            o.id AS org_id, o.name AS org_name, o.onboarded AS org_onboarded
+            o.id AS org_id, o.name AS org_name, o.onboarded AS org_onboarded,
+            o.assistant_name AS org_assistant_name
        FROM sessions s
        JOIN people p ON p.id = s.person_id
        JOIN organizations o ON o.id = p.org_id
@@ -147,7 +150,12 @@ export const currentSession = cache(async (): Promise<SessionInfo | null> => {
       role: row.role,
       avatarUrl: row.avatar_url,
     },
-    org: { id: row.org_id, name: row.org_name, onboarded: row.org_onboarded },
+    org: {
+      id: row.org_id,
+      name: row.org_name,
+      onboarded: row.org_onboarded,
+      assistantName: row.org_assistant_name,
+    },
   };
 });
 
@@ -420,6 +428,13 @@ export async function removeTeammate(orgId: string, personId: string): Promise<v
 /** Renames the organization itself — shown in the sidebar and Settings, e.g. replacing the auto-generated "My Company"/email-domain default. */
 export async function updateOrgName(orgId: string, name: string): Promise<void> {
   await query(`UPDATE organizations SET name = $2 WHERE id = $1`, [orgId, name]);
+}
+
+/** The assistant's name rule: one word — letters and numbers only — of at most 10 characters. */
+export const ASSISTANT_NAME_PATTERN = /^[\p{L}\p{N}]{1,10}$/u;
+
+export async function updateAssistantName(orgId: string, name: string): Promise<void> {
+  await query(`UPDATE organizations SET assistant_name = $2 WHERE id = $1`, [orgId, name]);
 }
 
 /** The one-time first-sign-in step: names the org and clears the flag that sends its owner to /onboarding. */

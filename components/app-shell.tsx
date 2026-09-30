@@ -221,6 +221,7 @@ export function AppShell({
   children,
   user,
   orgName,
+  assistantName,
   badges,
   isAdmin,
   onSignOut,
@@ -228,6 +229,8 @@ export function AppShell({
   children: ReactNode;
   user: ShellUser;
   orgName: string;
+  /** What the team calls its assistant (Settings → Chat). */
+  assistantName: string;
   badges: Record<string, number>;
   isAdmin: boolean;
   onSignOut: () => Promise<void>;
@@ -340,6 +343,7 @@ export function AppShell({
           tab={assistantTab}
           onTabChange={setAssistantTab}
           notifications={notifications}
+          name={assistantName}
           pageContext={`${title} (${pathname})`}
         />
       </div>
@@ -370,10 +374,10 @@ export function AppShell({
           onClick={() => openAssistant()}
           aria-label={
             notifications.unread
-              ? `Open Aide — ${notifications.unread} new update${notifications.unread === 1 ? "" : "s"}`
-              : "Open Aide"
+              ? `Open ${assistantName} — ${notifications.unread} new update${notifications.unread === 1 ? "" : "s"}`
+              : `Open ${assistantName}`
           }
-          title="Open Aide"
+          title={`Open ${assistantName}`}
           className={`flex min-h-[54px] cursor-pointer flex-col items-center justify-center gap-[3px] rounded-full transition-[background-color,color,transform] duration-200 ease-out active:scale-[0.96] ${
             assistantOpen ? "bg-ink text-lime" : "text-[#8b918a]"
           }`}
@@ -386,7 +390,7 @@ export function AppShell({
               </span>
             ) : null}
           </span>
-          <span className="text-[10.5px] font-medium">Aide</span>
+          <span className="max-w-full truncate px-[2px] text-[10.5px] font-medium">{assistantName}</span>
         </button>
       </nav>
     </div>

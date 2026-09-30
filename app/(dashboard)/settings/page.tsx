@@ -16,6 +16,7 @@ import { AddLlmForm } from "./add-llm-form";
 import { DeleteCompanyForm } from "./delete-company-form";
 import { InviteForm } from "./invite-form";
 import { ResendInviteButton } from "./resend-invite-button";
+import { RenameAssistantForm } from "./rename-assistant-form";
 import { RenameOrgForm } from "./rename-org-form";
 import { FeatureProviderForm } from "./feature-provider-form";
 import {
@@ -229,9 +230,16 @@ export default async function SettingsPage() {
 
         <Card className="flex flex-col gap-[10px]">
           <CardTitle>Chat</CardTitle>
+          {isOwner ? (
+            <RenameAssistantForm currentName={org.assistantName} />
+          ) : (
+            <span className="text-[12.5px] text-body-soft">
+              The assistant is called <span className="font-semibold text-ink">{org.assistantName}</span>.
+            </span>
+          )}
           <p className="m-0 text-[11.5px] leading-[1.55] text-muted">
-            The provider (and, optionally, a specific model of its own) Aide (the assistant chat) uses to answer
-            questions and run its tools.
+            The provider (and, optionally, a specific model of its own) {org.assistantName} uses to answer questions and
+            run its tools.
           </p>
           <FeatureProviderForm
             key={`${providers.find((p) => p.isChatProvider)?.id ?? ""}:${providers.find((p) => p.isChatProvider)?.chatModel ?? ""}`}

@@ -1043,9 +1043,10 @@ function systemPrompt(
   pageContext: string | null,
   context: AssistantContext,
   sender: { name: string; email: string } | null = null,
+  assistantName = "Aide",
 ): string {
   return (
-    "You are Aide, the assistant in a small business owner's operations app (Clandar). You can answer " +
+    `You are ${assistantName}, the assistant in a small business owner's operations app (Clandar). You can answer ` +
     "questions and take real actions — creating customers, projects, project types, tasks, and draft quotes, and " +
     "looking up or linking invoices/receipts (list_invoices, get_invoice) — using your " +
     "tools. Use a tool whenever the user asks you to look something up or create/change something; don't just " +
@@ -1122,6 +1123,10 @@ export async function* askAssistant(
   const sender = personId
     ? await queryOne<{ name: string; email: string }>(`SELECT name, email FROM people WHERE id = $1`, [personId])
     : null;
+  // What the team calls its assistant (Settings → Chat).
+  const assistantName =
+    (await queryOne<{ assistant_name: string }>(`SELECT assistant_name FROM organizations WHERE id = $1`, [orgId]))
+      ?.assistant_name ?? "Aide";
   // Several team members can share a conversation, so each user message reaches the model
   // prefixed with its sender's name (the stored body stays as typed).
   const from = (name: string | null | undefined, text: string) => (name ? `[${name}] ${text}` : text);
@@ -1173,7 +1178,7 @@ export async function* askAssistant(
       : questionForModel;
 
   const messages: ToolChatMessage[] = [
-    { role: "system", content: systemPrompt(pageContext, context, sender) },
+    { role: "system", content: systemPrompt(pageContext, context, sender, assistantName) },
     ...priorRows.map((r) => ({ role: r.role, content: r.role === "user" ? from(r.sender_name, r.body) : r.body }) as const),
     { role: "user", content: userContent },
   ];

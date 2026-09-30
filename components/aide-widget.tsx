@@ -94,8 +94,11 @@ export function AideWidget({
   tab,
   onTabChange,
   notifications,
+  name,
   pageContext,
 }: {
+  /** What the team calls its assistant (Settings → Chat), "Aide" by default. */
+  name: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Chat, or Updates — the notifications, posted by the assistant. */
@@ -358,7 +361,7 @@ export function AideWidget({
         parser.feed(decoder.decode(value, { stream: true }));
       }
     } catch {
-      setError("Could not reach Aide — try again.");
+      setError(`Could not reach ${name} — try again.`);
       setTurns((prev) => prev?.filter((t) => t.id !== "pending" && t.id !== "streaming") ?? prev);
     } finally {
       setPending(false);
@@ -372,8 +375,8 @@ export function AideWidget({
       <button
         type="button"
         onClick={() => onOpenChange(true)}
-        aria-label="Open Aide"
-        title="Open Aide"
+        aria-label={`Open ${name}`}
+        title={`Open ${name}`}
         className="fixed right-6 bottom-6 z-40 hidden size-[52px] shrink-0 cursor-pointer items-center justify-center rounded-full bg-ink text-lime shadow-[0_6px_20px_rgba(16,18,17,0.28)] lg:flex"
       >
         <Icon name="bot" size={22} />
@@ -407,7 +410,7 @@ export function AideWidget({
             <Icon name="bot" size={16} />
           </span>
         )}
-        <span className="min-w-0 flex-1 truncate text-[13.5px] font-semibold">{tab === "updates" ? "Updates" : "Aide"}</span>
+        <span className="min-w-0 flex-1 truncate text-[13.5px] font-semibold">{tab === "updates" ? "Updates" : name}</span>
         <button
           type="button"
           onClick={() => onTabChange(tab === "updates" ? "chat" : "updates")}
@@ -634,7 +637,7 @@ export function AideWidget({
                 ? "-mt-[4px] px-[4px]"
                 : "rounded-[16px] bg-bg px-[14px] py-[10px]"
             }`}
-            aria-label="Aide is working"
+            aria-label={`${name} is working`}
             role="status"
           >
             {[0, 1, 2].map((i) => (

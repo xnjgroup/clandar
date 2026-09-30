@@ -27,8 +27,10 @@ import {
   requireSession,
   revokeInvite,
   signOut,
+  updateAssistantName,
   updateOrgName,
   updateTeammateRole,
+  ASSISTANT_NAME_PATTERN,
 } from "@/lib/auth";
 
 const PATH = "/settings";
@@ -275,6 +277,20 @@ export async function renameOrg(_prev: FormState, form: FormData): Promise<FormS
 
   await updateOrgName(org.id, name);
   revalidatePath(PATH);
+  return { ok: "Saved." };
+}
+
+/** Renames the team's assistant (shown on its button, chat and Overview card; it uses the name for itself too). */
+export async function renameAssistant(_prev: FormState, form: FormData): Promise<FormState> {
+  const { org, person } = await requireSession();
+  if (person.role !== "owner") return { error: "Only the owner can rename the assistant." };
+  const name = field(form, "name");
+  if (!ASSISTANT_NAME_PATTERN.test(name)) {
+    return { error: "Use one word — letters and numbers only, up to 10 characters." };
+  }
+  await updateAssistantName(org.id, name);
+  // The name shows in the app shell on every page.
+  revalidatePath("/", "layout");
   return { ok: "Saved." };
 }
 

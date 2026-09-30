@@ -58,6 +58,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
             avatarUrl: session.person.avatarUrl,
           }}
           orgName={session.org.name}
+          assistantName={session.org.assistantName}
           badges={badges}
           isAdmin={isAdminEmail(session.person.email)}
           onSignOut={signOutAction}
