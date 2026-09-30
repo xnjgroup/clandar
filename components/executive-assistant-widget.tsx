@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
+import { createParser } from "eventsource-parser";
 import { usePathname, useSearchParams } from "next/navigation";
 import { Icon } from "@/components/icons";
 import type { AgentAttachment, AgentTurn, ConversationSummary } from "@/lib/assistant";
@@ -275,37 +276,43 @@ export function ExecutiveAssistantWidget({
         return;
       }
 
+      // The reply streams back as Server-Sent Events (see app/api/assistant/route.ts), parsed with
+      // eventsource-parser; fetch rather than EventSource because this is a POST with a body.
+      type StreamEvent =
+        | { type: "tool_call"; tool: string; detail: string }
+        | { type: "reply_delta"; text: string }
+        | { type: "done"; conversationId: string }
+        | { type: "error"; message: string; conversationId?: string }
+        | { type: "conversation"; conversation: { id: string; turns: DisplayTurn[] } | null };
+      const handle = (event: StreamEvent) => {
+        if (event.type === "tool_call") {
+          updateStreamingTurn((t) => ({ ...t, toolCalls: [...t.toolCalls, { tool: event.tool, detail: event.detail }] }));
+        } else if (event.type === "reply_delta") {
+          updateStreamingTurn((t) => ({ ...t, body: t.body + event.text }));
+        } else if (event.type === "error") {
+          setError(event.message);
+          // Keep the id even when the turn failed, so it can be copied for debugging.
+          if (event.conversationId) setConversationId(event.conversationId);
+        } else if (event.type === "conversation" && event.conversation) {
+          setConversationId(event.conversation.id);
+          setTurns(event.conversation.turns);
+        }
+      };
+      const parser = createParser({
+        onEvent: (message) => {
+          try {
+            handle(JSON.parse(message.data) as StreamEvent);
+          } catch {
+            // A malformed frame shouldn't end the stream.
+          }
+        },
+      });
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
-      let buffer = "";
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          const event = JSON.parse(line) as
-            | { type: "tool_call"; tool: string; detail: string }
-            | { type: "reply_delta"; text: string }
-            | { type: "done"; conversationId: string }
-            | { type: "error"; message: string; conversationId?: string }
-            | { type: "conversation"; conversation: { id: string; turns: DisplayTurn[] } | null };
-
-          if (event.type === "tool_call") {
-            updateStreamingTurn((t) => ({ ...t, toolCalls: [...t.toolCalls, { tool: event.tool, detail: event.detail }] }));
-          } else if (event.type === "reply_delta") {
-            updateStreamingTurn((t) => ({ ...t, body: t.body + event.text }));
-          } else if (event.type === "error") {
-            setError(event.message);
-            // Keep the id even when the turn failed, so it can be copied for debugging.
-            if (event.conversationId) setConversationId(event.conversationId);
-          } else if (event.type === "conversation" && event.conversation) {
-            setConversationId(event.conversation.id);
-            setTurns(event.conversation.turns);
-          }
-        }
+        parser.feed(decoder.decode(value, { stream: true }));
       }
     } catch {
       setError("Could not reach the assistant — try again.");

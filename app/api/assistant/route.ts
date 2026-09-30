@@ -11,7 +11,7 @@ import { readMail, type MailDetail } from "@/lib/gmail";
  *   GET  ?conversationId=<id>     → that conversation's turns
  *   GET  ?archived=true           → archived conversations, for the switcher's "Archived" view
  *   GET  (no query)               → the non-archived conversation list, for the switcher
- *   POST  { conversationId?, question, attachments?, pageContext? } → asks
+ *   POST  { conversationId?, question, attachments?, pageContext? } → asks (streamed back as Server-Sent Events)
  *     the assistant (creating a conversation first if conversationId is
  *     omitted) and streams back newline-delimited JSON events as they
  *     happen — {type:"tool_call"}, {type:"reply_delta"} (a slice of the
@@ -111,10 +111,18 @@ export async function POST(request: Request) {
     { email, emailAttachments, timeZone },
   );
 
+  // Server-Sent Events: `data: <json>` frames. text/event-stream is what proxies/CDNs (Vercel's
+  // included) know not to buffer or compress, so reply text reaches the browser as it's generated.
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      const write = (data: unknown) => controller.enqueue(encoder.encode(`${JSON.stringify(data)}\n`));
+      let closed = false;
+      const send = (chunk: string) => {
+        if (!closed) controller.enqueue(encoder.encode(chunk));
+      };
+      const write = (data: unknown) => send(`data: ${JSON.stringify(data)}\n\n`);
+      // A comment line every 15s keeps the connection alive while a slow tool runs.
+      const heartbeat = setInterval(() => send(": ping\n\n"), 15_000);
       try {
         for await (const event of events) {
           write(event);
@@ -126,12 +134,19 @@ export async function POST(request: Request) {
       } catch (error) {
         write({ type: "error", message: error instanceof Error ? error.message : "Something went wrong." });
       } finally {
+        clearInterval(heartbeat);
+        closed = true;
         controller.close();
       }
     },
   });
 
   return new Response(stream, {
-    headers: { "content-type": "application/x-ndjson", "cache-control": "no-store" },
+    headers: {
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-cache, no-transform",
+      connection: "keep-alive",
+      "x-accel-buffering": "no",
+    },
   });
 }
