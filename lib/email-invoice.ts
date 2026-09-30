@@ -107,6 +107,16 @@ export async function recordInvoiceFromEmail(input: {
   };
 }
 
+/** Links an invoice to a project (or unlinks it with null); the project must be in the same org. */
+export async function setInvoiceProject(invoiceId: string, orgId: string, projectId: string | null): Promise<void> {
+  await query(
+    `UPDATE invoices SET project_id = $3
+      WHERE id = $1 AND org_id = $2
+        AND ($3::uuid IS NULL OR EXISTS (SELECT 1 FROM projects WHERE id = $3 AND org_id = $2))`,
+    [invoiceId, orgId, projectId],
+  );
+}
+
 export type InvoiceDocument = { id: string; fileName: string; contentType: string; sizeBytes: number };
 
 export async function listInvoiceDocuments(invoiceId: string, orgId: string): Promise<InvoiceDocument[]> {

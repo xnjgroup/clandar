@@ -319,6 +319,9 @@ export async function recentInvoices(orgId: string, limit = 5): Promise<InvoiceL
 
 export type InvoiceDetail = {
   id: string;
+  /** The project this invoice is charged to, if any. */
+  projectId: string | null;
+  projectTitle: string | null;
   vendor: string;
   slug: string;
   category: string;
@@ -370,18 +373,21 @@ export async function invoiceDetail(orgId: string, slug: string, id?: string): P
     submitted_by: string;
     approver: string | null;
     next_due: string | null;
+    project_id: string | null;
+    project_title: string | null;
   }>(
     `SELECT i.id, v.name AS vendor, v.slug, i.category, i.status, i.invoice_date::text,
             i.amount, i.ocr_confidence, i.account_number,
             l.address AS location,
             i.period_start::text, i.period_end::text, i.due_date::text,
             i.payment_method, i.prior_balance, i.submitted_by,
-            p.name AS approver,
+            p.name AS approver, i.project_id, pj.title AS project_title,
             (SELECT r.next_due::text FROM recurring_charges r WHERE r.vendor_id = i.vendor_id) AS next_due
        FROM invoices i
        JOIN vendors v ON v.id = i.vendor_id
        LEFT JOIN locations l ON l.id = i.location_id
        LEFT JOIN people p ON p.id = i.approver_id
+       LEFT JOIN projects pj ON pj.id = i.project_id
       WHERE i.org_id = $1 AND v.slug = $2 AND ($3::uuid IS NULL OR i.id = $3::uuid)
       ORDER BY i.invoice_date DESC
       LIMIT 1`,
@@ -425,6 +431,8 @@ export async function invoiceDetail(orgId: string, slug: string, id?: string): P
 
   return {
     id: invoice.id,
+    projectId: invoice.project_id,
+    projectTitle: invoice.project_title,
     vendor: invoice.vendor,
     slug: invoice.slug,
     category: invoice.category,

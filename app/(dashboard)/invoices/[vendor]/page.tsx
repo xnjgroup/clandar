@@ -5,6 +5,9 @@ import { IconTile, PageBody, TableCard } from "@/components/ui";
 import { LINE_TAG_CLASS, firstParam, longDate, money, shortDate } from "@/lib/data";
 import { requireSession } from "@/lib/auth";
 import { listInvoiceDocuments } from "@/lib/email-invoice";
+import { listProjects } from "@/lib/projects";
+import { AutoSubmitSelect } from "../../projects/[id]/auto-submit-select";
+import { linkInvoiceProject } from "../actions";
 import { invoiceDetail } from "@/lib/queries";
 
 /** `?id=` pins one document; without it the vendor's latest invoice is shown. */
@@ -17,7 +20,7 @@ export default async function InvoiceDetailPage({
   const { org } = await requireSession();
   const invoice = await invoiceDetail(org.id, slug, id || undefined);
   if (!invoice) notFound();
-  const documents = await listInvoiceDocuments(invoice.id, org.id);
+  const [documents, projects] = await Promise.all([listInvoiceDocuments(invoice.id, org.id), listProjects(org.id)]);
 
   const flagged = invoice.status === "flagged";
   const overdue =
@@ -212,14 +215,45 @@ export default async function InvoiceDetailPage({
             </div>
           </section>
 
+          <section className="flex min-w-0 flex-col gap-[9px] rounded-[20px] border border-line bg-surface p-[17px]">
+            <h2 className="m-0 text-[14.5px] font-bold tracking-[-0.02em]">Project</h2>
+            <form action={linkInvoiceProject} className="flex flex-col gap-[6px]">
+              <input type="hidden" name="invoiceId" value={invoice.id} />
+              <AutoSubmitSelect
+                name="projectId"
+                defaultValue={invoice.projectId ?? ""}
+                className="w-full rounded-[12px] border border-line bg-surface px-3 py-[9px] text-[12.5px] text-ink"
+              >
+                <option value="">Not linked to a project</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.title} — {p.customerName}
+                  </option>
+                ))}
+              </AutoSubmitSelect>
+            </form>
+            {invoice.projectId ? (
+              <Link href={`/projects/${invoice.projectId}`} className="text-[12px] font-medium underline">
+                Open {invoice.projectTitle ?? "project"} →
+              </Link>
+            ) : (
+              <span className="text-[11.5px] text-muted">Link it to charge this spend to a job.</span>
+            )}
+          </section>
+
           {documents.length > 0 ? (
             <section className="flex min-w-0 flex-col gap-[9px] rounded-[20px] border border-line bg-surface p-[17px]">
               <h2 className="m-0 text-[14.5px] font-bold tracking-[-0.02em]">Source documents</h2>
               {documents.map((doc) => (
                 <a
                   key={doc.id}
-                  href={`/api/invoices/${invoice.id}/documents/${doc.id}`}
-                  target="_blank"
+                  // The original email opens in the in-app viewer; PDFs/images open as themselves.
+                  href={
+                    doc.contentType === "message/rfc822"
+                      ? `/invoices/${invoice.slug}/source/${doc.id}?invoice=${invoice.id}`
+                      : `/api/invoices/${invoice.id}/documents/${doc.id}`
+                  }
+                  target={doc.contentType === "message/rfc822" ? undefined : "_blank"}
                   rel="noreferrer"
                   className="flex min-w-0 items-center gap-[10px] rounded-[14px] border border-line-soft px-[12px] py-[9px] hover:bg-[#fafbf9]"
                 >
@@ -233,7 +267,9 @@ export default async function InvoiceDetailPage({
                         : `${(doc.sizeBytes / (1024 * 1024)).toFixed(1)} MB`}
                     </span>
                   </span>
-                  <span className="shrink-0 text-[11.5px] font-medium underline">Open</span>
+                  <span className="shrink-0 text-[11.5px] font-medium underline">
+                    {doc.contentType === "message/rfc822" ? "View" : "Open"}
+                  </span>
                 </a>
               ))}
             </section>
