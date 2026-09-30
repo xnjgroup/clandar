@@ -14,8 +14,10 @@ import {
   setChatProvider,
   setDefaultLlmProvider,
   setEmailAnalyzerProvider,
+  setInvoiceProvider,
   setLlmProviderEnabled,
   setLlmProviderModel,
+  setQuoteProvider,
 } from "@/lib/llm-providers";
 import { redirect } from "next/navigation";
 import {
@@ -124,6 +126,18 @@ export async function makeDefaultProvider(form: FormData) {
 export async function selectEmailProvider(form: FormData) {
   const { org } = await requireSession();
   await setEmailAnalyzerProvider(field(form, "id") || null, field(form, "model") || null, org.id);
+  revalidatePath(PATH);
+}
+
+export async function selectInvoiceProvider(form: FormData) {
+  const { org } = await requireSession();
+  await setInvoiceProvider(field(form, "id") || null, field(form, "model") || null, org.id);
+  revalidatePath(PATH);
+}
+
+export async function selectQuoteProvider(form: FormData) {
+  const { org } = await requireSession();
+  await setQuoteProvider(field(form, "id") || null, field(form, "model") || null, org.id);
   revalidatePath(PATH);
 }
 

@@ -7,7 +7,7 @@
 import { num, query, queryOne, transaction } from "@/lib/db";
 import type { ProjectPhoto } from "@/lib/project-photos";
 import { readProjectPhotoBytes } from "@/lib/project-photos";
-import { chatComplete, defaultLlmProvider, type ChatContentPart } from "@/lib/llm-providers";
+import { chatComplete, quoteLlmProvider, type ChatContentPart } from "@/lib/llm-providers";
 
 export type LineItemKind = "labor" | "material" | "other";
 
@@ -354,7 +354,7 @@ export async function analyzeProjectPhotos(
   photos: ProjectPhoto[],
 ): Promise<ProposedEstimate> {
   if (photos.length === 0) throw new Error("Add at least one photo of the project site first.");
-  const provider = await defaultLlmProvider(orgId);
+  const provider = await quoteLlmProvider(orgId);
   if (!provider) throw new Error("No default LLM provider is configured — set one up on /settings first.");
 
   const imageParts: ChatContentPart[] = await Promise.all(
@@ -391,7 +391,7 @@ export async function analyzeProjectPhotos(
         ],
       },
     ],
-    { timeoutMs: 120_000 },
+    { timeoutMs: 120_000, model: provider.quoteModel ?? undefined },
   );
 
   const match = /\{[\s\S]*\}/.exec(raw);

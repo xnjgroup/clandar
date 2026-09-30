@@ -1045,6 +1045,28 @@ CREATE UNIQUE INDEX IF NOT EXISTS llm_providers_one_chat_provider_per_org
 ALTER TABLE llm_providers ADD COLUMN IF NOT EXISTS email_model text;
 ALTER TABLE llm_providers ADD COLUMN IF NOT EXISTS chat_model text;
 
+-- Two more per-feature assignments, same pattern: reading invoices/receipts
+-- (lib/document-ingest.ts) and drafting quotes from photos (lib/quoting.ts).
+-- Unset = "Built-in" (the platform provider an admin set at /admin).
+-- One-time, when the columns first appear: keep what each org already had —
+-- these features used the org's default provider — by assigning it to both.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'llm_providers' AND column_name = 'is_invoice_provider') THEN
+    ALTER TABLE llm_providers ADD COLUMN is_invoice_provider boolean NOT NULL DEFAULT false;
+    ALTER TABLE llm_providers ADD COLUMN is_quote_provider boolean NOT NULL DEFAULT false;
+    UPDATE llm_providers SET is_invoice_provider = true, is_quote_provider = true WHERE is_default AND is_enabled;
+  END IF;
+END $$;
+ALTER TABLE llm_providers ADD COLUMN IF NOT EXISTS is_invoice_provider boolean NOT NULL DEFAULT false;
+CREATE UNIQUE INDEX IF NOT EXISTS llm_providers_one_invoice_provider_per_org
+  ON llm_providers (org_id) WHERE is_invoice_provider;
+ALTER TABLE llm_providers ADD COLUMN IF NOT EXISTS invoice_model text;
+ALTER TABLE llm_providers ADD COLUMN IF NOT EXISTS is_quote_provider boolean NOT NULL DEFAULT false;
+CREATE UNIQUE INDEX IF NOT EXISTS llm_providers_one_quote_provider_per_org
+  ON llm_providers (org_id) WHERE is_quote_provider;
+ALTER TABLE llm_providers ADD COLUMN IF NOT EXISTS quote_model text;
+
 /* ── Lead finder ──────────────────────────────────────────────
    Watches the org's Gmail for project opportunities (lib/lead-finder.ts):
    new inbox mail is classified by the email AI against the org's own project

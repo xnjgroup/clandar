@@ -26,6 +26,8 @@ import {
   removeTeammateAction,
   selectChatProvider,
   selectEmailProvider,
+  selectInvoiceProvider,
+  selectQuoteProvider,
   setLlmModel,
   testLlmProvider,
   toggleLlmProvider,
@@ -237,6 +239,36 @@ export default async function SettingsPage() {
             providers={providers.map((p) => ({ id: p.id, name: p.name, availableModels: p.availableModels }))}
             initialProviderId={providers.find((p) => p.isChatProvider)?.id ?? ""}
             initialModel={providers.find((p) => p.isChatProvider)?.chatModel ?? ""}
+          />
+        </Card>
+
+        <Card className="flex flex-col gap-[10px]">
+          <CardTitle>Invoices &amp; receipts</CardTitle>
+          <p className="m-0 text-[11.5px] leading-[1.55] text-muted">
+            The provider (and, optionally, a specific model) that reads invoices and receipts — uploaded to a project or
+            recorded from an email — into invoice records. Pick one that can read images for photographed receipts.
+          </p>
+          <FeatureProviderForm
+            key={`${providers.find((p) => p.isInvoiceProvider)?.id ?? ""}:${providers.find((p) => p.isInvoiceProvider)?.invoiceModel ?? ""}`}
+            action={selectInvoiceProvider}
+            providers={providers.map((p) => ({ id: p.id, name: p.name, availableModels: p.availableModels }))}
+            initialProviderId={providers.find((p) => p.isInvoiceProvider)?.id ?? ""}
+            initialModel={providers.find((p) => p.isInvoiceProvider)?.invoiceModel ?? ""}
+          />
+        </Card>
+
+        <Card className="flex flex-col gap-[10px]">
+          <CardTitle>Quotes</CardTitle>
+          <p className="m-0 text-[11.5px] leading-[1.55] text-muted">
+            The provider (and, optionally, a specific model) that drafts quotes from a project&rsquo;s photos. It needs
+            to read images.
+          </p>
+          <FeatureProviderForm
+            key={`${providers.find((p) => p.isQuoteProvider)?.id ?? ""}:${providers.find((p) => p.isQuoteProvider)?.quoteModel ?? ""}`}
+            action={selectQuoteProvider}
+            providers={providers.map((p) => ({ id: p.id, name: p.name, availableModels: p.availableModels }))}
+            initialProviderId={providers.find((p) => p.isQuoteProvider)?.id ?? ""}
+            initialModel={providers.find((p) => p.isQuoteProvider)?.quoteModel ?? ""}
           />
         </Card>
       </div>

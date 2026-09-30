@@ -35,6 +35,12 @@ export type LlmProvider = {
   emailModel: string | null;
   /** Overrides `model` for chat specifically — null means use the provider's own default model. */
   chatModel: string | null;
+  /** The provider that reads invoices/receipts, and its optional model override. */
+  isInvoiceProvider: boolean;
+  invoiceModel: string | null;
+  /** The provider that drafts quotes from project photos, and its optional model override. */
+  isQuoteProvider: boolean;
+  quoteModel: string | null;
   enabled: boolean;
   status: ProviderStatus;
   statusDetail: string | null;
@@ -53,6 +59,10 @@ type ProviderRow = {
   is_chat_provider: boolean;
   email_model: string | null;
   chat_model: string | null;
+  is_invoice_provider: boolean;
+  invoice_model: string | null;
+  is_quote_provider: boolean;
+  quote_model: string | null;
   is_enabled: boolean;
   status: ProviderStatus;
   status_detail: string | null;
@@ -62,6 +72,7 @@ type ProviderRow = {
 
 const SELECT_COLUMNS = `id, name, base_url, model, (api_key_cipher IS NOT NULL) AS has_api_key,
        is_default, is_email_analyzer, is_chat_provider, email_model, chat_model,
+       is_invoice_provider, invoice_model, is_quote_provider, quote_model,
        is_enabled, status, status_detail, available_models, last_checked_at`;
 
 function toProvider(row: ProviderRow): LlmProvider {
@@ -76,6 +87,10 @@ function toProvider(row: ProviderRow): LlmProvider {
     isChatProvider: row.is_chat_provider,
     emailModel: row.email_model,
     chatModel: row.chat_model,
+    isInvoiceProvider: row.is_invoice_provider,
+    invoiceModel: row.invoice_model,
+    isQuoteProvider: row.is_quote_provider,
+    quoteModel: row.quote_model,
     enabled: row.is_enabled,
     status: row.status,
     statusDetail: row.status_detail,
@@ -152,6 +167,26 @@ export async function chatLlmProvider(orgId: string): Promise<LlmProvider | null
   return builtInProvider(orgId);
 }
 
+/** The provider that reads invoices/receipts (lib/document-ingest.ts) — "Built-in" (the platform provider) if none is assigned. */
+export async function invoiceLlmProvider(orgId: string): Promise<LlmProvider | null> {
+  const row = await queryOne<ProviderRow>(
+    `SELECT ${SELECT_COLUMNS} FROM llm_providers WHERE org_id = $1 AND is_invoice_provider AND is_enabled`,
+    [orgId],
+  );
+  if (row) return toProvider(row);
+  return builtInProvider(orgId);
+}
+
+/** The provider that drafts quotes from photos (lib/quoting.ts) — "Built-in" (the platform provider) if none is assigned. */
+export async function quoteLlmProvider(orgId: string): Promise<LlmProvider | null> {
+  const row = await queryOne<ProviderRow>(
+    `SELECT ${SELECT_COLUMNS} FROM llm_providers WHERE org_id = $1 AND is_quote_provider AND is_enabled`,
+    [orgId],
+  );
+  if (row) return toProvider(row);
+  return builtInProvider(orgId);
+}
+
 /**
  * Always inserts as non-default with no model chosen yet — `probeLlmProvider`
  * fills in the model from whatever the endpoint reports, and callers that want
@@ -212,6 +247,28 @@ export async function setChatProvider(id: string | null, model: string | null, o
     `UPDATE llm_providers
         SET is_chat_provider = coalesce(id = $1, false),
             chat_model = CASE WHEN id = $1 THEN $2 ELSE chat_model END
+      WHERE org_id = $3`,
+    [id, model, orgId],
+  );
+}
+
+/** Assigns the invoice/receipt reader (and optional model); `id: null` = Built-in. Same pattern as setChatProvider. */
+export async function setInvoiceProvider(id: string | null, model: string | null, orgId: string) {
+  await query(
+    `UPDATE llm_providers
+        SET is_invoice_provider = coalesce(id = $1, false),
+            invoice_model = CASE WHEN id = $1 THEN $2 ELSE invoice_model END
+      WHERE org_id = $3`,
+    [id, model, orgId],
+  );
+}
+
+/** Assigns the quote drafter (and optional model); `id: null` = Built-in. Same pattern as setChatProvider. */
+export async function setQuoteProvider(id: string | null, model: string | null, orgId: string) {
+  await query(
+    `UPDATE llm_providers
+        SET is_quote_provider = coalesce(id = $1, false),
+            quote_model = CASE WHEN id = $1 THEN $2 ELSE quote_model END
       WHERE org_id = $3`,
     [id, model, orgId],
   );

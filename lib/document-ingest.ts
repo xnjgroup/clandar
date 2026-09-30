@@ -14,7 +14,7 @@ import type { PoolClient } from "pg";
 import { query, queryOne, transaction } from "@/lib/db";
 import { extractDocumentText } from "@/lib/document-extract";
 import type { DocType } from "@/lib/doc-types";
-import { chatComplete, defaultLlmProvider, type ChatContentPart } from "@/lib/llm-providers";
+import { chatComplete, invoiceLlmProvider, type ChatContentPart } from "@/lib/llm-providers";
 import { getProjectFile, readProjectFileBytes } from "@/lib/project-photos";
 
 
@@ -157,7 +157,7 @@ export async function readInvoiceDocument(
   docType: "invoice" | "receipt",
   source: InvoiceSource,
 ): Promise<ParsedInvoice> {
-  const provider = await defaultLlmProvider(orgId);
+  const provider = await invoiceLlmProvider(orgId);
   if (!provider) throw new Error("No AI provider is set up — add one on Settings first.");
 
   let content: ChatContentPart[];
@@ -182,7 +182,7 @@ export async function readInvoiceDocument(
       { role: "system", content: instructions(docType) },
       { role: "user", content },
     ],
-    { temperature: 0, timeoutMs: 100_000 },
+    { temperature: 0, timeoutMs: 100_000, model: provider.invoiceModel ?? undefined },
   );
   return parseReply(reply);
 }

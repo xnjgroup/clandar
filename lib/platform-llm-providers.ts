@@ -41,6 +41,10 @@ function toProvider(row: Row): LlmProvider {
     isChatProvider: false, // same — chat provider is an org-level assignment, not a platform one
     emailModel: null,
     chatModel: null,
+    isInvoiceProvider: false,
+    invoiceModel: null,
+    isQuoteProvider: false,
+    quoteModel: null,
     enabled: row.is_enabled,
     status: row.status,
     statusDetail: row.status_detail,
