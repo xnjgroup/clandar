@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { createParser } from "eventsource-parser";
 import { usePathname, useSearchParams } from "next/navigation";
+import { ChatMarkdown } from "@/components/chat-markdown";
 import { Icon } from "@/components/icons";
 import type { AgentAttachment, AgentTurn, ConversationSummary } from "@/lib/assistant";
 
@@ -519,16 +520,26 @@ export function ExecutiveAssistantWidget({
                   </details>
                 ) : null}
                 {turn.body ? (
-                  <p className="m-0 rounded-[16px] bg-bg px-[12px] py-[8px] text-[12.5px] leading-[1.5] whitespace-pre-wrap text-body">
-                    {renderMessageBody(turn.body, closeOnMobileNavigate)}
-                  </p>
+                  <div className="rounded-[16px] bg-bg px-[12px] py-[9px] text-[12.5px] leading-[1.55] text-body">
+                    <ChatMarkdown text={turn.body} onNavigate={closeOnMobileNavigate} />
+                  </div>
                 ) : null}
               </div>
             );
           })
         )}
-        {pending && !turns?.some((t) => t.id === "streaming" && (t.body || t.toolCalls.length > 0)) ? (
-          <div className="flex items-center gap-[4px] self-start rounded-[16px] bg-bg px-[14px] py-[10px]">
+        {/* Busy dots for the whole turn, until the stream finishes: a "thinking" bubble before anything
+            arrives, then smaller dots under the reply/actions while it keeps streaming. */}
+        {pending ? (
+          <div
+            className={`flex items-center gap-[4px] self-start ${
+              turns?.some((t) => t.id === "streaming" && (t.body || t.toolCalls.length > 0))
+                ? "-mt-[4px] px-[4px]"
+                : "rounded-[16px] bg-bg px-[14px] py-[10px]"
+            }`}
+            aria-label="The assistant is working"
+            role="status"
+          >
             {[0, 1, 2].map((i) => (
               <span
                 key={i}
