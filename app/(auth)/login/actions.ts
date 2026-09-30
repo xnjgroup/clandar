@@ -18,7 +18,9 @@ export async function sendEmailLogin(_prev: EmailLoginState, form: FormData): Pr
   try {
     const error = await sendLoginEmail(email, origin, String(form.get("timeZone") ?? ""));
     if (error) return { error, sentTo: form.get("resend") ? email : undefined };
-  } catch {
+  } catch (error) {
+    // The person sees a plain message; the real reason (bad SMTP login, unverified sender …) goes to the log.
+    console.error("[email-login] send failed:", error instanceof Error ? error.message : error);
     return { error: "Couldn't send the email — try again in a moment." };
   }
   return { sentTo: email };
