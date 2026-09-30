@@ -127,12 +127,12 @@ widget fills its cell and only its list scrolls.
   lead), optionally labels them in Gmail, and sends a daily digest. Never creates a project or
   sends anything on its own.
 
-### The assistant ("Hermes" by default)
+### The assistant (Clandar itself)
 
 The chat panel on every dashboard page (`components/assistant-widget.tsx`, server in
 `lib/assistant.ts`, streamed by `app/api/assistant/route.ts`).
 
-- **Name**: per workspace (`organizations.assistant_name`, default "Hermes"; owner renames it in
+- **Name**: per workspace (`organizations.assistant_name`, default "Clandar" — the app is the assistant; owner can rename it in
   Settings → Chat — one word, letters/numbers, ≤ 10 chars). Used in the UI and its system prompt.
 - **Model & tools**: the org's chat provider (Settings → Chat, or Built-in). **Native
   OpenAI-style tool calling** (`chatStreamWithTools`), with the reply streamed token by token.

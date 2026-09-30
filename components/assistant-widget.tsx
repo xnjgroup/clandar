@@ -100,7 +100,7 @@ export function AssistantWidget({
   onActivity,
   activity,
 }: {
-  /** What the team calls its assistant (Settings → Chat), "Hermes" by default. */
+  /** What the team calls its assistant (Settings → Chat), "Clandar" by default. */
   name: string;
   /**
    * The chat keeps working when the panel is closed. It reports "working" while a reply is being

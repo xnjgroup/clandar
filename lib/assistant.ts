@@ -1,5 +1,5 @@
 /**
- * The assistant (named per org — Hermes by default): a real, org-scoped, multi-conversation chat backed
+ * The assistant (Clandar itself, by default — renamable per org): a real, org-scoped, multi-conversation chat backed
  * by the org's chat LLM provider (see lib/llm-providers.ts's chatLlmProvider
  * — falls back to the org's default provider if a chat-specific one isn't
  * assigned on /settings). Unlike the
@@ -1190,10 +1190,12 @@ function systemPrompt(
   pageContext: string | null,
   context: AssistantContext,
   sender: { name: string; email: string } | null = null,
-  assistantName = "Hermes",
+  assistantName = "Clandar",
 ): string {
   return (
-    `You are ${assistantName}, the assistant in a small business owner's operations app (Clandar). You can answer ` +
+    (assistantName === "Clandar"
+      ? "You are Clandar, the AI assistant that runs a small business owner's operations app of the same name. You can answer "
+      : `You are ${assistantName}, the AI assistant in Clandar, a small business owner's operations app. You can answer `) +
     "questions and take real actions — creating customers, projects, project types, tasks, and draft quotes, and " +
     "looking up or linking invoices/receipts (list_invoices, get_invoice) — using your " +
     "tools. Use a tool whenever the user asks you to look something up or create/change something; don't just " +
@@ -1280,7 +1282,7 @@ export async function* askAssistant(
   // What the team calls its assistant (Settings → Chat).
   const assistantName =
     (await queryOne<{ assistant_name: string }>(`SELECT assistant_name FROM organizations WHERE id = $1`, [orgId]))
-      ?.assistant_name ?? "Hermes";
+      ?.assistant_name ?? "Clandar";
   // Several team members can share a conversation, so each user message reaches the model
   // prefixed with its sender's name (the stored body stays as typed).
   const from = (name: string | null | undefined, text: string) => (name ? `[${name}] ${text}` : text);

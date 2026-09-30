@@ -1,7 +1,7 @@
 # Clandar
 
 A multi-tenant business dashboard for any small business: customers, projects, AI-assisted photo
-quoting, scheduling, a task/shopping/permit list, an Executive Assistant chat that can act on your
+quoting, scheduling, a task/shopping/permit list, the Clandar assistant chat that can act on your
 data, and a Gmail-backed customer-support inbox — plus the invoice extraction, approvals, budgets
 and spend-analytics module the app started as.
 Every page reads from a local Postgres database — there is no fixture data in the app code.
@@ -18,7 +18,7 @@ The web app is in daily-use shape end to end:
 - **Jobs core** — customers, projects (lead → completed/cancelled), per-org project types,
   AI photo quoting with editable draft estimates, scheduling (list, timeline, and map views —
   schedule entries now carry a geocoded place via `lib/geocode.ts`), a three-kind task list.
-- **AI** — an Executive Assistant chat (native tool calling, token-streamed replies, image/doc
+- **AI** — the Clandar assistant chat (native tool calling, token-streamed replies, image/doc
   attachments, multiple conversations per org) that can read and write real org data; a lead
   finder that scans connected Gmail for project requests; scheduled AI summary tasks.
 - **Email** — a full Gmail view (search, labels, attachments, multi-account), sandboxed message
@@ -63,7 +63,7 @@ rather than pushing the app timeline out.
 ### Next 4 weeks: native iOS app (Swift)
 
 Goal: a focused SwiftUI companion app for daily field use — projects, schedule, tasks,
-quoting, and the Executive Assistant — talking to this same Postgres-backed org, distributed
+quoting, and the Clandar assistant — talking to this same Postgres-backed org, distributed
 via TestFlight by the end of week 4. Full parity with every web page (org onboarding, connector
 setup, the finance module's admin views) is explicitly **out of scope** for this cycle; those
 stay web-only.
@@ -90,8 +90,8 @@ stay web-only.
   - Push notifications: APNs device-token registration alongside today's `push_subscriptions`
     (extend `lib/push.ts` to send APNs as well as Web Push), wired to the same triggers
     (reminders, lead digests, scheduled-task results).
-- **Week 4 — Executive Assistant, polish, beta**
-  - Executive Assistant chat in-app, reusing `app/api/assistant`'s SSE tool-calling stream
+- **Week 4 — Clandar assistant, polish, beta**
+  - Clandar assistant chat in-app, reusing `app/api/assistant`'s SSE tool-calling stream
     (SSE parsing in Swift), with the active tab passed as `pageContext`.
   - Auth token refresh/expiry handling, error and empty states, app icon and launch screen.
   - Internal TestFlight build, a smoke-test pass against real org data, and a fix list from it.
@@ -221,7 +221,7 @@ them rename, add to, or remove from that list afterward.
   cleaning up a connected inbox; `sendMail` (built for quoting) is the same primitive a reply or a
   schedule-confirmation email would use.
 
-## Executive Assistant
+## The Clandar assistant
 
 A docked chat panel (`components/executive-assistant-widget.tsx`, opened from the bottom-right FAB
 on every dashboard page) backed by the org's default LLM provider. Unlike a plain Q&A bot, it has

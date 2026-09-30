@@ -1032,9 +1032,9 @@ CREATE TRIGGER trg_platform_llm_providers_updated_at BEFORE UPDATE ON platform_l
 ALTER TABLE organizations ADD COLUMN IF NOT EXISTS company_type text;
 -- The company header on emails sent to customers (lib/letterhead.ts): companyName, address, phone, email, website, license.
 ALTER TABLE organizations ADD COLUMN IF NOT EXISTS letterhead jsonb NOT NULL DEFAULT '{}';
--- What the team calls its assistant ("Hermes" unless renamed in Settings): one word, up to 10 characters.
-ALTER TABLE organizations ADD COLUMN IF NOT EXISTS assistant_name text NOT NULL DEFAULT 'Hermes';
-ALTER TABLE organizations ALTER COLUMN assistant_name SET DEFAULT 'Hermes';
+-- What the team calls its assistant ("Clandar" — the app itself — unless renamed in Settings): one word, up to 10 characters.
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS assistant_name text NOT NULL DEFAULT 'Clandar';
+ALTER TABLE organizations ALTER COLUMN assistant_name SET DEFAULT 'Clandar';
 
 /* ── Executive Assistant chat attachments ─────────────────────
    An image or document a user attached in the assistant chat (see
