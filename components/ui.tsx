@@ -20,9 +20,9 @@ export function Card({
 }
 
 /** A card whose children run edge to edge — table and list shells. */
-export function TableCard({ children }: { children: ReactNode }) {
+export function TableCard({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
-    <div className="min-w-0 overflow-hidden rounded-[22px] border border-line bg-surface">
+    <div className={`min-w-0 overflow-hidden rounded-[22px] border border-line bg-surface ${className}`}>
       {children}
     </div>
   );

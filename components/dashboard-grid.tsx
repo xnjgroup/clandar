@@ -119,8 +119,9 @@ export function DashboardGrid({
                       <span className="truncate">{byId.get(p.i)!.title}</span>
                     </div>
                   ) : null}
-                  {/* The widget fills its cell and scrolls if its content is taller. */}
-                  <div className="min-h-0 flex-1 overflow-auto [&>*]:min-h-full">{byId.get(p.i)!.node}</div>
+                  {/* The widget fills its cell exactly; the cell never scrolls. A widget with a list
+                      scrolls that list itself (header fixed) — see the overview's widgets. */}
+                  <div className="min-h-0 flex-1 overflow-hidden [&>*]:h-full">{byId.get(p.i)!.node}</div>
                 </div>
               ))}
           </ReactGridLayout>

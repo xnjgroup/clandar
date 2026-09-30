@@ -128,13 +128,15 @@ export default async function OverviewPage() {
       id: "active-projects",
       title: "Active projects",
       node: (
-        <TableCard>
-                <div className="flex items-center gap-[10px] px-[18px] py-[12px]">
+        <TableCard className="flex flex-col">
+                <div className="flex shrink-0 items-center gap-[10px] px-[18px] py-[12px]">
                   <CardTitle>Active projects</CardTitle>
                   <Link href="/projects" className="ml-auto text-[12px] font-medium underline">
                     All projects
                   </Link>
                 </div>
+                {/* Only the rows scroll when the widget is shorter than its list. */}
+                <div className="min-h-0 flex-1 overflow-y-auto">
                 {current.length === 0 ? (
                   <EmptyRow>No projects scheduled or in progress.</EmptyRow>
                 ) : (
@@ -167,6 +169,7 @@ export default async function OverviewPage() {
                     );
                   })
                 )}
+                </div>
               </TableCard>
       ),
     },
@@ -174,7 +177,7 @@ export default async function OverviewPage() {
       id: "assistant",
       title: org.assistantName,
       node: (
-        <div className="flex min-w-0 flex-col gap-3 rounded-[22px] bg-lime p-[18px]">
+        <div className="flex min-w-0 flex-col gap-3 overflow-y-auto rounded-[22px] bg-lime p-[18px]">
                 <div className="flex items-center gap-[10px]">
                   <Icon name="bot" size={18} />
                   <CardTitle>{org.assistantName}</CardTitle>
@@ -214,11 +217,14 @@ export default async function OverviewPage() {
       title: "Spend by category",
       node: (
         <Card className="flex flex-col gap-[13px]">
-                <div className="flex flex-wrap items-center gap-[10px]">
+                <div className="flex shrink-0 flex-wrap items-center gap-[10px]">
                   <CardTitle>Spend by category</CardTitle>
                   <span className="ml-auto font-mono text-[10.5px] text-faint">This month</span>
                 </div>
-                <SpendByCategoryChart slices={slices} />
+                {/* Clipped: the chart library can draw a few px wider than its box after a resize. */}
+                <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+                  <SpendByCategoryChart slices={slices} />
+                </div>
               </Card>
       ),
     },
@@ -227,13 +233,14 @@ export default async function OverviewPage() {
       title: "Needs attention",
       node: (
         <Card className="flex flex-col gap-[13px]">
-                <div className="flex items-center gap-[10px]">
+                <div className="flex shrink-0 items-center gap-[10px]">
                   <CardTitle>Needs attention</CardTitle>
                   <span className="ml-auto shrink-0 rounded-full bg-bad-bg px-[9px] py-1 font-mono text-[10.5px] text-bad-fg">
                     {attention.length} open
                   </span>
                 </div>
 
+                <div className="-mx-[4px] flex min-h-0 flex-1 flex-col gap-[13px] overflow-y-auto px-[4px]">
                 {attention.length === 0 ? (
                   <span className="py-4 text-center text-[12.5px] text-muted">
                     Nothing waiting — no open flags, reviews or approvals.
@@ -274,6 +281,7 @@ export default async function OverviewPage() {
                     </Link>
                   );
                 })}
+                </div>
               </Card>
       ),
     },
@@ -281,18 +289,20 @@ export default async function OverviewPage() {
       id: "invoices",
       title: "Recent invoices",
       node: (
-        <TableCard>
-                <div className="flex items-center gap-[10px] px-[18px] py-4">
+        <TableCard className="flex flex-col">
+                <div className="flex shrink-0 items-center gap-[10px] px-[18px] py-4">
                   <CardTitle>Recent invoices</CardTitle>
                   <Link href="/invoices" className="ml-auto text-[12.5px] font-medium underline">
                     See all
                   </Link>
                 </div>
-                {invoices.length === 0 ? (
-                  <EmptyRow>No invoices yet — upload one to get started.</EmptyRow>
-                ) : (
-                  invoices.map((row) => <InvoiceListRow key={row.id} row={row} />)
-                )}
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                  {invoices.length === 0 ? (
+                    <EmptyRow>No invoices yet — upload one to get started.</EmptyRow>
+                  ) : (
+                    invoices.map((row) => <InvoiceListRow key={row.id} row={row} />)
+                  )}
+                </div>
               </TableCard>
       ),
     },
