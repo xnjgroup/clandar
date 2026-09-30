@@ -59,7 +59,7 @@ export default async function OverviewPage() {
   const current = activeProjects
     .filter((p) => p.status === "scheduled" || p.status === "in_progress")
     .sort((a, b) => (a.dueDate ?? "9999").localeCompare(b.dueDate ?? "9999"))
-    .slice(0, 6);
+    .slice(0, 4);
 
   const cards = [
     {
@@ -92,52 +92,66 @@ export default async function OverviewPage() {
         ))}
       </StatRow>
 
-      <TableCard>
-        <div className="flex items-center gap-[10px] px-[18px] py-4">
-          <CardTitle>Active projects</CardTitle>
-          <Link href="/projects" className="ml-auto text-[12.5px] font-medium underline">
-            All projects
-          </Link>
-        </div>
-        {current.length === 0 ? (
-          <EmptyRow>No projects scheduled or in progress.</EmptyRow>
-        ) : (
-          current.map((p) => {
-            const due = describeDue(p.dueDate, p.status);
-            const pct = p.taskCount ? Math.round((p.tasksDone / p.taskCount) * 100) : null;
-            return (
-              <Link
-                key={p.id}
-                href={`/projects/${p.id}`}
-                className="flex min-h-[58px] min-w-0 flex-wrap items-center gap-x-3 gap-y-[6px] border-t border-line-soft px-[18px] py-[11px] hover:bg-[#fafbf9]"
-              >
-                <div className="flex min-w-0 flex-1 basis-[200px] flex-col leading-[1.4]">
-                  <span className="truncate text-[13px] font-semibold">{p.title}</span>
-                  <span className="truncate text-[11.5px] text-muted">
-                    {p.customerName}
-                    {due ? <span className={due.overdue ? "font-medium text-bad-fg" : ""}> · {due.label}</span> : null}
+      <div className="grid min-w-0 grid-cols-1 items-start gap-3 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+        <TableCard>
+          <div className="flex items-center gap-[10px] px-[18px] py-[12px]">
+            <CardTitle>Active projects</CardTitle>
+            <Link href="/projects" className="ml-auto text-[12px] font-medium underline">
+              All projects
+            </Link>
+          </div>
+          {current.length === 0 ? (
+            <EmptyRow>No projects scheduled or in progress.</EmptyRow>
+          ) : (
+            current.map((p) => {
+              const due = describeDue(p.dueDate, p.status);
+              const pct = p.taskCount ? Math.round((p.tasksDone / p.taskCount) * 100) : null;
+              return (
+                <Link
+                  key={p.id}
+                  href={`/projects/${p.id}`}
+                  className="flex min-w-0 items-center gap-3 border-t border-line-soft px-[18px] py-[8px] hover:bg-[#fafbf9]"
+                >
+                  <span className="min-w-0 flex-1 truncate text-[12.5px]">
+                    <span className="font-semibold">{p.title}</span>
+                    <span className="text-muted"> · {p.customerName}</span>
+                    {due ? <span className={due.overdue ? "font-medium text-bad-fg" : "text-faint"}> · {due.label}</span> : null}
                   </span>
-                </div>
-                <span className="flex w-[130px] shrink-0 items-center gap-[8px]" title={pct === null ? "No tasks" : `${p.tasksDone} of ${p.taskCount} tasks done`}>
-                  {pct === null ? (
-                    <span className="text-[11px] text-faint">No tasks</span>
-                  ) : (
-                    <>
-                      <span className="h-[6px] flex-1 overflow-hidden rounded-full bg-line-soft">
+                  {pct !== null ? (
+                    <span className="hidden w-[64px] shrink-0 items-center gap-[5px] sm:flex" title={`${p.tasksDone} of ${p.taskCount} tasks done`}>
+                      <span className="h-[4px] flex-1 overflow-hidden rounded-full bg-line-soft">
                         <span className={`block h-full rounded-full ${pct === 100 ? "bg-ok-fg" : "bg-ink"}`} style={{ width: `${pct}%` }} />
                       </span>
-                      <span className="w-[34px] text-right font-mono text-[11px] font-semibold">{pct}%</span>
-                    </>
-                  )}
-                </span>
-                <Pill tone={p.status === "in_progress" ? "ok" : "warn"}>
-                  {PROJECT_STATUSES.find((s) => s.id === p.status)?.label ?? p.status}
-                </Pill>
-              </Link>
-            );
-          })
-        )}
-      </TableCard>
+                      <span className="font-mono text-[10.5px] text-muted">{pct}%</span>
+                    </span>
+                  ) : null}
+                  <Pill tone={p.status === "in_progress" ? "ok" : "warn"}>
+                    {PROJECT_STATUSES.find((s) => s.id === p.status)?.label ?? p.status}
+                  </Pill>
+                </Link>
+              );
+            })
+          )}
+        </TableCard>
+
+        <div className="flex min-w-0 flex-col gap-3 rounded-[22px] bg-lime p-[18px]">
+          <div className="flex items-center gap-[10px]">
+            <Icon name="bot" size={18} />
+            <CardTitle>Executive Assistant</CardTitle>
+          </div>
+          <div className="flex flex-col gap-[7px]">
+            {QUICK_QUESTIONS.map((q) => (
+              <OpenAssistantButton
+                key={q}
+                prompt={q}
+                className="cursor-pointer rounded-full bg-ink px-[15px] py-[9px] text-left text-[12.5px] font-semibold text-bg hover:bg-ink/85"
+              >
+                {q}
+              </OpenAssistantButton>
+            ))}
+          </div>
+        </div>
+      </div>
 
       <StatRow>
         {cards.map((s) => (
@@ -205,7 +219,7 @@ export default async function OverviewPage() {
         </Card>
       </div>
 
-      <div className="grid min-w-0 grid-cols-1 items-start gap-3 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+      <div className="min-w-0">
         <TableCard>
           <div className="flex items-center gap-[10px] px-[18px] py-4">
             <CardTitle>Recent invoices</CardTitle>
@@ -220,23 +234,6 @@ export default async function OverviewPage() {
           )}
         </TableCard>
 
-        <div className="flex min-w-0 flex-col gap-3 rounded-[22px] bg-lime p-[18px]">
-          <div className="flex items-center gap-[10px]">
-            <Icon name="bot" size={18} />
-            <CardTitle>Executive Assistant</CardTitle>
-          </div>
-          <div className="flex flex-col gap-[7px]">
-            {QUICK_QUESTIONS.map((q) => (
-              <OpenAssistantButton
-                key={q}
-                prompt={q}
-                className="cursor-pointer rounded-full bg-ink px-[15px] py-[9px] text-left text-[12.5px] font-semibold text-bg hover:bg-ink/85"
-              >
-                {q}
-              </OpenAssistantButton>
-            ))}
-          </div>
-        </div>
       </div>
     </PageBody>
   );
