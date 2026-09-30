@@ -31,6 +31,8 @@ export type RecordedInvoice = {
   lineItemCount: number;
   source: string;
   documents: string[];
+  /** True when a matching invoice (same vendor, date, amount) already existed and was returned instead. */
+  alreadyRecorded?: boolean;
 };
 
 export async function recordInvoiceFromEmail(input: {
@@ -66,6 +68,29 @@ export async function recordInvoiceFromEmail(input: {
   }
 
   const data = await readInvoiceDocument(orgId, docType, source);
+
+  // Same vendor, date and amount already on file (e.g. the email was recorded twice): reuse it, don't duplicate.
+  const existing = await queryOne<{ id: string; slug: string }>(
+    `SELECT i.id, v.slug FROM invoices i JOIN vendors v ON v.id = i.vendor_id
+      WHERE i.org_id = $1 AND lower(v.name) = lower($2) AND i.invoice_date = $3 AND i.amount = $4
+      ORDER BY i.created_at LIMIT 1`,
+    [orgId, data.vendorName, data.invoiceDate, data.total],
+  );
+  if (existing) {
+    return {
+      invoiceId: existing.id,
+      vendorName: data.vendorName,
+      vendorSlug: existing.slug,
+      total: data.total,
+      invoiceDate: data.invoiceDate,
+      dueDate: data.dueDate,
+      lineItemCount: data.lineItems.length,
+      source: attachment ? attachment.filename : "the email text",
+      documents: [],
+      alreadyRecorded: true,
+    };
+  }
+
   const raw = await readRawMail(message.id, orgId, message.connectorId);
 
   const invoiceId = await transaction((client) =>

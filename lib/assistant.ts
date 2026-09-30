@@ -35,7 +35,8 @@ import { listTeam } from "@/lib/auth";
 import { emailContextBlock, type EmailAttachmentContent } from "@/lib/email-context";
 import { zonedTimeToUtc } from "@/lib/time-zone";
 import { createDraft, replyContext, sendMail, type MailDetail } from "@/lib/gmail";
-import { recordInvoiceFromEmail } from "@/lib/email-invoice";
+import { listInvoiceDocuments, recordInvoiceFromEmail, setInvoiceProject } from "@/lib/email-invoice";
+import { invoiceDetail } from "@/lib/queries";
 import { copyEmailAttachmentsToProject } from "@/lib/email-to-project";
 import { createScheduleEntry } from "@/lib/schedule";
 
@@ -292,6 +293,32 @@ const TOOLS: { name: string; description: string; parameters: JsonSchema; emailO
     ),
   },
   {
+    name: "list_invoices",
+    description:
+      "Search this org's invoices/receipts (bills it received). Filters are optional and combine; returns vendor, date, " +
+      "due date, amount, status, linked project and a link, newest first, plus the count and total.",
+    parameters: obj({
+      search: str("Matches vendor, category, account number or amount"),
+      status: { type: "string", enum: ["extracted", "pending_review", "flagged", "approved", "rejected"] },
+      projectTitle: str("Only invoices linked to this project (matched case-insensitively)"),
+      from: str("Invoice date on/after, YYYY-MM-DD"),
+      to: str("Invoice date on/before, YYYY-MM-DD"),
+      limit: { type: "number", description: "Max results, default 25, at most 50" },
+    }),
+  },
+  {
+    name: "get_invoice",
+    description:
+      "One invoice's full details — vendor, dates, amount, status, account, payment method, line items, source documents, " +
+      "linked project and page link. Use an id from list_invoices.",
+    parameters: obj({ invoiceId: str("The invoice id") }, ["invoiceId"]),
+  },
+  {
+    name: "link_invoice_to_project",
+    description: "Link an invoice to a project (its spend then counts toward that project), or unlink it with an empty projectTitle.",
+    parameters: obj({ invoiceId: str(), projectTitle: str("The project's title; empty to unlink") }, ["invoiceId", "projectTitle"]),
+  },
+  {
     name: "create_schedule_entry",
     description:
       "Put a project on the calendar: a date and time window, optionally assigned to a team member. Times are the user's local time.",
@@ -460,6 +487,95 @@ async function runToolUnsafe(
         data: { id, total, link: `/projects/${projectId}` },
       };
     }
+    case "list_invoices": {
+      const projectTitle = str(args.projectTitle);
+      const projectId = projectTitle ? await findProjectIdByTitle(orgId, projectTitle) : null;
+      if (projectTitle && !projectId) return { summary: `list_invoices: no project found named "${projectTitle}".` };
+      const date = (v: unknown) => (/^\d{4}-\d{2}-\d{2}$/.test(str(v)) ? str(v) : null);
+      const limit = Math.min(50, Math.max(1, Number(args.limit) || 25));
+      const rows = await query<{
+        id: string;
+        vendor: string;
+        slug: string;
+        category: string;
+        invoice_date: string;
+        due_date: string | null;
+        amount: string;
+        status: string;
+        project_title: string | null;
+        total: string;
+        sum: string;
+      }>(
+        `SELECT i.id, v.name AS vendor, v.slug, i.category, i.invoice_date::text, i.due_date::text, i.amount::text,
+                i.status, j.title AS project_title,
+                count(*) OVER () AS total, sum(i.amount) OVER ()::text AS sum
+           FROM invoices i JOIN vendors v ON v.id = i.vendor_id
+           LEFT JOIN projects j ON j.id = i.project_id
+          WHERE i.org_id = $1
+            AND ($2 = '' OR v.name ILIKE '%' || $2 || '%' OR i.category ILIKE '%' || $2 || '%'
+                 OR i.account_number ILIKE '%' || $2 || '%' OR i.amount::text LIKE $2 || '%')
+            AND ($3::text IS NULL OR i.status = $3)
+            AND ($4::uuid IS NULL OR i.project_id = $4)
+            AND ($5::date IS NULL OR i.invoice_date >= $5)
+            AND ($6::date IS NULL OR i.invoice_date <= $6)
+          ORDER BY i.invoice_date DESC, i.created_at DESC
+          LIMIT $7`,
+        [orgId, str(args.search), str(args.status) || null, projectId, date(args.from), date(args.to), limit],
+      );
+      return {
+        summary: `Found ${rows[0]?.total ?? 0} invoice(s)${rows.length ? `, totalling $${Number(rows[0].sum).toFixed(2)}` : ""}.`,
+        data: {
+          count: Number(rows[0]?.total ?? 0),
+          total: Number(rows[0]?.sum ?? 0),
+          invoices: rows.map((r) => ({
+            id: r.id,
+            vendor: r.vendor,
+            category: r.category,
+            date: r.invoice_date,
+            dueDate: r.due_date,
+            amount: Number(r.amount),
+            status: r.status,
+            project: r.project_title,
+            link: `/invoices/${r.slug}?id=${r.id}`,
+          })),
+        },
+      };
+    }
+    case "get_invoice": {
+      const id = str(args.invoiceId);
+      const row = /^[0-9a-f-]{36}$/i.test(id)
+        ? await queryOne<{ slug: string }>(
+            `SELECT v.slug FROM invoices i JOIN vendors v ON v.id = i.vendor_id WHERE i.id = $1 AND i.org_id = $2`,
+            [id, orgId],
+          )
+        : null;
+      const detail = row ? await invoiceDetail(orgId, row.slug, id) : null;
+      if (!detail) return { summary: `get_invoice: no invoice with id "${id}".` };
+      const documents = await listInvoiceDocuments(id, orgId);
+      return {
+        summary: `${detail.vendor} — $${detail.amount.toFixed(2)} on ${detail.date} (${detail.status}).`,
+        data: {
+          ...detail,
+          lineItems: detail.groups.flatMap((g) => g.lines),
+          groups: undefined,
+          documents: documents.map((d) => d.fileName),
+          link: `/invoices/${detail.slug}?id=${detail.id}`,
+          projectLink: detail.projectId ? `/projects/${detail.projectId}` : null,
+        },
+      };
+    }
+    case "link_invoice_to_project": {
+      const id = str(args.invoiceId);
+      const projectTitle = str(args.projectTitle);
+      const projectId = projectTitle ? await findProjectIdByTitle(orgId, projectTitle) : null;
+      if (projectTitle && !projectId) return { summary: `link_invoice_to_project failed: no project found named "${projectTitle}".` };
+      if (!/^[0-9a-f-]{36}$/i.test(id)) return { summary: "link_invoice_to_project failed: invoiceId must be an id from list_invoices." };
+      await setInvoiceProject(id, orgId, projectId);
+      return {
+        summary: projectId ? `Linked the invoice to "${projectTitle}".` : "Unlinked the invoice from its project.",
+        data: { link: projectId ? `/projects/${projectId}` : null },
+      };
+    }
     case "create_schedule_entry": {
       const projectId = await findProjectIdByTitle(orgId, str(args.projectTitle) || undefined);
       if (!projectId) return { summary: `create_schedule_entry failed: no project matches "${str(args.projectTitle)}".` };
@@ -521,7 +637,9 @@ async function runToolUnsafe(
         attachmentName: str(args.attachmentName) || undefined,
       });
       return {
-        summary: `Recorded a ${docType} from ${recorded.vendorName} for $${recorded.total.toFixed(2)} (read from ${recorded.source}).`,
+        summary: recorded.alreadyRecorded
+          ? `This ${docType} from ${recorded.vendorName} for $${recorded.total.toFixed(2)} on ${recorded.invoiceDate} is already recorded — nothing new was created.`
+          : `Recorded a ${docType} from ${recorded.vendorName} for $${recorded.total.toFixed(2)} (read from ${recorded.source}).`,
         data: { ...recorded, link: `/invoices/${recorded.vendorSlug}?id=${recorded.invoiceId}` },
       };
     }
@@ -715,7 +833,8 @@ const MAX_STEPS = 50;
 function systemPrompt(pageContext: string | null, context: AssistantContext): string {
   return (
     "You are the Executive Assistant for a small business owner's operations app (Clandar). You can answer " +
-    "questions and take real actions — creating customers, projects, project types, tasks, and draft quotes — using your " +
+    "questions and take real actions — creating customers, projects, project types, tasks, and draft quotes, and " +
+    "looking up or linking invoices/receipts (list_invoices, get_invoice) — using your " +
     "tools. Use a tool whenever the user asks you to look something up or create/change something; don't just " +
     "describe what you would do. A quote (estimate) always belongs to a project: if the job doesn't have a project " +
     "yet, call create_project first (include the customer's email when you know it, so the quote can be sent), then " +
