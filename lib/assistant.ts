@@ -423,11 +423,13 @@ const TOOLS: { name: string; description: string; parameters: JsonSchema; emailO
       "Search the connected Gmail mailbox(es) with Gmail search syntax — e.g. \"category:promotions -category:updates\", " +
       "\"from:newsletter@example.com older_than:1y\", \"has:attachment larger:5M\". Returns, per mailbox, the exact number " +
       `of matching emails (counted up to ${BULK_TRASH_CAP.toLocaleString("en-US")}) and a few examples (sender, subject, date). ` +
-      "Spam and Trash aren't searched unless the query says in:spam / in:trash.",
+      "Spam and Trash aren't searched unless the query says in:spam / in:trash. Searches ONE mailbox: when more " +
+      "than one is connected and the user hasn't said which, ask them first (call this without an account to get " +
+      "the list).",
     parameters: obj(
       {
         query: str("Gmail search syntax"),
-        account: str("A mailbox's email address, to search just that one; leave out for all"),
+        account: str("The mailbox's email address, as the user chose it"),
       },
       ["query"],
     ),
@@ -750,6 +752,14 @@ async function runToolUnsafe(
       const all = await listGmailConnectors(orgId);
       if (all.length === 0) return { summary: "search_email: no Gmail account is connected (Connectors page)." };
       const accountArg = str(args.account);
+      // One mailbox at a time, chosen by the user — with several connected, ask before searching.
+      if (!accountArg && all.length > 1) {
+        return {
+          summary:
+            `search_email: not searched yet — ${all.length} mailboxes are connected: ${all.map(accountName).join(", ")}. ` +
+            "Ask the user which one to search, then call again with that account.",
+        };
+      }
       const accounts = accountArg ? all.filter((c) => matchesAccount(c, accountArg)) : all;
       if (accounts.length === 0) {
         return { summary: `search_email: no connected mailbox matches "${accountArg}". Connected: ${all.map(accountName).join(", ")}.` };
@@ -1195,7 +1205,8 @@ function systemPrompt(
     "the question. In replies, link to pages in the app with markdown links, e.g. " +
     '"[Project Types](/projects/types)" — the chat renders them as clickable links. Common pages: /projects, ' +
     "/projects/types, /projects/new, /customers, /schedule, /tasks, /settings." +
-    "\n\nEmail cleanup: to delete (trash) emails, first call search_email, then tell the user the mailbox, the " +
+    "\n\nEmail search: when several mailboxes are connected, ask which one before searching — never search them all. " +
+    "Email cleanup: to delete (trash) emails, first call search_email, then tell the user the mailbox, the " +
     "exact count and 2–3 example senders/subjects, and ask them to confirm. Only after they clearly say yes, call " +
     "trash_email_search with that mailbox, query and count. Never trash on your own initiative." +
     "\n\nSeveral team members can share this conversation: each user message starts with its sender's name in " +
