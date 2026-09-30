@@ -173,6 +173,28 @@ export async function getConversation(
   return { id: conversation.id, title: conversation.title, turns: await turnsFor(conversation.id) };
 }
 
+/**
+ * Starts a conversation whose first message is from the assistant — how an
+ * automation's report (a daily briefing) arrives, so the person can reply and
+ * talk it through with the report as context. Returns the conversation id.
+ */
+export async function postAssistantConversation(input: {
+  orgId: string;
+  personId: string | null;
+  title: string;
+  body: string;
+}): Promise<string> {
+  const row = await queryOne<{ id: string }>(
+    `INSERT INTO agent_conversations (org_id, title, person_id) VALUES ($1, $2, $3) RETURNING id`,
+    [input.orgId, input.title.slice(0, 60), input.personId],
+  );
+  await query(`INSERT INTO agent_messages (conversation_id, role, body) VALUES ($1, 'assistant', $2)`, [
+    row!.id,
+    input.body,
+  ]);
+  return row!.id;
+}
+
 async function createConversation(orgId: string, personId: string | null): Promise<string> {
   const row = await queryOne<{ id: string }>(
     `INSERT INTO agent_conversations (org_id, title, person_id) VALUES ($1, 'New conversation', $2) RETURNING id`,

@@ -270,6 +270,17 @@ export function AppShell({
     return () => window.removeEventListener("clandar:open-assistant", onOpenRequest);
   }, []);
 
+  // `?chat=<conversation id>` (a briefing's notification or push) opens that conversation in the
+  // assistant, then drops the parameter so a refresh doesn't reopen it.
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const conversationId = url.searchParams.get("chat");
+    if (!conversationId) return;
+    url.searchParams.delete("chat");
+    window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+    window.dispatchEvent(new CustomEvent("clandar:open-assistant", { detail: { conversationId } }));
+  }, [pathname]);
+
   // Whether the panel was open persists across a refresh — a per-browser
   // convenience, so it's read after mount (not in the initial useState) to
   // avoid a server/client mismatch on the first render.

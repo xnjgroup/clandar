@@ -147,6 +147,10 @@ export function AssistantWidget({
     };
   }, [switcherOpen]);
 
+  // A conversation to open, handed over with the open event (`detail.conversationId`) — see below.
+  const requestedConversation = useRef<string | null>(null);
+  const [conversationRequest, setConversationRequest] = useState(0);
+
   // The most recent conversation loads by default the first time the panel opens.
   useEffect(() => {
     if (!open || turns !== null) return;
@@ -155,7 +159,11 @@ export function AssistantWidget({
       .then((data: { conversations: ConversationSummary[]; viewerId?: string }) => {
         if (data.viewerId) setViewerId(data.viewerId);
         setConversations(data.conversations);
-        if (data.conversations.length > 0) loadConversation(data.conversations[0].id);
+        // A specific conversation was asked for (e.g. "Open in chat" on a briefing) — that one, not the latest.
+        const requested = requestedConversation.current;
+        requestedConversation.current = null;
+        if (requested) loadConversation(requested);
+        else if (data.conversations.length > 0) loadConversation(data.conversations[0].id);
         else setTurns([]);
       })
       .catch(() => setTurns([]));
@@ -184,12 +192,26 @@ export function AssistantWidget({
   const [queuedPrompt, setQueuedPrompt] = useState<string | null>(null);
   useEffect(() => {
     const onOpen = (e: Event) => {
-      const prompt = (e as CustomEvent<{ prompt?: string }>).detail?.prompt;
-      if (prompt) setQueuedPrompt(prompt);
+      const detail = (e as CustomEvent<{ prompt?: string; conversationId?: string }>).detail;
+      if (detail?.prompt) setQueuedPrompt(detail.prompt);
+      if (detail?.conversationId) {
+        requestedConversation.current = detail.conversationId;
+        setConversationRequest((n) => n + 1);
+      }
     };
     window.addEventListener("clandar:open-assistant", onOpen);
     return () => window.removeEventListener("clandar:open-assistant", onOpen);
   }, []);
+  // Panel already showing a conversation: switch to the requested one. (If it's still loading its
+  // first one, the initial load above picks the request up instead.)
+  useEffect(() => {
+    if (!open || turns === null || !requestedConversation.current) return;
+    const id = requestedConversation.current;
+    requestedConversation.current = null;
+    queueMicrotask(() => loadConversation(id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, conversationRequest]);
+
   const sendRef = useRef(send);
   sendRef.current = send;
   useEffect(() => {

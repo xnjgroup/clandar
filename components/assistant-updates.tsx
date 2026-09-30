@@ -92,6 +92,11 @@ function JobCard({ job, onFinished }: { job: RunningJob; onFinished: () => void 
   );
 }
 
+/** The conversation a notification's link opens (`?chat=<id>`), if it's one of those. */
+function chatId(link: string | null): string | null {
+  return link?.match(/[?&]chat=([0-9a-f-]{36})/i)?.[1] ?? null;
+}
+
 function ago(iso: string) {
   const s = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
   if (s < 60) return "just now";
@@ -153,7 +158,21 @@ export function AssistantUpdates({
                       <ChatMarkdown text={n.body} onNavigate={onNavigate} />
                     </div>
                   ) : null}
-                  {n.link ? (
+                  {chatId(n.link) ? (
+                    // A report posted to the chat (a daily briefing): open that conversation right here.
+                    <button
+                      type="button"
+                      onClick={() =>
+                        window.dispatchEvent(
+                          new CustomEvent("clandar:open-assistant", { detail: { conversationId: chatId(n.link) } }),
+                        )
+                      }
+                      className="mt-[4px] flex cursor-pointer items-center gap-[6px] self-start rounded-full bg-ink px-[12px] py-[6px] text-[12px] font-semibold text-lime"
+                    >
+                      <Icon name="chat" size={13} />
+                      Open in chat
+                    </button>
+                  ) : n.link ? (
                     <Link
                       href={n.link}
                       onClick={onNavigate}

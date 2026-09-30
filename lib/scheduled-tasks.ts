@@ -13,6 +13,7 @@ import { WEEKDAYS, type Frequency } from "@/lib/data";
 import { dateInZone, validTimeZone, zonedTimeToUtc } from "@/lib/time-zone";
 import { createNotification } from "@/lib/notifications";
 import { pushToPerson } from "@/lib/push";
+import { postAssistantConversation } from "@/lib/assistant";
 
 // Re-exported so existing `from "@/lib/scheduled-tasks"` imports keep working
 // — the data lives in lib/data.ts because a client component (the new-task
@@ -368,7 +369,12 @@ export async function executeScheduledTask(taskId: string, orgId: string): Promi
   }
 }
 
-/** Sends a run's result to the person who set the task up: Updates (the full report, as markdown) and a short push. */
+/**
+ * Delivers a run to the person who set the task up. The report arrives in the
+ * chat — a new conversation opening with it, so they can reply and talk it
+ * through — and a short notification (plus push) links straight to it. A
+ * failed run is just a notification linking to the automation.
+ */
 async function deliverRun(
   orgId: string,
   personId: string | null,
@@ -376,13 +382,32 @@ async function deliverRun(
   result: { output: string } | { error: string },
 ): Promise<void> {
   if (!personId) return;
-  const link = `/tasks/scheduled/${task.id}`;
-  const title = "error" in result ? `${task.name} didn't run` : task.name;
-  const body = "error" in result ? result.error : result.output;
-  await createNotification({ orgId, personId, title, body, link }).catch(() => {});
-  // A push shows a line or two, so it gets the opening of the report.
-  const preview = body.replace(/[*_#>`]/g, "").replace(/\s+/g, " ").trim().slice(0, 160);
-  await pushToPerson(personId, { title, body: preview, link }).catch(() => {});
+  const preview = (text: string, max: number) =>
+    text.replace(/[*_#>`|]/g, "").replace(/\s+/g, " ").trim().slice(0, max);
+  if ("error" in result) {
+    const title = `${task.name} didn't run`;
+    const link = `/tasks/scheduled/${task.id}`;
+    await createNotification({ orgId, personId, title, body: result.error, link }).catch(() => {});
+    await pushToPerson(personId, { title, body: preview(result.error, 160), link }).catch(() => {});
+    return;
+  }
+  const day = new Date().toLocaleDateString("en-US", {
+    timeZone: task.timeZone,
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+  const conversationId = await postAssistantConversation({
+    orgId,
+    personId,
+    title: `${task.name} · ${day}`,
+    body: result.output,
+  });
+  // ?chat= opens that conversation in the assistant (components/app-shell.tsx) — from a push too.
+  const link = `/overview?chat=${conversationId}`;
+  const title = `${task.name} is ready`;
+  await createNotification({ orgId, personId, title, body: preview(result.output, 220), link }).catch(() => {});
+  await pushToPerson(personId, { title, body: preview(result.output, 160), link }).catch(() => {});
 }
 
 /** Every enabled task whose `next_run_at` has arrived — what the scheduler tick polls for. */
