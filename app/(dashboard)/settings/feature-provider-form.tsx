@@ -51,7 +51,7 @@ export function FeatureProviderForm({
         }}
         className={selectClass}
       >
-        <option value="">Built-in (org default)</option>
+        <option value="">Built-in (Clandar AI)</option>
         {providers.map((p) => (
           <option key={p.id} value={p.id}>
             {p.name}

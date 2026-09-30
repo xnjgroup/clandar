@@ -123,24 +123,33 @@ export async function defaultLlmProvider(orgId: string): Promise<LlmProvider | n
   return platformDefaultLlmProvider();
 }
 
-/** The provider the Gmail cleanup worker calls — falls back to the default if none is assigned specifically. */
+/**
+ * "Built-in" in /settings' Email and Chat sections: Clandar's own platform
+ * provider (the one an admin set as default at /admin), not the org's own
+ * default — which is only the fallback when no platform provider exists.
+ */
+async function builtInProvider(orgId: string): Promise<LlmProvider | null> {
+  return (await platformDefaultLlmProvider()) ?? (await defaultLlmProvider(orgId));
+}
+
+/** The provider the Gmail cleanup worker (and lead finder) calls — "Built-in" (the platform provider) if none is assigned. */
 export async function emailAnalyzerProvider(orgId: string): Promise<LlmProvider | null> {
   const row = await queryOne<ProviderRow>(
     `SELECT ${SELECT_COLUMNS} FROM llm_providers WHERE org_id = $1 AND is_email_analyzer AND is_enabled`,
     [orgId],
   );
   if (row) return toProvider(row);
-  return defaultLlmProvider(orgId);
+  return builtInProvider(orgId);
 }
 
-/** The provider the Executive Assistant chat calls (lib/assistant.ts) — falls back to the default if none is assigned specifically. */
+/** The provider the Executive Assistant chat calls (lib/assistant.ts) — "Built-in" (the platform provider) if none is assigned. */
 export async function chatLlmProvider(orgId: string): Promise<LlmProvider | null> {
   const row = await queryOne<ProviderRow>(
     `SELECT ${SELECT_COLUMNS} FROM llm_providers WHERE org_id = $1 AND is_chat_provider AND is_enabled`,
     [orgId],
   );
   if (row) return toProvider(row);
-  return defaultLlmProvider(orgId);
+  return builtInProvider(orgId);
 }
 
 /**
@@ -179,8 +188,8 @@ export async function setDefaultLlmProvider(id: string, orgId: string) {
  * Assigns exactly this provider (and, optionally, a specific model of its
  * own to use instead of that provider's general default) to analyze email —
  * same one-statement pattern as `setDefaultLlmProvider`. `id: null` clears
- * the assignment entirely, so the org falls back to its own default (the
- * "Built-in" choice in the Email section on /settings).
+ * the assignment entirely — the "Built-in" choice in the Email section on
+ * /settings, i.e. Clandar's platform provider (see builtInProvider).
  */
 export async function setEmailAnalyzerProvider(id: string | null, model: string | null, orgId: string) {
   await query(
@@ -195,8 +204,8 @@ export async function setEmailAnalyzerProvider(id: string | null, model: string 
 /**
  * Assigns exactly this provider (and, optionally, a specific model override)
  * to the Executive Assistant chat — same one-statement pattern as
- * `setDefaultLlmProvider`. `id: null` clears the assignment (the "Built-in"
- * choice in the Chat section on /settings).
+ * `setDefaultLlmProvider`. `id: null` clears the assignment — the "Built-in"
+ * choice in the Chat section on /settings (Clandar's platform provider).
  */
 export async function setChatProvider(id: string | null, model: string | null, orgId: string) {
   await query(
