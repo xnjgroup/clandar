@@ -25,8 +25,8 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
+// No title here: the app shell renders "<page> · Clandar" for each page (components/app-shell.tsx).
 export const metadata: Metadata = {
-  title: "Clandar",
   description:
     "Customers, jobs, AI-assisted quoting, scheduling, tasks, and invoice/expense tracking.",
   // SVG only (brand/clandar-logo-v2/favicon.svg): a light tile, dark in dark-mode browsers.

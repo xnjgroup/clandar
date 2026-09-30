@@ -319,6 +319,9 @@ export function AppShell({
 
   return (
     <div className="grid min-h-screen grid-cols-1 lg:grid-cols-[236px_minmax(0,1fr)]">
+      {/* The browser tab's title: the same page title as the header. React hoists <title> into the head,
+          on first load and on every navigation. */}
+      <title>{`${title} · Clandar`}</title>
       <Sidebar
         pathname={pathname}
         user={user}
