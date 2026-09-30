@@ -29,7 +29,8 @@ export default async function LeadFinderPage() {
       label: gmail.length > 0 ? `Gmail connected (${gmail.map((g) => g.accountLabel ?? g.name).join(", ")})` : "Connect a Gmail account",
       href: "/connectors",
     },
-    { ok: Boolean(provider), label: provider ? `Email AI: ${provider.name}` : "Set up an AI provider", href: "/settings" },
+    // The AI behind it only needs a mention when it's missing.
+    ...(provider ? [] : [{ ok: false, label: "Set up an AI provider", href: "/settings" }]),
     {
       ok: types.length > 0,
       label: types.length > 0 ? `${types.length} project types to sort leads into` : "Add your project types",

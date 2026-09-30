@@ -47,7 +47,7 @@ export function LeadFinderForm({ settings }: { settings: LeadFinderSettings }) {
           name="isEnabled"
           defaultChecked={settings.isEnabled}
           label="Watch my email for project opportunities"
-          hint="New inbox mail is checked by your email AI; promotions, social and forum tabs are skipped."
+          hint="New inbox mail is checked automatically; promotions, social and forum tabs are skipped."
         />
 
         <div className="grid grid-cols-1 gap-[12px] sm:grid-cols-2">
@@ -131,7 +131,7 @@ export function LeadFinderForm({ settings }: { settings: LeadFinderSettings }) {
         </button>
         <span className={`text-[12px] ${scan.error ? "text-bad-fg" : "text-muted"}`}>
           {scanning
-            ? "Reading new mail and asking your email AI — this can take a minute."
+            ? "Checking new mail — this can take a minute."
             : (scan.error ?? scan.ok ?? "Checks new mail right away instead of waiting for the next scan.")}
         </span>
       </form>

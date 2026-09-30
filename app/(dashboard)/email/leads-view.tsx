@@ -39,7 +39,7 @@ export function LeadsView({
         </span>
         <CardTitle>Find project opportunities in your email</CardTitle>
         <span className="max-w-[460px] text-[12.5px] leading-[1.55] text-muted">
-          Turn on the lead finder and your email AI will spot requests for work, sort them by your project types, and
+          Turn on the lead finder to spot requests for work in your email, sort them by your project types, and
           collect them here — with a daily summary.
         </span>
         <Link href="/tasks/scheduled/lead-finder" className="mt-1 rounded-full bg-ink px-[18px] py-[9px] text-[12.5px] font-semibold text-bg">
