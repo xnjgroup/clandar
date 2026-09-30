@@ -26,11 +26,12 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
         <AddTaskForm redirectPath="/tasks" defaultKind={kind ?? "todo"} members={team} />
       </Card>
 
-      <div className="flex flex-wrap items-center gap-[9px]">
-        <div className="flex min-w-0 flex-1 flex-wrap gap-[7px]">
+      {/* Phones: kind filters are one sideways-scrolling row, with Show done / Automations on the line below. */}
+      <div className="flex flex-col gap-[9px] sm:flex-row sm:flex-wrap sm:items-center">
+        <div className="-mx-[14px] flex min-w-0 gap-[7px] overflow-x-auto px-[14px] [scrollbar-width:none] sm:mx-0 sm:flex-1 sm:flex-wrap sm:overflow-visible sm:px-0">
           <Link
             href={hrefWith("/tasks", params, { kind: null })}
-            className={`rounded-full px-[14px] py-[8px] text-[12.5px] font-medium ${
+            className={`shrink-0 rounded-full px-[14px] py-[8px] text-[12.5px] font-medium whitespace-nowrap ${
               !kind ? "bg-ink text-bg" : "border border-line bg-surface text-body"
             }`}
           >
@@ -40,7 +41,7 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
             <Link
               key={k}
               href={hrefWith("/tasks", params, { kind: k })}
-              className={`rounded-full px-[14px] py-[8px] text-[12.5px] font-medium ${
+              className={`shrink-0 rounded-full px-[14px] py-[8px] text-[12.5px] font-medium whitespace-nowrap ${
                 kind === k ? "bg-ink text-bg" : "border border-line bg-surface text-body"
               }`}
             >
@@ -48,19 +49,21 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
             </Link>
           ))}
         </div>
-        <Link
-          href={hrefWith("/tasks", params, { done: firstParam(params.done) === "true" ? null : "true" })}
-          className="shrink-0 text-[11.5px] font-medium underline"
-        >
-          {firstParam(params.done) === "true" ? "Hide done" : "Show done"}
-        </Link>
-        <Link
-          href="/tasks/scheduled"
-          className="flex shrink-0 items-center gap-[6px] rounded-full border border-line bg-surface px-[14px] py-[8px] text-[12.5px] font-medium"
-        >
-          <Icon name="clock" size={14} />
-          Automations
-        </Link>
+        <div className="flex items-center justify-between gap-[9px] sm:contents">
+          <Link
+            href={hrefWith("/tasks", params, { done: firstParam(params.done) === "true" ? null : "true" })}
+            className="shrink-0 text-[11.5px] font-medium underline"
+          >
+            {firstParam(params.done) === "true" ? "Hide done" : "Show done"}
+          </Link>
+          <Link
+            href="/tasks/scheduled"
+            className="flex shrink-0 items-center gap-[6px] rounded-full border border-line bg-surface px-[14px] py-[8px] text-[12.5px] font-medium"
+          >
+            <Icon name="clock" size={14} />
+            Automations
+          </Link>
+        </div>
       </div>
 
       <TableCard>

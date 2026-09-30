@@ -6,7 +6,8 @@ import { REPEATS } from "@/lib/task-kinds";
 import type { Task } from "@/lib/tasks";
 import { removeTask, toggleTask } from "./actions";
 
-const KIND_ICON = { todo: "check2", shopping: "briefcase", reminder: "clipboard" } as const;
+// Not "check2" for to-dos — beside the done checkbox it reads as a stray checkmark.
+const KIND_ICON = { todo: "clipboard", shopping: "card", reminder: "clock" } as const;
 
 /** "today" / "tomorrow" / "in 5 days" / "overdue 2 days" for a YYYY-MM-DD due date, by calendar day. */
 function describeTaskDue(dueDate: string, isDone: boolean): { label: string; tone: "overdue" | "soon" | "later" | "done" } {
@@ -79,7 +80,7 @@ export function TaskList({
                 <Icon name="check2" size={13} />
               </button>
             </form>
-            <Icon name={KIND_ICON[task.kind] ?? "check2"} size={15} className="shrink-0 text-body-soft" />
+            <Icon name={KIND_ICON[task.kind] ?? "clipboard"} size={15} className="shrink-0 text-body-soft" />
             <div className="flex min-w-0 flex-1 flex-col leading-[1.35]">
               <Link
                 href={`/tasks/${task.id}`}
