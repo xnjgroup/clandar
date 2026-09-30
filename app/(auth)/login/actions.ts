@@ -16,7 +16,7 @@ export async function sendEmailLogin(_prev: EmailLoginState, form: FormData): Pr
   // carries a sign-in token (a forged header would point the email at someone else's site).
   const origin = (process.env.APP_URL || "").replace(/\/+$/, "") || originFromHeaders(await headers());
   try {
-    const error = await sendLoginEmail(email, origin);
+    const error = await sendLoginEmail(email, origin, String(form.get("timeZone") ?? ""));
     if (error) return { error, sentTo: form.get("resend") ? email : undefined };
   } catch {
     return { error: "Couldn't send the email — try again in a moment." };

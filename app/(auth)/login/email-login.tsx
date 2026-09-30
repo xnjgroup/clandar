@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
+import { TimeZoneField } from "@/components/time-zone-field";
 import { sendEmailLogin, verifyEmailCode, type EmailLoginState } from "./actions";
 
 const inputClass =
@@ -20,6 +21,8 @@ export function EmailLogin() {
   if (!email) {
     return (
       <form action={sendAction} className="flex w-full flex-col gap-[10px]">
+        {/* The browser's zone, for the timestamp in the email's subject. */}
+        <TimeZoneField />
         <input
           id="login-email"
           name="email"
@@ -66,6 +69,7 @@ export function EmailLogin() {
       <form action={sendAction} className="flex justify-center gap-[14px] text-[12px]">
         <input type="hidden" name="email" value={email} />
         <input type="hidden" name="resend" value="1" />
+        <TimeZoneField />
         <button type="submit" disabled={sending} className="cursor-pointer text-muted underline disabled:opacity-50">
           {sending ? "Sending…" : "Send a new code"}
         </button>

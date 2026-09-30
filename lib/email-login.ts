@@ -9,6 +9,7 @@
 import { createHash, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import { query, queryOne } from "@/lib/db";
 import { sendSystemEmail } from "@/lib/mailer";
+import { validTimeZone } from "@/lib/time-zone";
 
 const TTL_MINUTES = 15;
 const MAX_ATTEMPTS = 5;
@@ -22,7 +23,7 @@ export function normalizeEmail(value: string): string | null {
 }
 
 /** Emails a sign-in link + code. Returns an error message for the person, or null when sent. */
-export async function sendLoginEmail(email: string, origin: string): Promise<string | null> {
+export async function sendLoginEmail(email: string, origin: string, timeZone = "UTC"): Promise<string | null> {
   const recent = await queryOne<{ n: number }>(
     `SELECT count(*)::int AS n FROM email_login_codes
       WHERE lower(email) = $1 AND created_at > now() - interval '10 minutes'`,
@@ -45,7 +46,11 @@ export async function sendLoginEmail(email: string, origin: string): Promise<str
   const link = `${origin}/login/email?token=${token}`;
   await sendSystemEmail({
     to: email,
-    subject: "Your Clandar sign-in link",
+    // A timestamp keeps every sign-in email its own conversation — mail apps would otherwise thread them,
+    // tucking the newest code under older ones. "2026-09-30 13:56:14", in the person's own zone.
+    subject: `Your secure link to Clandar is here | ${new Date()
+      .toLocaleString("sv-SE", { timeZone: validTimeZone(timeZone), hour12: false })
+      .replace("T", " ")}`,
     text:
       `Sign in to Clandar: ${link}\n\nOr enter this code: ${code}\n\n` +
       `The link and code expire in ${TTL_MINUTES} minutes. If you didn't ask to sign in, ignore this email.`,
