@@ -5,7 +5,8 @@ import L from "leaflet";
 import { useEffect } from "react";
 import { MapContainer, Marker, Polyline, TileLayer, Tooltip, useMap } from "react-leaflet";
 
-export type MapStop = { id: string; n: number; lat: number; lng: number; label: string };
+/** A numbered pin; `when`, `title` and `place` make up its hover card. */
+export type MapStop = { id: string; n: number; lat: number; lng: number; when: string; title: string; place: string };
 
 /** Numbered pin, drawn with CSS (Leaflet's default image icons don't survive bundling). */
 function numberIcon(n: number) {
@@ -63,8 +64,19 @@ export default function ScheduleMapInner({
       ) : null}
       {stops.map((s) => (
         <Marker key={s.id} position={[s.lat, s.lng]} icon={numberIcon(s.n)}>
-          <Tooltip direction="top" offset={[0, -12]}>
-            {s.label}
+          {/* Leaflet's tooltip is one nowrap line by default — this one is a small card that wraps
+              (schedule-map-tip in globals.css), with long notes clamped. */}
+          <Tooltip direction="top" offset={[0, -14]} className="schedule-map-tip">
+            <div className="flex w-[240px] max-w-[70vw] flex-col gap-[3px]">
+              <span className="flex items-center gap-[6px] font-mono text-[11px] text-muted">
+                <span className="flex size-[16px] shrink-0 items-center justify-center rounded-full bg-ink text-[9.5px] font-semibold text-lime">
+                  {s.n}
+                </span>
+                {s.when}
+              </span>
+              <span className="line-clamp-3 text-[12.5px] leading-[1.4] font-semibold text-ink">{s.title}</span>
+              {s.place ? <span className="line-clamp-2 text-[11px] leading-[1.35] text-muted">{s.place}</span> : null}
+            </div>
           </Tooltip>
         </Marker>
       ))}

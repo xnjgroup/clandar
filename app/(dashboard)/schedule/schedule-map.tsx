@@ -50,7 +50,9 @@ export function ScheduleMap({ entries }: { entries: ScheduleEntry[] }) {
     n: i + 1,
     lat: e.lat,
     lng: e.lng,
-    label: `${time(new Date(e.startsAt))} · ${e.notes || e.location || e.projectTitle || "Scheduled"}`,
+    when: `${day === "all" ? `${dayLabel(new Date(e.startsAt))} · ` : ""}${time(new Date(e.startsAt))} – ${time(new Date(e.endsAt))}`,
+    title: e.notes || e.projectTitle || "Scheduled",
+    place: e.location || e.projectAddress || "",
   }));
   const straight: [number, number][] = stops.map((s) => [s.lat, s.lng]);
   const drivable =

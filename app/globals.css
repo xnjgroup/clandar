@@ -137,3 +137,15 @@ body {
     font-size: 15.5px;
   }
 }
+
+/* The schedule map's hover cards (app/(dashboard)/schedule/schedule-map-inner.tsx): Leaflet's tooltip
+   is a single nowrap line; these wrap, with the app's card look. */
+.leaflet-tooltip.schedule-map-tip {
+  white-space: normal;
+  padding: 9px 11px;
+  border: 1px solid var(--color-line, #e3e6df);
+  border-radius: 12px;
+  background: var(--color-surface, #fff);
+  box-shadow: 0 8px 24px rgba(16, 18, 17, 0.16);
+  font-family: inherit;
+}
