@@ -215,7 +215,7 @@ export default async function EmailPage({ searchParams }: PageProps<"/email">) {
         );
       })}
 
-      <div className="flex flex-wrap items-center gap-[9px]">
+      <div className="flex items-center gap-[9px] sm:flex-wrap">
         <SearchForm
           action={PATH}
           placeholder="Gmail search — from:acme has:attachment…"
@@ -224,10 +224,11 @@ export default async function EmailPage({ searchParams }: PageProps<"/email">) {
             view: view.id === DEFAULT_MAILBOX_VIEW ? undefined : view.id,
             account: accounts.length > 1 ? account.id : undefined,
           }}
-          className="max-w-[360px] flex-1"
+          className="min-w-0 flex-1 sm:max-w-[360px]"
         />
         {accounts.length === 1 ? (
-          <span className="flex shrink-0 items-center gap-2 rounded-[14px] border border-line bg-surface px-[13px] py-[9px]">
+          // The single account's address is just context — hidden on phones to save the row.
+          <span className="hidden shrink-0 items-center gap-2 rounded-[14px] border border-line bg-surface px-[13px] py-[9px] sm:flex">
             <Icon name="mail" size={16} className="shrink-0 text-body-soft" />
             <span className="truncate text-[12.5px] font-medium">{accountLabel(account)}</span>
           </span>
@@ -237,7 +238,8 @@ export default async function EmailPage({ searchParams }: PageProps<"/email">) {
           className="flex shrink-0 items-center gap-2 rounded-[14px] border border-line bg-surface px-[13px] py-[9px] text-[12.5px] font-medium"
         >
           <Icon name="shield" size={15} className="shrink-0 text-body-soft" />
-          Clean up inbox
+          <span className="sm:hidden">Clean up</span>
+          <span className="hidden sm:inline">Clean up inbox</span>
         </Link>
       </div>
 
@@ -253,8 +255,11 @@ export default async function EmailPage({ searchParams }: PageProps<"/email">) {
         />
       ) : null}
 
+      {/* The per-label counts are an overview for bigger screens; on phones the view chips below cover it. */}
       {labels.length > 0 ? (
-        <LabelDashboard labels={labels} accounts={accounts.length} accountId={account.id} params={params} />
+        <div className="hidden sm:block">
+          <LabelDashboard labels={labels} accounts={accounts.length} accountId={account.id} params={params} />
+        </div>
       ) : null}
 
       <TabLinks
