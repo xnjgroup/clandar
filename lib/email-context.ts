@@ -4,30 +4,29 @@
  * labelled as untrusted content, plus its attachments. (Wall-clock → UTC
  * conversion lives in lib/time-zone.ts; re-exported here for older callers.)
  */
+import { compile } from "html-to-text";
 import { extractDocumentText } from "@/lib/document-extract";
 import { readAttachment, type MailDetail } from "@/lib/gmail";
 
 const MAX_BODY_CHARS = 10_000;
 
-/** Good-enough HTML → text for feeding a model: drops head/style/script/comments, keeps line structure, decodes entities, squeezes the padding. */
+const toText = compile({
+  wordwrap: false,
+  selectors: [
+    // Link text is enough; tracking URLs are noise for the model.
+    { selector: "a", options: { ignoreHref: true } },
+    { selector: "img", format: "skip" },
+    // Layout tables in marketing email read better as plain blocks than as ASCII tables.
+    { selector: "table", format: "block" },
+    { selector: "tr", format: "block" },
+    { selector: "td", format: "block" },
+    { selector: "th", format: "block" },
+  ],
+});
+
+/** HTML → readable text for the model (via html-to-text), with the layout padding squeezed out. */
 export function htmlToText(html: string): string {
-  return squeeze(
-    html
-      .replace(/<!--[\s\S]*?-->/g, "")
-      .replace(/<(head|style|script|noscript)[\s\S]*?<\/\1>/gi, "")
-      .replace(/<br\s*\/?>/gi, "\n")
-      .replace(/<\/(p|div|tr|li|h[1-6]|table|blockquote)>/gi, "\n")
-      .replace(/<li[^>]*>/gi, "• ")
-      .replace(/<[^>]+>/g, "")
-      .replace(/&#(\d+);/g, (_, n: string) => String.fromCodePoint(Number(n)))
-      .replace(/&#x([0-9a-f]+);/gi, (_, n: string) => String.fromCodePoint(parseInt(n, 16)))
-      .replace(/&nbsp;/g, " ")
-      .replace(/&amp;/g, "&")
-      .replace(/&lt;/g, "<")
-      .replace(/&gt;/g, ">")
-      .replace(/&quot;/g, '"')
-      .replace(/&#39;|&apos;/g, "'"),
-  );
+  return squeeze(toText(html));
 }
 
 /** Collapses the runs of spaces and blank lines that email layouts are padded with. */
