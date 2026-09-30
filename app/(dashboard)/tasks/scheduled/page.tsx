@@ -4,7 +4,8 @@ import { Card, EmptyRow, IconTile, PageBody, TableCard, TableHeader, TableTitle 
 import { relativeTime } from "@/lib/data";
 import { requireSession } from "@/lib/auth";
 import { formatSchedule, listScheduledTasks, TASK_PRESETS } from "@/lib/scheduled-tasks";
-import { toggleScheduledTask } from "./actions";
+import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
+import { removeScheduledTask, toggleScheduledTask } from "./actions";
 import { AddScheduledTaskButton } from "./add-scheduled-task-button";
 import { PresetAdder } from "./preset-adder";
 
@@ -69,6 +70,13 @@ export default async function ScheduledTasksPage() {
                   {task.isEnabled ? "Enabled" : "Paused"}
                 </button>
               </form>
+              <ConfirmDeleteButton
+                compact
+                action={removeScheduledTask}
+                fields={{ id: task.id }}
+                title={`Delete “${task.name}”?`}
+                message="It stops running and its run history is deleted too. This can't be undone."
+              />
             </div>
           ))
         )}

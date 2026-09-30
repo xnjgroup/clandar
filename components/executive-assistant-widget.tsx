@@ -312,7 +312,8 @@ export function ExecutiveAssistantWidget({
     }
   }
 
-  // Floats bottom-right; the app shell pads the bottom of every page so content can scroll clear of it.
+  // Desktop: floats bottom-right (the app shell pads pages so content scrolls clear of it).
+  // Phones: hidden — the bottom tab bar's last tab opens the chat instead.
   if (!open) {
     return (
       <button
@@ -320,7 +321,7 @@ export function ExecutiveAssistantWidget({
         onClick={() => onOpenChange(true)}
         aria-label="Open Executive Assistant chat"
         title="Open Executive Assistant chat"
-        className="fixed right-4 bottom-[86px] z-40 flex size-[52px] shrink-0 cursor-pointer items-center justify-center rounded-full bg-ink text-lime shadow-[0_6px_20px_rgba(16,18,17,0.28)] lg:right-6 lg:bottom-6"
+        className="fixed right-6 bottom-6 z-40 hidden size-[52px] shrink-0 cursor-pointer items-center justify-center rounded-full bg-ink text-lime shadow-[0_6px_20px_rgba(16,18,17,0.28)] lg:flex"
       >
         <Icon name="bot" size={22} />
       </button>

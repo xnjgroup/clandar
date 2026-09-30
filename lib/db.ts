@@ -18,10 +18,13 @@ function connectionString() {
 
 export function pool(): Pool {
   if (!globalForDb.clandarPool) {
+    // Kept small and quick to let go: a hosted pooler (Supabase) caps total clients across every
+    // process — dev server, each serverless instance — so idle connections here are slots taken
+    // from everyone else. Use the pooler's transaction mode (port 6543) so a slot is only held per query.
     globalForDb.clandarPool = new Pool({
       connectionString: connectionString(),
-      max: 10,
-      idleTimeoutMillis: 30_000,
+      max: 5,
+      idleTimeoutMillis: 10_000,
     });
   }
   return globalForDb.clandarPool;

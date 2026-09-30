@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Instrument_Sans, JetBrains_Mono } from "next/font/google";
 import { redirect } from "next/navigation";
 import "../globals.css";
@@ -18,6 +18,11 @@ const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
   weight: ["400", "500"],
 });
+
+/** `cover` lets pages run under the iPhone home indicator, so the floating tab bar can sit just above it (env(safe-area-inset-bottom)). */
+export const viewport: Viewport = {
+  viewportFit: "cover",
+};
 
 export const metadata: Metadata = {
   title: "Clandar",

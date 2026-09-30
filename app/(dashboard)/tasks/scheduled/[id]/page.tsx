@@ -5,6 +5,7 @@ import { Card, CardTitle, EmptyRow, IconTile, PageBody, Pill, TableCard, TableHe
 import { relativeTime, type Tone } from "@/lib/data";
 import { requireSession } from "@/lib/auth";
 import { formatSchedule, getScheduledTask, listRuns } from "@/lib/scheduled-tasks";
+import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
 import { ChangeSchedule } from "./change-schedule";
 import { removeScheduledTask, runScheduledTaskNow, toggleScheduledTask } from "../actions";
 
@@ -78,12 +79,14 @@ export default async function ScheduledTaskDetailPage({ params }: PageProps<"/ta
               {task.isEnabled ? "Pause" : "Enable"}
             </button>
           </form>
-          <form action={removeScheduledTask} className="ml-auto">
-            <input type="hidden" name="id" value={task.id} />
-            <button type="submit" className="cursor-pointer text-[11.5px] font-medium text-bad-fg underline">
-              Delete
-            </button>
-          </form>
+          <div className="ml-auto">
+            <ConfirmDeleteButton
+              action={removeScheduledTask}
+              fields={{ id: task.id }}
+              title={`Delete “${task.name}”?`}
+              message="It stops running and its run history is deleted too. This can't be undone."
+            />
+          </div>
         </div>
       </Card>
 

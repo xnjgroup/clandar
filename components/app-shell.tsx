@@ -296,9 +296,9 @@ export function AppShell({
       />
 
       <div className="flex min-w-0">
-        {/* Bottom padding lets the last row scroll clear of the floating assistant button
-            (components/executive-assistant-widget.tsx): 86px + 52px up on mobile, 24px + 52px on desktop. */}
-        <main className="flex min-w-0 flex-1 flex-col gap-[14px] px-[14px] pt-4 pb-[156px] lg:gap-4 lg:px-[26px] lg:pt-[22px] lg:pb-[96px]">
+        {/* Bottom padding: on phones, room for the floating tab bar above the home indicator; on desktop, room for the floating assistant
+            button (components/executive-assistant-widget.tsx) — 24px up + 52px tall. */}
+        <main className="flex min-w-0 flex-1 flex-col gap-[14px] px-[14px] pt-4 pb-[calc(96px+env(safe-area-inset-bottom))] lg:gap-4 lg:px-[26px] lg:pt-[22px] lg:pb-[96px]">
           <header className="flex min-w-0 items-center gap-[14px]">
             <button
               type="button"
@@ -327,23 +327,39 @@ export function AppShell({
         />
       </div>
 
-      <nav className="fixed right-0 bottom-0 left-0 z-20 grid grid-cols-4 gap-[2px] border-t border-line bg-surface px-1 pt-[6px] pb-[10px] lg:hidden">
+      {/* Phones: a floating, frosted tab bar (iOS style) — inset from the edges, above the home indicator,
+          with a soft pill behind the active tab. The last tab opens the assistant. */}
+      <nav
+        className="fixed inset-x-[12px] bottom-[max(10px,env(safe-area-inset-bottom))] z-20 grid grid-cols-5 rounded-full border border-white/70 bg-surface/75 p-[5px] shadow-[0_10px_30px_rgba(16,18,17,0.14),0_1px_0_rgba(255,255,255,0.8)_inset] backdrop-blur-xl backdrop-saturate-150 lg:hidden"
+      >
         {MOBILE_TABS.map((tab) => {
-          const on = isActive(pathname, tab.href);
+          const on = isActive(pathname, tab.href) && !assistantOpen;
           return (
             <Link
               key={tab.href}
               href={tab.href}
               aria-current={on ? "page" : undefined}
-              className={`flex min-h-[52px] flex-col items-center justify-center gap-1 rounded-[14px] ${
-                on ? "bg-ink text-lime" : "text-[#8b918a]"
+              className={`flex min-h-[54px] flex-col items-center justify-center gap-[3px] rounded-full transition-colors ${
+                on ? "bg-ink/[0.07] text-ok-fg" : "text-ink"
               }`}
             >
-              <Icon name={tab.icon} size={20} />
-              <span className="text-[10.5px] font-medium">{tab.label}</span>
+              <Icon name={tab.icon} size={21} />
+              <span className={`text-[10.5px] ${on ? "font-semibold" : "font-medium"}`}>{tab.label}</span>
             </Link>
           );
         })}
+        <button
+          type="button"
+          onClick={() => setAssistantOpen(true)}
+          aria-label="Open Executive Assistant chat"
+          title="Open Executive Assistant chat"
+          className={`flex min-h-[54px] cursor-pointer flex-col items-center justify-center gap-[3px] rounded-full transition-colors ${
+            assistantOpen ? "bg-ink/[0.07] text-ok-fg" : "text-ink"
+          }`}
+        >
+          <Icon name="bot" size={21} />
+          <span className={`text-[10.5px] ${assistantOpen ? "font-semibold" : "font-medium"}`}>Assistant</span>
+        </button>
       </nav>
     </div>
   );
