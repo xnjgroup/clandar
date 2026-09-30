@@ -5,6 +5,7 @@
  * keeps the source — the attachment and the original email as .eml — as the
  * invoice's documents. Used by the chat assistant's record_email_invoice tool.
  */
+import type { InvoiceStatus } from "@/lib/data";
 import { query, queryOne, transaction } from "@/lib/db";
 import { htmlToText } from "@/lib/email-context";
 import { insertInvoice, readInvoiceDocument, type InvoiceSource } from "@/lib/document-ingest";
@@ -115,6 +116,47 @@ export async function setInvoiceProject(invoiceId: string, orgId: string, projec
         AND ($3::uuid IS NULL OR EXISTS (SELECT 1 FROM projects WHERE id = $3 AND org_id = $2))`,
     [invoiceId, orgId, projectId],
   );
+}
+
+export type ProjectInvoice = {
+  id: string;
+  vendor: string;
+  vendorSlug: string;
+  category: string;
+  date: string;
+  dueDate: string | null;
+  amount: number;
+  status: InvoiceStatus;
+};
+
+/** The invoices/receipts charged to a project, newest first — for the project page. */
+export async function listProjectInvoices(projectId: string, orgId: string): Promise<ProjectInvoice[]> {
+  const rows = await query<{
+    id: string;
+    vendor: string;
+    slug: string;
+    category: string;
+    invoice_date: string;
+    due_date: string | null;
+    amount: string;
+    status: InvoiceStatus;
+  }>(
+    `SELECT i.id, v.name AS vendor, v.slug, i.category, i.invoice_date::text, i.due_date::text, i.amount::text, i.status
+       FROM invoices i JOIN vendors v ON v.id = i.vendor_id
+      WHERE i.project_id = $1 AND i.org_id = $2
+      ORDER BY i.invoice_date DESC, i.created_at DESC`,
+    [projectId, orgId],
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    vendor: r.vendor,
+    vendorSlug: r.slug,
+    category: r.category,
+    date: r.invoice_date,
+    dueDate: r.due_date,
+    amount: Number(r.amount),
+    status: r.status,
+  }));
 }
 
 export type InvoiceDocument = { id: string; fileName: string; contentType: string; sizeBytes: number };

@@ -3,13 +3,14 @@ import { notFound } from "next/navigation";
 import { Icon } from "@/components/icons";
 import { TimeZoneField } from "@/components/time-zone-field";
 import { Card, CardTitle, EmptyRow, PageBody, Pill, TableCard, TableHeader, TableTitle } from "@/components/ui";
-import { count, money, relativeTime, type Tone } from "@/lib/data";
+import { count, money, relativeTime, shortDate, statusLabel, statusTone, type Tone } from "@/lib/data";
 import { listTeam, requireSession } from "@/lib/auth";
 import { getConnector, listGmailConnectors, hasGmailModifyScope } from "@/lib/connectors";
 import { PROJECT_STATUSES, describeDue, getProject, type ProjectStatus } from "@/lib/projects";
 import { listProjectTypes } from "@/lib/project-types";
 import { listAllProjectFiles, listProjectPhotos } from "@/lib/project-photos";
 import { getLetterhead } from "@/lib/letterhead";
+import { listProjectInvoices } from "@/lib/email-invoice";
 import { listEstimates, type Estimate } from "@/lib/quoting";
 import { listSchedule } from "@/lib/schedule";
 import { listTasks } from "@/lib/tasks";
@@ -142,7 +143,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
   const yearAhead = new Date();
   yearAhead.setFullYear(yearAhead.getFullYear() + 1);
 
-  const [team, projectTypes, photos, estimates, schedule, tasks, gmailConnectors, letterhead, allFiles] = await Promise.all([
+  const [team, projectTypes, photos, estimates, schedule, tasks, gmailConnectors, letterhead, allFiles, invoices] = await Promise.all([
     listTeam(org.id),
     listProjectTypes(org.id),
     listProjectPhotos(project.id),
@@ -152,7 +153,9 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
     listGmailConnectors(org.id),
     getLetterhead(org.id),
     listAllProjectFiles(project.id),
+    listProjectInvoices(project.id, org.id),
   ]);
+  const invoiceTotal = invoices.reduce((sum, inv) => sum + inv.amount, 0);
 
   const sendableConnectors = (
     await Promise.all(gmailConnectors.map(async (c) => ((await getConnector(c.id)) ? c : null)))
@@ -433,6 +436,43 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
           <AddTaskForm projectId={project.id} redirectPath={`/projects/${project.id}`} members={team} />
         </div>
         <TaskList tasks={tasks} redirectPath={`/projects/${project.id}`} emptyLabel="No tasks yet." />
+      </TableCard>
+
+      {/* Spend: invoices and receipts linked to this project (from the invoice page, email, or a parsed file). */}
+      <TableCard>
+        <TableHeader>
+          <TableTitle>Invoices &amp; receipts</TableTitle>
+          {invoices.length > 0 ? (
+            <span className="ml-auto text-[12px] text-muted">
+              {invoices.length} · total <span className="font-mono font-semibold text-ink">{money(invoiceTotal)}</span>
+            </span>
+          ) : null}
+        </TableHeader>
+        {invoices.length === 0 ? (
+          <EmptyRow>
+            None linked yet — link one from its invoice page, record one from an email with the assistant, or upload a file as
+            an Invoice/Receipt below.
+          </EmptyRow>
+        ) : (
+          invoices.map((inv) => (
+            <Link
+              key={inv.id}
+              href={`/invoices/${inv.vendorSlug}?id=${inv.id}`}
+              className="flex min-h-[54px] min-w-0 flex-wrap items-center gap-x-3 gap-y-[4px] border-t border-line-soft px-[18px] py-[10px] hover:bg-[#fafbf9]"
+            >
+              <Icon name="doc" size={16} className="shrink-0 text-body-soft" />
+              <div className="flex min-w-0 flex-1 flex-col leading-[1.35]">
+                <span className="truncate text-[13px] font-semibold">{inv.vendor}</span>
+                <span className="truncate text-[11.5px] text-muted">
+                  {inv.category} · {shortDate(inv.date)}
+                  {inv.dueDate ? ` · due ${shortDate(inv.dueDate)}` : ""}
+                </span>
+              </div>
+              <Pill tone={statusTone(inv.status)}>{statusLabel(inv.status)}</Pill>
+              <span className="w-[96px] shrink-0 text-right font-mono text-[12.5px] font-semibold">{money(inv.amount)}</span>
+            </Link>
+          ))
+        )}
       </TableCard>
 
       {/* Project records: files */}
