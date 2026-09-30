@@ -1,6 +1,5 @@
 import { revalidatePath } from "next/cache";
 import { NextResponse, after } from "next/server";
-import { unstable_rethrow } from "next/navigation";
 import { requireSession } from "@/lib/auth";
 import { getProject } from "@/lib/projects";
 import { DOC_TYPES, type DocType } from "@/lib/doc-types";
@@ -21,17 +20,7 @@ import { addProjectFile, ensureProjectFolderPath, getProjectFolder, parseTags } 
 // Room for the post-response LLM parse of an invoice/receipt (`after` runs within this budget).
 export const maxDuration = 120;
 
-export async function POST(request: Request, context: { params: Promise<{ projectId: string }> }) {
-  // Any failure comes back as JSON the uploader can show ("File storage isn't set up…"), not a bare 500.
-  try {
-    return await upload(request, context);
-  } catch (error) {
-    unstable_rethrow(error); // let Next's own signals through (e.g. the redirect to sign-in)
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Upload failed." }, { status: 500 });
-  }
-}
-
-async function upload(request: Request, { params }: { params: Promise<{ projectId: string }> }) {
+export async function POST(request: Request, { params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params;
   const session = await requireSession();
   const project = await getProject(projectId, session.org.id);

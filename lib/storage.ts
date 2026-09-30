@@ -53,19 +53,6 @@ async function streamToBuffer(body: unknown): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
-/**
- * Serverless hosts (Vercel) have a read-only, per-instance disk, so the local
- * fallback can't work there — say exactly what's missing instead of failing
- * with a filesystem error.
- */
-function requireLocalDiskAllowed() {
-  if (process.env.VERCEL) {
-    throw new Error(
-      "File storage isn't set up on this deployment — add the R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY and R2_BUCKET environment variables in Vercel.",
-    );
-  }
-}
-
 export async function saveUpload(
   category: string,
   ownerId: string,
@@ -79,7 +66,6 @@ export async function saveUpload(
     await r2Client(r2).send(new PutObjectCommand({ Bucket: r2.bucket, Key: key, Body: bytes }));
     return key;
   }
-  requireLocalDiskAllowed();
 
   // turbopackIgnore: the runtime-configurable root (UPLOADS_DIR) means the
   // build can't statically bound this path to a subfolder — the whole-project
@@ -97,7 +83,6 @@ export async function readUpload(key: string): Promise<Buffer> {
     const result = await r2Client(r2).send(new GetObjectCommand({ Bucket: r2.bucket, Key: key }));
     return streamToBuffer(result.Body);
   }
-  requireLocalDiskAllowed();
   return readFile(join(/*turbopackIgnore: true*/ localRoot(), key));
 }
 

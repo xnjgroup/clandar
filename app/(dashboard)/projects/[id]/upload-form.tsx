@@ -3,7 +3,6 @@
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { DOC_TYPES } from "@/lib/doc-types";
-import { shrinkImage } from "@/lib/shrink-image";
 
 type Upload = { key: string; name: string; loaded: number; total: number; error?: string; done?: boolean };
 
@@ -95,11 +94,8 @@ export function UploadForm({
       // "Site visit/Photos/IMG_1.jpg" → "Site visit/Photos"; empty for a plain file pick.
       const relativePath = file.webkitRelativePath.split("/").slice(0, -1).join("/");
       try {
-        // Phone photos: shrink/convert (HEIC → JPEG) first — see lib/shrink-image.ts.
-        const prepared = await shrinkImage(file);
-        if (prepared !== file) patch(key, { total: prepared.size });
-        await postFile(endpoint, prepared, { ...fields, relativePath, tags, docType }, (loaded) => patch(key, { loaded }));
-        patch(key, { loaded: prepared.size, done: true });
+        await postFile(endpoint, file, { ...fields, relativePath, tags, docType }, (loaded) => patch(key, { loaded }));
+        patch(key, { loaded: file.size, done: true });
       } catch (err) {
         patch(key, { error: err instanceof Error ? err.message : "Upload failed." });
       }

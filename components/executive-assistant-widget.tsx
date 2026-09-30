@@ -4,7 +4,6 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { Icon } from "@/components/icons";
-import { shrinkImage } from "@/lib/shrink-image";
 import type { AgentAttachment, AgentTurn, ConversationSummary } from "@/lib/assistant";
 
 /**
@@ -208,9 +207,7 @@ export function ExecutiveAssistantWidget({
 
   function onFilesChosen(files: FileList | null) {
     if (!files) return;
-    // Photos are shrunk first (HEIC → JPEG, capped size) so a phone photo fits in the request.
-    Array.from(files).forEach(async (original) => {
-      const file = await shrinkImage(original);
+    Array.from(files).forEach((file) => {
       const reader = new FileReader();
       reader.onload = () => {
         setAttachments((prev) => [
