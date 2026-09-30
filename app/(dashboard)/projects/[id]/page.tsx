@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { LocalTime } from "@/components/local-time";
 import { Icon } from "@/components/icons";
 import { TimeZoneField } from "@/components/time-zone-field";
 import { Card, CardTitle, EmptyRow, PageBody, Pill, TableCard, TableHeader, TableTitle } from "@/components/ui";
@@ -18,7 +17,7 @@ import { listTasks } from "@/lib/tasks";
 import { AddTaskForm } from "../../tasks/add-task-form";
 import { TaskList } from "../../tasks/task-list";
 import { AddToScheduleDialog } from "../../schedule/add-to-schedule-dialog";
-import { removeScheduleEntry } from "../../schedule/actions";
+import { ProjectSchedule } from "../../schedule/schedule-timeline";
 import { changeProjectAssignee, changeProjectStatus, saveProject } from "../actions";
 import { DeleteProjectDialog } from "./delete-project-dialog";
 import { EditableEstimate } from "./editable-estimate";
@@ -399,42 +398,11 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
             </Link>
           </span>
         </TableHeader>
-        <span className="border-t border-line-soft px-[18px] py-[10px] text-[12px] leading-[1.5] text-muted">
+        <p className="m-0 border-t border-line-soft px-[18px] py-[10px] text-[12px] leading-[1.5] text-muted">
           The days you (or your crew) will be working on this job. They show on the Scheduled page and in the morning
           briefing. For to-dos and reminders, use Tasks below.
-        </span>
-        {schedule.length === 0 ? (
-          <EmptyRow>Not scheduled yet.</EmptyRow>
-        ) : (
-          schedule.map((entry) => (
-            <div key={entry.id} className="flex min-h-[52px] items-start gap-3 border-t border-line-soft px-[18px] py-[11px]">
-              <Icon name="calendar" size={16} className="mt-[1px] shrink-0 text-body-soft" />
-              <div className="flex min-w-0 flex-1 flex-col gap-[2px] leading-[1.35]">
-                <span className="flex flex-wrap items-baseline gap-x-[8px] text-[12.5px] font-medium">
-                  <LocalTime value={entry.startsAt} options={{ weekday: "short", month: "short", day: "numeric" }} />
-                  <span className="font-mono text-[11.5px] font-normal text-muted">
-                    <LocalTime value={entry.startsAt} options={{ hour: "numeric", minute: "2-digit" }} /> –{" "}
-                    <LocalTime value={entry.endsAt} options={{ hour: "numeric", minute: "2-digit" }} />
-                  </span>
-                </span>
-                {entry.notes ? <span className="text-[12px] text-body">{entry.notes}</span> : null}
-                {entry.assignedName ? (
-                  <span className="flex items-center gap-[5px] text-[11.5px] text-muted">
-                    <Icon name="user" size={12} />
-                    {entry.assignedName}
-                  </span>
-                ) : null}
-              </div>
-              <form action={removeScheduleEntry}>
-                <input type="hidden" name="id" value={entry.id} />
-                <input type="hidden" name="redirectPath" value={`/projects/${project.id}`} />
-                <button type="submit" aria-label="Remove" className="cursor-pointer text-faint hover:text-bad-fg">
-                  <Icon name="close" size={14} />
-                </button>
-              </form>
-            </div>
-          ))
-        )}
+        </p>
+        <ProjectSchedule entries={schedule} redirectPath={`/projects/${project.id}`} emptyLabel="Not scheduled yet." />
       </TableCard>
 
       {/* Tasks */}
