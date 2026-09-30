@@ -267,7 +267,12 @@ export function ScheduleViews({
   storageKey: string;
 }) {
   const [editing, setEditing] = useState<ScheduleEntry | null>(null);
-  const now = useSyncExternalStore(noSubscribe, () => Date.now(), () => 0);
+  // Browser-only (so days and times are in the viewer's zone). The time is read once: a
+  // useSyncExternalStore snapshot must return the same value on every call, and Date.now()
+  // doesn't — that re-rendered forever ("Maximum update depth exceeded").
+  const onClient = useSyncExternalStore(noSubscribe, () => true, () => false);
+  const [clientNow] = useState(() => Date.now());
+  const now = onClient ? clientNow : 0;
   const view = useSyncExternalStore(
     subscribeView,
     () => readView(storageKey),
