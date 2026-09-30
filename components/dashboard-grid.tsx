@@ -106,16 +106,17 @@ export function DashboardGrid({
               .map((p) => (
                 <div
                   key={p.i}
-                  // Edit mode: a dashed frame around handle + card. Its radius = the card's 22px + 5px
-                  // padding + 2px border, so the curves stay concentric.
-                  className={`flex min-h-0 min-w-0 flex-col ${
-                    editing ? "gap-[5px] rounded-[29px] border-2 border-dashed border-line p-[5px]" : ""
+                  // Edit mode adds nothing inside the cell, so widgets are exactly the same size in both
+                  // modes: the dashed frame is an outline (follows the card's 22px corners, takes no
+                  // space) and the handle is a pill sitting on the card's top edge.
+                  className={`relative flex min-h-0 min-w-0 flex-col rounded-[22px] ${
+                    editing ? "outline-2 outline-dashed outline-offset-4 outline-line" : ""
                   }`}
                 >
                   {editing ? (
-                    <div className="dashboard-drag flex shrink-0 cursor-grab items-center gap-[6px] rounded-[20px] border border-line bg-line-soft px-[12px] py-[5px] text-[11px] font-medium text-body-soft hover:bg-line active:cursor-grabbing">
-                      <Icon name="menu" size={12} />
-                      {byId.get(p.i)!.title}
+                    <div className="dashboard-drag absolute -top-[13px] left-1/2 z-10 flex max-w-[80%] -translate-x-1/2 cursor-grab items-center gap-[6px] rounded-full border border-line bg-line-soft px-[12px] py-[4px] text-[11px] font-medium whitespace-nowrap text-body-soft shadow-[0_2px_8px_rgba(16,18,17,0.08)] hover:bg-line active:cursor-grabbing">
+                      <Icon name="menu" size={12} className="shrink-0" />
+                      <span className="truncate">{byId.get(p.i)!.title}</span>
                     </div>
                   ) : null}
                   {/* The widget fills its cell and scrolls if its content is taller. */}
