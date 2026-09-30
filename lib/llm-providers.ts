@@ -8,6 +8,7 @@
  * The API key is optional — most local servers don't check one — and is
  * encrypted the same way connector secrets are (`lib/crypto.ts`).
  */
+import { createParser } from "eventsource-parser";
 import { decryptSecret, encryptSecret } from "@/lib/crypto";
 import { query, queryOne } from "@/lib/db";
 import {
@@ -367,18 +368,41 @@ export async function chatComplete(
   return content;
 }
 
+/* ── Native tool calling ──────────────────────────────────── */
+
+/** A tool offered to the model — OpenAI-style function with a JSON Schema for its arguments. */
+export type ToolDefinition = { name: string; description: string; parameters: Record<string, unknown> };
+
+/** A tool call the model made: `arguments` is the raw JSON string it produced. */
+export type ModelToolCall = { id: string; name: string; arguments: string };
+
+/** The conversation as the tool-calling API sees it: plus the assistant's tool calls and each tool's result. */
+export type ToolChatMessage =
+  | ChatMessage
+  | {
+      role: "assistant";
+      content: string | null;
+      tool_calls: { id: string; type: "function"; function: { name: string; arguments: string } }[];
+    }
+  | { role: "tool"; tool_call_id: string; content: string };
+
+export type ToolStreamEvent =
+  | { type: "text"; text: string }
+  | { type: "tool_calls"; calls: ModelToolCall[] }
+  | { type: "finish"; reason: string | null };
+
 /**
- * Same call as `chatComplete`, but reads the OpenAI-compatible `stream: true`
- * SSE response and yields each new slice of text as it arrives — what lets
- * the Executive Assistant's chat show a reply word by word instead of
- * waiting for the whole thing. Concatenating every yielded piece gives the
- * same full text `chatComplete` would have returned.
+ * A streamed chat completion with native tool calling (the OpenAI-compatible
+ * `tools` parameter). Reply text is yielded token by token as the model writes
+ * it; tool calls are assembled from their streamed fragments and yielded once
+ * complete. The provider's SSE is parsed with eventsource-parser.
  */
-export async function* chatCompleteStream(
+export async function* chatStreamWithTools(
   providerId: string,
-  messages: ChatMessage[],
+  messages: ToolChatMessage[],
+  tools: ToolDefinition[],
   options: { temperature?: number; timeoutMs?: number; model?: string } = {},
-): AsyncGenerator<string> {
+): AsyncGenerator<ToolStreamEvent> {
   const provider = await getLlmProvider(providerId);
   if (!provider) throw new Error("LLM provider not found");
   const model = options.model || provider.model;
@@ -393,50 +417,86 @@ export async function* chatCompleteStream(
       messages,
       temperature: options.temperature ?? 0,
       stream: true,
+      ...(tools.length
+        ? {
+            tools: tools.map((t) => ({
+              type: "function",
+              function: { name: t.name, description: t.description, parameters: t.parameters },
+            })),
+            tool_choice: "auto",
+          }
+        : {}),
     }),
     cache: "no-store",
-    signal: AbortSignal.timeout(options.timeoutMs ?? 60_000),
+    signal: AbortSignal.timeout(options.timeoutMs ?? 120_000),
   }).catch((error: unknown) => {
     throw new Error(`Could not reach ${provider.name}: ${error instanceof Error ? error.message : "unknown error"}`);
   });
-
   if (!response.ok || !response.body) {
     throw new Error(`${provider.name} chat completion failed: ${await describeFailure(null, response, baseUrl)}`);
   }
 
+  // Parsed frames are queued by the parser callback and drained by the generator between reads.
+  const queue: ToolStreamEvent[] = [];
+  const calls = new Map<number, ModelToolCall>();
+  let finishReason: string | null = null;
+  let sawAny = false;
+  const parser = createParser({
+    onEvent: (message) => {
+      if (message.data === "[DONE]") return;
+      let chunk: {
+        choices?: {
+          delta?: {
+            content?: string | null;
+            tool_calls?: { index?: number; id?: string; function?: { name?: string; arguments?: string } }[];
+          };
+          finish_reason?: string | null;
+        }[];
+      };
+      try {
+        chunk = JSON.parse(message.data);
+      } catch {
+        return;
+      }
+      const choice = chunk.choices?.[0];
+      if (!choice) return;
+      if (choice.delta?.content) {
+        sawAny = true;
+        queue.push({ type: "text", text: choice.delta.content });
+      }
+      for (const part of choice.delta?.tool_calls ?? []) {
+        sawAny = true;
+        const index = part.index ?? 0;
+        const call = calls.get(index) ?? { id: "", name: "", arguments: "" };
+        if (part.id) call.id = part.id;
+        if (part.function?.name) call.name += part.function.name;
+        if (part.function?.arguments) call.arguments += part.function.arguments;
+        calls.set(index, call);
+      }
+      if (choice.finish_reason) finishReason = choice.finish_reason;
+    },
+  });
+
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
-  let buffer = "";
-  let sawAny = false;
-
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-
-    // SSE frames are separated by a blank line; each frame's payload lines start with "data: ".
-    const frames = buffer.split("\n\n");
-    buffer = frames.pop() ?? "";
-    for (const frame of frames) {
-      const line = frame.split("\n").find((l) => l.startsWith("data:"));
-      if (!line) continue;
-      const payload = line.slice(5).trim();
-      if (payload === "[DONE]") continue;
-      try {
-        const parsed = JSON.parse(payload) as { choices?: { delta?: { content?: string } }[] };
-        const delta = parsed.choices?.[0]?.delta?.content;
-        if (delta) {
-          sawAny = true;
-          yield delta;
-        }
-      } catch {
-        // A partial JSON object split across reads — SSE frames should be whole per read,
-        // but tolerate it rather than aborting a stream over one malformed frame.
-      }
-    }
+    parser.feed(decoder.decode(value, { stream: true }));
+    while (queue.length) yield queue.shift()!;
   }
+  while (queue.length) yield queue.shift()!;
 
+  if (calls.size > 0) {
+    yield {
+      type: "tool_calls",
+      calls: [...calls.entries()]
+        .sort(([a], [b]) => a - b)
+        .map(([i, c]) => ({ id: c.id || `call_${i}`, name: c.name, arguments: c.arguments || "{}" })),
+    };
+  }
   if (!sawAny) throw new Error(`${provider.name} returned no completion content`);
+  yield { type: "finish", reason: finishReason };
 }
 
 async function recordProbe(

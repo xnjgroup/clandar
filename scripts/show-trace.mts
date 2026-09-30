@@ -39,7 +39,8 @@ try {
     console.log(`\n── user ──\n${t.user_input}\n`);
     for (const s of t.steps as Record<string, unknown>[]) {
       console.log(`── step ${s.step} · model ${s.modelMs}ms${s.tool ? ` · tool ${s.tool} ${s.toolMs}ms` : " · reply"}`);
-      console.log(`raw: ${s.raw}`);
+      const said = (s.text ?? s.raw) as string | undefined;
+      if (said) console.log(`model said: ${said}`);
       if (s.tool) {
         console.log(`args: ${JSON.stringify(s.args)}`);
         console.log(`result: ${s.result}`);

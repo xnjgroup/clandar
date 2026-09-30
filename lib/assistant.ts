@@ -17,7 +17,13 @@
  * until the model chooses to reply instead of calling another tool.
  */
 import { query, queryOne } from "@/lib/db";
-import { chatCompleteStream, chatLlmProvider, type ChatContentPart, type ChatMessage } from "@/lib/llm-providers";
+import {
+  chatLlmProvider,
+  chatStreamWithTools,
+  type ChatContentPart,
+  type ModelToolCall,
+  type ToolChatMessage,
+} from "@/lib/llm-providers";
 import { createCustomer, findOrCreateCustomer, listCustomers } from "@/lib/customers";
 import { createProject, getProject, listProjects, type ProjectStatus } from "@/lib/projects";
 import { analyzeProjectPhotos, createEstimate, type LineItemKind } from "@/lib/quoting";
@@ -160,129 +166,190 @@ async function createConversation(orgId: string, personId: string | null): Promi
 
 type ToolResult = { summary: string; data?: unknown };
 
-/** `emailOnly` tools act on the email the user has open, so they're only offered on an email page. */
-const TOOLS: { name: string; description: string; parameters: string; emailOnly?: boolean }[] = [
+/** JSON Schema for a tool's arguments, as the model's native tool calling expects. */
+type JsonSchema = Record<string, unknown>;
+const str = (description?: string): JsonSchema => ({ type: "string", ...(description ? { description } : {}) });
+const obj = (properties: Record<string, JsonSchema>, required: string[] = []): JsonSchema => ({
+  type: "object",
+  properties,
+  required,
+  additionalProperties: false,
+});
+const PROJECT_TITLE = str("The project's title, matched case-insensitively");
+
+/**
+ * The tools offered to the model through its native tool calling. `emailOnly`
+ * tools act on the email the user has open, so they're only offered on an email page.
+ */
+const TOOLS: { name: string; description: string; parameters: JsonSchema; emailOnly?: boolean }[] = [
   {
     name: "list_project_types",
     description: "List this org's project types (the kinds of work it does).",
-    parameters: "{}",
+    parameters: obj({}),
   },
   {
     name: "create_project_type",
     description: "Create one new project type for this org.",
-    parameters: '{"name": "string, required", "icon": "optional short icon keyword, e.g. briefcase, brush, wrench, home"}',
+    parameters: obj({ name: str(), icon: str("Optional short icon keyword, e.g. briefcase, brush, wrench, home") }, ["name"]),
   },
   {
     name: "create_project_types",
     description:
-      "Create several new project types for this org in one call — prefer this over calling " +
-      "create_project_type repeatedly whenever you're adding more than one (e.g. extracting a list from a " +
-      "flyer or spreadsheet).",
-    parameters:
-      '{"items": [{"name": "string, required", "icon": "optional short icon keyword"}, ...]}',
+      "Create several new project types in one call — prefer this over create_project_type whenever adding more " +
+      "than one (e.g. a list extracted from a flyer or spreadsheet).",
+    parameters: obj(
+      { items: { type: "array", items: obj({ name: str(), icon: str("Optional short icon keyword") }, ["name"]) } },
+      ["items"],
+    ),
   },
-  { name: "list_customers", description: "List this org's customers.", parameters: "{}" },
+  { name: "list_customers", description: "List this org's customers.", parameters: obj({}) },
   {
     name: "create_customer",
     description:
       "Create a customer — or, if one with the same email (or name) already exists, reuse it and fill in any missing " +
       "contact details. create_project also does this on its own; call this first only to save extra details like an address.",
-    parameters: '{"name": "string, required", "email": "optional", "phone": "optional", "address": "optional"}',
+    parameters: obj({ name: str(), email: str(), phone: str(), address: str() }, ["name"]),
   },
   {
     name: "list_projects",
     description: "List this org's projects, optionally filtered by status.",
-    parameters: '{"status": "optional: lead|quoted|scheduled|in_progress|completed|cancelled"}',
+    parameters: obj({
+      status: { type: "string", enum: ["lead", "quoted", "scheduled", "in_progress", "completed", "cancelled"] },
+    }),
   },
   {
     name: "create_project",
     description:
-      "Create a new project for a customer. The customer is matched by name (case-insensitive); if none " +
-      "matches, a new customer with that name is created. The project type is matched by name against this " +
-      "org's existing project types (case-insensitive) — call list_project_types or create_project_type first " +
-      "if the type doesn't exist yet.",
-    parameters:
-      '{"customerName": "string, required", "title": "string, required", "customerEmail": "optional — set it when known ' +
-      '(e.g. the sender of an email), so a quote can be sent", "customerPhone": "optional", "projectTypeName": "optional", ' +
-      '"address": "optional", "notes": "optional", "dueDate": "optional YYYY-MM-DD"}',
+      "Create a new project for a customer. The customer is found by email, then name, or created. The project type " +
+      "is matched by name against this org's project types — call list_project_types or create_project_type first if needed.",
+    parameters: obj(
+      {
+        customerName: str(),
+        title: str(),
+        customerEmail: str("Set it when known (e.g. the sender of an email), so a quote can be sent"),
+        customerPhone: str(),
+        projectTypeName: str(),
+        address: str(),
+        notes: str(),
+        dueDate: str("YYYY-MM-DD"),
+      },
+      ["customerName", "title"],
+    ),
   },
-  { name: "list_tasks", description: "List this org's open tasks.", parameters: "{}" },
+  { name: "list_tasks", description: "List this org's open tasks.", parameters: obj({}) },
   {
     name: "create_task",
-    description:
-      "Create a to-do (with optional checklist steps), a shopping list (with optional items), or a reminder.",
-    parameters:
-      '{"title": "string, required", "kind": "optional: todo|shopping|reminder, default todo", ' +
-      '"notes": "optional", "items": "optional array of strings — checklist steps or shopping items", ' +
-      '"dueDate": "optional YYYY-MM-DD", "projectTitle": "optional, matched case-insensitively"}',
+    description: "Create a to-do (with optional checklist steps), a shopping list (with optional items), or a reminder.",
+    parameters: obj(
+      {
+        title: str(),
+        kind: { type: "string", enum: ["todo", "shopping", "reminder"], description: "Defaults to todo" },
+        notes: str(),
+        items: { type: "array", items: { type: "string" }, description: "Checklist steps or shopping items" },
+        dueDate: str("YYYY-MM-DD"),
+        projectTitle: PROJECT_TITLE,
+      },
+      ["title"],
+    ),
   },
   {
     name: "attach_files_to_project",
     description:
-      "Saves the image(s)/file(s) the user just attached to this message onto a project's own record — " +
-      "photos go to its Photos & quoting section, everything else to its Files section. Only works for files " +
-      "attached in the CURRENT message; there's nothing to attach if the user didn't upload anything this turn.",
-    parameters: '{"projectTitle": "string, required — matched case-insensitively"}',
+      "Save the image(s)/file(s) the user attached to THIS message onto a project — photos to its photos, " +
+      "everything else to its Files. Only works for files attached in the current message.",
+    parameters: obj({ projectTitle: PROJECT_TITLE }, ["projectTitle"]),
   },
   {
     name: "draft_estimate_from_photos",
     description:
-      "Have the AI draft a quote (estimate) for a project from its photos, saved as a DRAFT on the project for the user to " +
-      "review, edit and send. The project needs at least one photo (e.g. copied from an email first). Nothing is sent to the customer.",
-    parameters: '{"projectTitle": "string, required — matched case-insensitively"}',
+      "Have the AI draft a quote (estimate) for a project from its photos, saved as a DRAFT for the user to review, " +
+      "edit and send. The project needs at least one photo. Nothing is sent to the customer.",
+    parameters: obj({ projectTitle: PROJECT_TITLE }, ["projectTitle"]),
   },
   {
     name: "create_estimate",
     description:
-      "Save a quote (estimate) you've worked out — from the user's instructions or an email's details — as a DRAFT on a " +
-      "project, for the user to review, edit and send. Nothing is sent to the customer.",
-    parameters:
-      '{"projectTitle": "string, required", "summary": "string — scope of work the customer will read", ' +
-      '"lineItems": "array, required, of {\\"description\\": string, \\"quantity\\": number, \\"unitPrice\\": number, ' +
-      '\\"kind\\": \\"labor\\" | \\"material\\" | \\"other\\"}"}',
+      "Save a quote (estimate) you've worked out — from the user's instructions or an email — as a DRAFT on a project " +
+      "for the user to review, edit and send. Nothing is sent to the customer.",
+    parameters: obj(
+      {
+        projectTitle: PROJECT_TITLE,
+        summary: str("Scope of work the customer will read"),
+        lineItems: {
+          type: "array",
+          items: obj(
+            {
+              description: str(),
+              quantity: { type: "number" },
+              unitPrice: { type: "number" },
+              kind: { type: "string", enum: ["labor", "material", "other"] },
+            },
+            ["description", "quantity", "unitPrice", "kind"],
+          ),
+        },
+      },
+      ["projectTitle", "lineItems"],
+    ),
   },
   {
     name: "create_schedule_entry",
     description:
       "Put a project on the calendar: a date and time window, optionally assigned to a team member. Times are the user's local time.",
-    parameters:
-      '{"projectTitle": "string, required — matched case-insensitively", "date": "YYYY-MM-DD, required", ' +
-      '"startTime": "HH:MM 24h, required", "endTime": "HH:MM 24h, required", "assigneeName": "optional team member name", ' +
-      '"notes": "optional"}',
+    parameters: obj(
+      {
+        projectTitle: PROJECT_TITLE,
+        date: str("YYYY-MM-DD"),
+        startTime: str("HH:MM, 24-hour"),
+        endTime: str("HH:MM, 24-hour"),
+        assigneeName: str("A team member's name"),
+        notes: str(),
+      },
+      ["projectTitle", "date", "startTime", "endTime"],
+    ),
   },
   {
     name: "draft_email_reply",
     description:
       "Save a reply to the email the user is viewing into their Gmail Drafts (threaded, addressed to the sender). Nothing is sent.",
-    parameters: '{"body": "string, required — the full reply text, signed off naturally"}',
+    parameters: obj({ body: str("The full reply text, signed off naturally") }, ["body"]),
     emailOnly: true,
   },
   {
     name: "attach_email_files_to_project",
     description:
-      "Copy the attachments of the email the user is viewing onto a project's record — images go to its photos, everything " +
-      "else to its Files. Use after creating a project from an email, or whenever the user asks to save the email's files to a project.",
-    parameters:
-      '{"projectTitle": "string, required — matched case-insensitively", ' +
-      '"attachmentNames": "optional array of attachment filenames; omit to copy all of them"}',
+      "Copy the attachments of the email the user is viewing onto a project — images to its photos, everything else to its " +
+      "Files. Use after creating a project from an email, or whenever asked to save the email's files to a project.",
+    parameters: obj(
+      {
+        projectTitle: PROJECT_TITLE,
+        attachmentNames: { type: "array", items: { type: "string" }, description: "Filenames; omit to copy all" },
+      },
+      ["projectTitle"],
+    ),
     emailOnly: true,
   },
   {
     name: "record_email_invoice",
     description:
-      "Add the invoice/bill/receipt in the email the user is viewing to their invoice records: parses the attached PDF/image " +
-      "(or the email text if nothing is attached), creates the invoice for review, and keeps the attachment and the original " +
-      "email as its documents. ONLY after the user has said yes to recording it.",
-    parameters:
-      '{"docType": "invoice | receipt, required", "projectTitle": "optional — link it to this project (matched case-insensitively)", ' +
-      '"attachmentName": "optional — which attachment to read, if there are several"}',
+      "Add the invoice/bill/receipt in the email the user is viewing to their invoice records: reads the attached " +
+      "PDF/image (or the email text), creates the invoice for review, and keeps the attachment and the original email as " +
+      "its documents. ONLY after the user has said yes to recording it.",
+    parameters: obj(
+      {
+        docType: { type: "string", enum: ["invoice", "receipt"] },
+        projectTitle: str("Optional — link it to this project (matched case-insensitively)"),
+        attachmentName: str("Optional — which attachment to read, if there are several"),
+      },
+      ["docType"],
+    ),
     emailOnly: true,
   },
   {
     name: "send_email_reply",
     description:
-      "Send a reply to the email the user is viewing, to its sender, in the same thread. ONLY when the user has explicitly told you to send it in this chat — otherwise use draft_email_reply.",
-    parameters: '{"body": "string, required — the full reply text"}',
+      "Send a reply to the email the user is viewing, to its sender, in the same thread. ONLY when the user has " +
+      "explicitly told you to send it in this chat — otherwise use draft_email_reply.",
+    parameters: obj({ body: str("The full reply text") }, ["body"]),
     emailOnly: true,
   },
 ];
@@ -643,129 +710,22 @@ async function runToolUnsafe(
 
 /* ── The loop ─────────────────────────────────────────────────── */
 
-type AgentAction =
-  | { type: "reply"; message: string }
-  | { type: "tool_call"; tool: string; args: Record<string, unknown> };
-
-/**
- * Finds the first complete, balanced `{...}` object in `raw`, ignoring
- * anything before or after it. Some models tack on their own native
- * tool-call scaffolding (special tokens, a second near-duplicate JSON blob,
- * ...) after the JSON we actually asked for — a naive "first `{` to last `}`"
- * regex would swallow that trailing noise into one unparseable blob. Tracks
- * string/escape state so a brace inside a quoted value doesn't miscount.
- */
-function extractFirstJsonObject(raw: string): string | null {
-  const start = raw.indexOf("{");
-  if (start === -1) return null;
-
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-  for (let i = start; i < raw.length; i++) {
-    const ch = raw[i];
-    if (inString) {
-      if (escaped) escaped = false;
-      else if (ch === "\\") escaped = true;
-      else if (ch === '"') inString = false;
-      continue;
-    }
-    if (ch === '"') inString = true;
-    else if (ch === "{") depth++;
-    else if (ch === "}") {
-      depth--;
-      if (depth === 0) return raw.slice(start, i + 1);
-    }
-  }
-  return null; // never closed — an incomplete/malformed response
-}
-
-/**
- * Some models ignore the requested JSON envelope entirely and emit their own
- * native tool-call syntax instead — an `invoke name="..."` / `parameter
- * name="..."` XML-ish shape (seen from at least one provider even wrapped in
- * garbled/mis-decoded special-token placeholders around it, a sign of a
- * tokenizer/chat-template mismatch on that server, not something this app
- * can fix — but the invoke/parameter structure itself is recognizable
- * regardless of what garbage surrounds it). Recovered here as a fallback so
- * the call still runs instead of the raw tags showing up as a "reply".
- */
-function parseNativeInvoke(raw: string): AgentAction | null {
-  const invokeMatch = /invoke\s+name="([^"]+)"/.exec(raw);
-  if (!invokeMatch) return null;
-  const tool = invokeMatch[1];
-
-  const argsMatch = /parameter\s+name="args"[^>]*>([\s\S]*?)<\//.exec(raw);
-  if (argsMatch) {
-    const jsonText = extractFirstJsonObject(argsMatch[1]) ?? argsMatch[1].trim();
-    try {
-      return { type: "tool_call", tool, args: JSON.parse(jsonText) as Record<string, unknown> };
-    } catch {
-      // fall through to per-parameter collection below
-    }
-  }
-
-  // No single "args" JSON blob (or it didn't parse) — collect individual
-  // <parameter name="x">value</parameter>-style entries instead.
-  const args: Record<string, unknown> = {};
-  const paramPattern = /parameter\s+name="([^"]+)"[^>]*>([\s\S]*?)<\//g;
-  let m: RegExpExecArray | null;
-  while ((m = paramPattern.exec(raw)) !== null) {
-    if (m[1] !== "args") args[m[1]] = m[2].trim();
-  }
-  return { type: "tool_call", tool, args };
-}
-
-function parseAction(raw: string): AgentAction {
-  const jsonText = extractFirstJsonObject(raw);
-  if (jsonText) {
-    try {
-      const parsed = JSON.parse(jsonText) as { type?: string; message?: string; tool?: string; args?: unknown };
-      if (parsed.type === "tool_call" && typeof parsed.tool === "string") {
-        return { type: "tool_call", tool: parsed.tool, args: (parsed.args as Record<string, unknown>) ?? {} };
-      }
-      if (parsed.type === "reply" && typeof parsed.message === "string") {
-        return { type: "reply", message: parsed.message };
-      }
-    } catch {
-      // fall through — not every model obeys the format perfectly
-    }
-  }
-  const native = parseNativeInvoke(raw);
-  if (native) return native;
-  // Graceful fallback: treat anything that isn't valid tool-call JSON as a plain reply.
-  return { type: "reply", message: raw.trim() };
-}
-
 const MAX_STEPS = 50;
 
 function systemPrompt(pageContext: string | null, context: AssistantContext): string {
-  const toolList = TOOLS.filter((t) => !t.emailOnly || context.email)
-    .map((t) => `- ${t.name}(${t.parameters}): ${t.description}`)
-    .join("\n");
   return (
     "You are the Executive Assistant for a small business owner's operations app (Clandar). You can answer " +
-    "questions and take real actions — creating customers, projects, project types, tasks, and draft quotes — using the tools " +
-    "below. Use a tool whenever the user asks you to look something up or create/change something; don't just " +
+    "questions and take real actions — creating customers, projects, project types, tasks, and draft quotes — using your " +
+    "tools. Use a tool whenever the user asks you to look something up or create/change something; don't just " +
     "describe what you would do. A quote (estimate) always belongs to a project: if the job doesn't have a project " +
     "yet, call create_project first (include the customer's email when you know it, so the quote can be sent), then " +
     "draft the quote on it. Quotes are saved as drafts; the user reviews and sends them from the project page.\n\n" +
-    "Available tools:\n" +
-    toolList +
-    "\n\n" +
-    "Respond with ONLY JSON, no prose, no markdown fences, in exactly one of these two shapes:\n" +
-    '  {"type": "tool_call", "tool": "<tool name>", "args": { ... }}\n' +
-    '  {"type": "reply", "message": "<your reply to the user>"}\n' +
-    "Do not use any other tool-calling format — no XML tags, no function-call blocks, no <invoke> syntax. " +
-    "Only ever emit one of the two plain JSON shapes above, nothing else. " +
-    "Call one tool at a time. After a tool result comes back, decide whether to call another tool or reply. " +
     "When the user attaches an image (a flyer, a service list, a job-site photo) or a document (its text is " +
     "included inline in their message, marked \"--- Attached: <filename> ---\"), read it and act on their " +
-    "request using the tools available — for example, extracting a list of service categories from a flyer or a " +
-    "spreadsheet and calling create_project_type once per item. Once you have enough information, always finish with a reply " +
-    "summarizing what you did or answering the question — never end on a tool_call. In your reply's \"message\", " +
-    "link to a page in the app whenever it's relevant using markdown link syntax, e.g. " +
-    '"[Project Types](/projects/types)" — the chat renders these as clickable links. Common pages: /projects, ' +
+    "request with your tools — for example, extracting service categories from a flyer and calling " +
+    "create_project_types. Once you have what you need, finish with a reply summarizing what you did or answering " +
+    "the question. In replies, link to pages in the app with markdown links, e.g. " +
+    '"[Project Types](/projects/types)" — the chat renders them as clickable links. Common pages: /projects, ' +
     "/projects/types, /projects/new, /customers, /schedule, /tasks, /settings." +
     (pageContext ? `\n\nThe user is currently viewing: ${pageContext}.` : "") +
     `\n\nToday is ${new Date().toLocaleDateString("en-CA", { timeZone: context.timeZone })} in the user's time zone (${context.timeZone}).` +
@@ -797,67 +757,6 @@ export type AssistantEvent =
   | { type: "done"; conversationId: string }
   | { type: "error"; message: string; conversationId?: string };
 
-/**
- * Pulls the growing value of the `"message"` field out of raw text as it
- * streams in — e.g. gets "hello wo" out of `{"type": "reply", "message":
- * "hello wo` before the JSON object is even complete. Not a general JSON
- * streaming parser, just enough string-literal handling (escapes, the
- * closing quote) to track one field safely, and gated on having already seen
- * `"type": "reply"` so a tool_call's `args` never gets mistaken for it.
- */
-class StreamingReplyExtractor {
-  private raw = "";
-  private cursor = -1;
-  private confirmedReply = false;
-  private done = false;
-
-  push(chunk: string): string {
-    if (this.done) return "";
-    this.raw += chunk;
-
-    if (!this.confirmedReply) {
-      if (!/"type"\s*:\s*"reply"/.test(this.raw)) return "";
-      this.confirmedReply = true;
-    }
-
-    if (this.cursor === -1) {
-      const markerIndex = this.raw.indexOf('"message"');
-      if (markerIndex === -1) return "";
-      const afterMarker = this.raw.slice(markerIndex + 9);
-      const colonMatch = /^\s*:\s*"/.exec(afterMarker);
-      if (!colonMatch) return "";
-      this.cursor = markerIndex + 9 + colonMatch[0].length;
-    }
-
-    let decoded = "";
-    let i = this.cursor;
-    const escapeMap: Record<string, string> = { n: "\n", t: "\t", r: "\r", '"': '"', "\\": "\\", "/": "/" };
-    while (i < this.raw.length) {
-      const ch = this.raw[i];
-      if (ch === "\\") {
-        if (i + 1 >= this.raw.length) break; // incomplete escape — wait for more input
-        const next = this.raw[i + 1];
-        if (next === "u") {
-          if (i + 6 > this.raw.length) break; // incomplete \uXXXX
-          decoded += String.fromCharCode(parseInt(this.raw.slice(i + 2, i + 6), 16));
-          i += 6;
-          continue;
-        }
-        decoded += escapeMap[next] ?? next;
-        i += 2;
-        continue;
-      }
-      if (ch === '"') {
-        this.done = true;
-        break;
-      }
-      decoded += ch;
-      i++;
-    }
-    this.cursor = i;
-    return decoded;
-  }
-}
 
 export async function* askAssistant(
   orgId: string,
@@ -929,7 +828,7 @@ export async function* askAssistant(
         ]
       : questionForModel;
 
-  const messages: ChatMessage[] = [
+  const messages: ToolChatMessage[] = [
     { role: "system", content: systemPrompt(pageContext, context) },
     ...priorRows.map((r) => ({ role: r.role, content: r.body }) as const),
     { role: "user", content: userContent },
@@ -961,30 +860,42 @@ export async function* askAssistant(
     ).catch(() => {});
   };
 
+  // Native tool calling: tools go in the request's `tools`, reply text streams straight through,
+  // and each tool result goes back as a `tool` message.
+  const tools = TOOLS.filter((t) => !t.emailOnly || context.email).map(({ name, description, parameters }) => ({
+    name,
+    description,
+    parameters,
+  }));
   const toolCalls: { tool: string; detail: string }[] = [];
+  const replyParts: string[] = [];
   let finalReply: string;
   try {
     let steps = 0;
     for (;;) {
       const stepStarted = Date.now();
-      let raw = "";
-      const extractor = new StreamingReplyExtractor();
-      for await (const delta of chatCompleteStream(provider.id, messages, {
+      let text = "";
+      let calls: ModelToolCall[] = [];
+      for await (const event of chatStreamWithTools(provider.id, messages, tools, {
         timeoutMs: 120_000,
         model: provider.chatModel ?? undefined,
       })) {
-        raw += delta;
-        const piece = extractor.push(delta);
-        if (piece) yield { type: "reply_delta", text: piece };
+        if (event.type === "text") {
+          text += event.text;
+          yield { type: "reply_delta", text: event.text };
+        } else if (event.type === "tool_calls") {
+          calls = event.calls;
+        }
       }
-      const action = parseAction(raw);
       const modelMs = Date.now() - stepStarted;
-      if (action.type === "reply") {
-        traceSteps.push({ step: traceSteps.length, modelMs, raw: clip(raw, 20_000), action: "reply" });
-        finalReply = action.message;
+      if (text.trim()) replyParts.push(text.trim());
+
+      if (calls.length === 0) {
+        traceSteps.push({ step: traceSteps.length, modelMs, text: clip(text, 20_000), action: "reply" });
+        finalReply = replyParts.join("\n\n") || "Done.";
         break;
       }
-      steps++;
+      steps += calls.length;
       if (steps > MAX_STEPS) {
         finalReply =
           toolCalls.length > 0
@@ -994,26 +905,39 @@ export async function* askAssistant(
             : "I ran into trouble finishing that — try rephrasing or breaking it into smaller steps.";
         break;
       }
-      messages.push({ role: "assistant", content: raw });
-      const toolStarted = Date.now();
-      const result = await runTool(orgId, personId, action.tool, action.args, savedAttachments, context);
-      traceSteps.push({
-        step: traceSteps.length,
-        modelMs,
-        raw: clip(raw, 20_000),
-        tool: action.tool,
-        args: action.args,
-        toolMs: Date.now() - toolStarted,
-        result: clip(JSON.stringify(result.data ?? result.summary), 8_000),
-        summary: result.summary,
-      });
-      await saveTrace();
-      toolCalls.push({ tool: action.tool, detail: result.summary });
-      yield { type: "tool_call", tool: action.tool, detail: result.summary };
+
       messages.push({
-        role: "user",
-        content: `[Tool result for ${action.tool}]: ${JSON.stringify(result.data ?? result.summary)}`,
+        role: "assistant",
+        content: text || null,
+        tool_calls: calls.map((c) => ({ id: c.id, type: "function", function: { name: c.name, arguments: c.arguments } })),
       });
+      for (const call of calls) {
+        const toolStarted = Date.now();
+        let args: Record<string, unknown> = {};
+        let result: ToolResult;
+        try {
+          args = JSON.parse(call.arguments || "{}") as Record<string, unknown>;
+          result = await runTool(orgId, personId, call.name, args, savedAttachments, context);
+        } catch {
+          result = { summary: `${call.name} failed: its arguments weren't valid JSON.` };
+        }
+        traceSteps.push({
+          step: traceSteps.length,
+          modelMs,
+          text: clip(text, 20_000),
+          tool: call.name,
+          args,
+          toolMs: Date.now() - toolStarted,
+          result: clip(JSON.stringify(result.data ?? result.summary), 8_000),
+          summary: result.summary,
+        });
+        toolCalls.push({ tool: call.name, detail: result.summary });
+        yield { type: "tool_call", tool: call.name, detail: result.summary };
+        messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(result.data ?? result.summary) });
+      }
+      await saveTrace();
+      // Keep any narration before the tool calls apart from what the model writes next.
+      if (text.trim()) yield { type: "reply_delta", text: "\n\n" };
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : "The assistant could not answer that — try again.";
