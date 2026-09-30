@@ -737,6 +737,12 @@ CREATE INDEX IF NOT EXISTS schedule_entries_assignee_idx ON schedule_entries (as
 -- A schedule entry needn't be project work (a trip, an appointment): the project
 -- is optional, and `notes` ("what's happening") is then its title.
 ALTER TABLE schedule_entries ALTER COLUMN project_id DROP NOT NULL;
+-- Where it happens (a project can involve several places: the site, a supplier,
+-- an airport). Empty means the project's address. lat/lng are looked up from
+-- the text (OpenStreetMap Nominatim) for the map, and stay null if not found.
+ALTER TABLE schedule_entries ADD COLUMN IF NOT EXISTS location text NOT NULL DEFAULT '';
+ALTER TABLE schedule_entries ADD COLUMN IF NOT EXISTS lat double precision;
+ALTER TABLE schedule_entries ADD COLUMN IF NOT EXISTS lng double precision;
 
 /* ── Tasks ──────────────────────────────────────────────────── */
 

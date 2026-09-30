@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { after } from "next/server";
 import { Icon } from "@/components/icons";
 import { TimeZoneField } from "@/components/time-zone-field";
 import { Card, CardTitle, EmptyRow, PageBody, Pill, TableCard, TableHeader, TableTitle } from "@/components/ui";
@@ -12,7 +13,7 @@ import { listAllProjectFiles, listProjectPhotos } from "@/lib/project-photos";
 import { getLetterhead } from "@/lib/letterhead";
 import { listProjectInvoices } from "@/lib/email-invoice";
 import { listEstimates, type Estimate } from "@/lib/quoting";
-import { listSchedule } from "@/lib/schedule";
+import { listSchedule, locateScheduleEntries } from "@/lib/schedule";
 import { listTasks } from "@/lib/tasks";
 import { NewTaskDialog } from "../../tasks/new-task-dialog";
 import { TaskList } from "../../tasks/task-list";
@@ -155,6 +156,10 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
     listAllProjectFiles(project.id),
     listProjectInvoices(project.id, org.id),
   ]);
+  // Places for the schedule map: look up any entries still missing coordinates after the response.
+  if (schedule.some((e) => e.lat === null && (e.location || e.projectAddress))) {
+    after(() => locateScheduleEntries(org.id, schedule));
+  }
   const invoiceTotal = invoices.reduce((sum, inv) => sum + inv.amount, 0);
 
   const sendableConnectors = (

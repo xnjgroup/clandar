@@ -5,6 +5,7 @@ import { Icon } from "@/components/icons";
 import { EmptyRow } from "@/components/ui";
 import type { ScheduleEntry } from "@/lib/schedule";
 import { removeScheduleEntry } from "./actions";
+import { ScheduleMap } from "./schedule-map";
 
 const noSubscribe = () => () => {};
 const time = (d: Date) => d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
@@ -83,6 +84,12 @@ function Timeline({ entries, redirectPath, now }: { entries: ScheduleEntry[]; re
                       ) : (
                         <span className="text-[12.5px] text-muted">Scheduled</span>
                       )}
+                      {entry.location ? (
+                        <span className="flex items-start gap-[5px] text-[11px] text-body-soft">
+                          <Icon name="pin" size={11} className="mt-[2px] shrink-0" />
+                          {entry.location}
+                        </span>
+                      ) : null}
                       {entry.assignedName ? (
                         <span className="flex items-center gap-[5px] text-[11px] text-body-soft">
                           <Icon name="user" size={11} />
@@ -121,6 +128,12 @@ function List({ entries, redirectPath }: { entries: ScheduleEntry[]; redirectPat
           </span>
         </span>
         {entry.notes ? <span className="text-[12px] text-body">{entry.notes}</span> : null}
+        {entry.location ? (
+          <span className="flex items-start gap-[5px] text-[11.5px] text-muted">
+            <Icon name="pin" size={12} className="mt-[2px] shrink-0" />
+            {entry.location}
+          </span>
+        ) : null}
         {entry.assignedName ? (
           <span className="flex items-center gap-[5px] text-[11.5px] text-muted">
             <Icon name="user" size={12} />
@@ -139,7 +152,7 @@ function List({ entries, redirectPath }: { entries: ScheduleEntry[]; redirectPat
   ));
 }
 
-type View = "list" | "timeline";
+type View = "list" | "timeline" | "map";
 const VIEW_KEY = "clandar.project-schedule-view";
 const viewListeners = new Set<() => void>();
 let memoryView: View | null = null; // when storage is blocked (private mode)
@@ -148,7 +161,8 @@ let memoryView: View | null = null; // when storage is blocked (private mode)
 // useSyncExternalStore so the server render and hydration agree.
 function readView(): View {
   try {
-    return localStorage.getItem(VIEW_KEY) === "list" ? "list" : "timeline";
+    const saved = localStorage.getItem(VIEW_KEY);
+    return saved === "list" || saved === "map" ? saved : "timeline";
   } catch {
     return memoryView ?? "timeline";
   }
@@ -168,7 +182,7 @@ function subscribeView(listener: () => void) {
 }
 
 /**
- * A project's schedule with a Timeline / List switch — Timeline by default, the
+ * A project's schedule with a Timeline / List / Map switch — Timeline by default, the
  * choice remembered per device.
  * Rendered in the browser so days and times are in the viewer's own zone.
  */
@@ -205,10 +219,13 @@ export function ProjectSchedule({
         <div role="group" aria-label="Schedule view" className="flex rounded-full border border-line bg-surface p-[2px]">
           {tab("timeline", "Timeline")}
           {tab("list", "List")}
+          {tab("map", "Map")}
         </div>
       </div>
       {view === "timeline" ? (
         <Timeline entries={entries} redirectPath={redirectPath} now={now} />
+      ) : view === "map" ? (
+        <ScheduleMap entries={entries} />
       ) : (
         <div className="pt-[6px]">
           <List entries={entries} redirectPath={redirectPath} />

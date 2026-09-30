@@ -20,6 +20,7 @@
     "ioredis": "^6.0.0",
     "jose": "^6.2.12",
     "jszip": "^3.10.2",
+    "leaflet": "^1.9.4",
     "mammoth": "^1.13.0",
     "next": "16.3.6",
     "pdf-parse": "^2.4.5",
@@ -28,6 +29,7 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-grid-layout": "^2.2.4",
+    "react-leaflet": "^5.0.0",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
     "web-push": "^3.6.7"
@@ -35,6 +37,7 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/html-to-text": "^9.0.4",
+    "@types/leaflet": "^1.9.22",
     "@types/node": "^20",
     "@types/pg": "^8.23.1",
     "@types/react": "^19",

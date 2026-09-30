@@ -38,6 +38,7 @@ export async function addScheduleEntry(_prev: FormState, form: FormData): Promis
     startsAt,
     endsAt,
     notes,
+    location: field(form, "location"),
   });
 
   revalidatePath(redirectPath);

@@ -330,6 +330,7 @@ const TOOLS: { name: string; description: string; parameters: JsonSchema; emailO
         startTime: str("HH:MM, 24-hour"),
         endTime: str("HH:MM, 24-hour"),
         assigneeName: str("A team member's name"),
+        location: str("Where it happens — an address or place name. Leave out if it's at the project's address."),
       },
       ["notes", "date", "startTime", "endTime"],
     ),
@@ -592,7 +593,15 @@ async function runToolUnsafe(
         if (!member) return { summary: `create_schedule_entry failed: no team member named "${assigneeName}".` };
         assignedTo = member.id;
       }
-      const id = await createScheduleEntry({ orgId, projectId, assignedTo, startsAt, endsAt, notes: str(args.notes) });
+      const id = await createScheduleEntry({
+        orgId,
+        projectId,
+        assignedTo,
+        startsAt,
+        endsAt,
+        notes: str(args.notes),
+        location: str(args.location),
+      });
       return {
         summary: `Scheduled ${[str(args.notes), projectTitle].filter(Boolean).join(" — ")} on ${str(args.date)} ${str(args.startTime)}–${str(args.endTime)}.`,
         data: { id, link: "/schedule" },

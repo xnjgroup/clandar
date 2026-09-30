@@ -52,6 +52,9 @@ export function ScheduleForm({
           className={inputClass}
         />
       </Field>
+      <Field label={projectId ? "Where (optional — leave empty for the project's address)" : "Where (optional)"}>
+        <input name="location" placeholder="e.g. 123 Main St, Brooklyn · Home Depot Jersey City" className={inputClass} />
+      </Field>
       <div className="grid grid-cols-2 gap-[10px]">
         <Field label="Date" className="col-span-2">
           <input type="date" name="date" required className={inputClass} />

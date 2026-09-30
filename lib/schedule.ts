@@ -5,6 +5,7 @@
  * and person, ordered by start time.
  */
 import { query, queryOne } from "@/lib/db";
+import { geocode, geocodePause } from "@/lib/geocode";
 
 export type ScheduleEntry = {
   id: string;
@@ -17,6 +18,10 @@ export type ScheduleEntry = {
   startsAt: Date;
   endsAt: Date;
   notes: string;
+  /** Where it happens; empty means the project's address. */
+  location: string;
+  lat: number | null;
+  lng: number | null;
 };
 
 type ScheduleRow = {
@@ -30,6 +35,9 @@ type ScheduleRow = {
   starts_at: Date;
   ends_at: Date;
   notes: string;
+  location: string;
+  lat: number | null;
+  lng: number | null;
 };
 
 function toEntry(row: ScheduleRow): ScheduleEntry {
@@ -44,12 +52,15 @@ function toEntry(row: ScheduleRow): ScheduleEntry {
     startsAt: row.starts_at,
     endsAt: row.ends_at,
     notes: row.notes,
+    location: row.location,
+    lat: row.lat,
+    lng: row.lng,
   };
 }
 
 const SELECT = `SELECT s.id, s.project_id, j.title AS project_title, j.address AS project_address,
        c.name AS customer_name, s.assigned_to, p.name AS assigned_name,
-       s.starts_at, s.ends_at, s.notes
+       s.starts_at, s.ends_at, s.notes, s.location, s.lat, s.lng
   FROM schedule_entries s
   LEFT JOIN projects j ON j.id = s.project_id
   LEFT JOIN customers c ON c.id = j.customer_id
@@ -84,13 +95,43 @@ export async function createScheduleEntry(input: {
   startsAt: Date;
   endsAt: Date;
   notes: string;
+  location?: string;
 }): Promise<string> {
+  const location = input.location?.trim() ?? "";
+  // Look the place up now (it's one request) so the map has it straight away.
+  const point = location ? await geocode(location) : null;
   const row = await queryOne<{ id: string }>(
-    `INSERT INTO schedule_entries (org_id, project_id, assigned_to, starts_at, ends_at, notes)
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-    [input.orgId, input.projectId, input.assignedTo, input.startsAt, input.endsAt, input.notes],
+    `INSERT INTO schedule_entries (org_id, project_id, assigned_to, starts_at, ends_at, notes, location, lat, lng)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+    [input.orgId, input.projectId, input.assignedTo, input.startsAt, input.endsAt, input.notes, location, point?.lat ?? null, point?.lng ?? null],
   );
   return row!.id;
+}
+
+/**
+ * Fills in coordinates for entries that have none yet — their own location, or
+ * their project's address when they don't have one. Meant for after() on a page
+ * that shows the map: at most `limit` lookups, one a second, so the next load
+ * has them. Places that can't be found stay null and are retried next time.
+ */
+export async function locateScheduleEntries(orgId: string, entries: ScheduleEntry[], limit = 5): Promise<void> {
+  const found = new Map<string, Awaited<ReturnType<typeof geocode>>>();
+  let lookups = 0;
+  for (const entry of entries) {
+    if (entry.lat !== null) continue;
+    const place = (entry.location || entry.projectAddress || "").trim();
+    if (!place) continue;
+    if (!found.has(place)) {
+      if (lookups >= limit) break;
+      if (lookups > 0) await geocodePause();
+      lookups++;
+      found.set(place, await geocode(place));
+    }
+    const point = found.get(place);
+    if (point) {
+      await query(`UPDATE schedule_entries SET lat = $1, lng = $2 WHERE id = $3 AND org_id = $4`, [point.lat, point.lng, entry.id, orgId]);
+    }
+  }
 }
 
 export async function deleteScheduleEntry(id: string, orgId: string): Promise<void> {
