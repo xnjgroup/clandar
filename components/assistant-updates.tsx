@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { ChatMarkdown } from "@/components/chat-markdown";
+import { playSound, setSoundEnabled, soundEnabled } from "@/components/notification-sound";
 import { Icon } from "@/components/icons";
 import type { Notifications, RunningJob } from "@/components/use-notifications";
 import { useJobProgress } from "@/app/(dashboard)/email/use-job-progress";
@@ -89,6 +90,25 @@ function JobCard({ job, onFinished }: { job: RunningJob; onFinished: () => void 
             : "Running in the background — I\u2019ll let you know when it\u2019s done."}
       </span>
     </div>
+  );
+}
+
+/** "Sound on this device" — plays a sample chime when switched on. */
+function SoundToggle() {
+  const [on, setOn] = useState(soundEnabled);
+  return (
+    <label className="flex items-center gap-[8px] text-[12px]">
+      <input
+        type="checkbox"
+        checked={on}
+        onChange={(e) => {
+          setOn(e.target.checked);
+          setSoundEnabled(e.target.checked);
+          if (e.target.checked) playSound("notification");
+        }}
+      />
+      Sound on this device
+    </label>
   );
 }
 
@@ -210,8 +230,10 @@ export function AssistantUpdates({
           <JobCard key={job.jobId} job={job} onFinished={reload} />
         ))}
       </div>
+      <div className="flex shrink-0 flex-col gap-[6px] border-t border-line-soft px-[14px] py-[10px]">
+        <SoundToggle />
       {push !== "unsupported" ? (
-        <div className="flex shrink-0 flex-col gap-[4px] border-t border-line-soft px-[14px] py-[10px]">
+        <div className="flex flex-col gap-[4px]">
           <label className="flex items-center gap-[8px] text-[12px]">
             <input
               type="checkbox"
@@ -228,6 +250,7 @@ export function AssistantUpdates({
           {pushError ? <span className="text-[11px] text-bad-fg">{pushError}</span> : null}
         </div>
       ) : null}
+      </div>
     </div>
   );
 }

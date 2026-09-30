@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Icon, type IconName } from "@/components/icons";
 import { AssistantWidget } from "@/components/assistant-widget";
 import { HEADER_ACTIONS_ID } from "@/components/header-actions";
+import { playSound, unlockSoundOnInteraction } from "@/components/notification-sound";
 import { useNotifications } from "@/components/use-notifications";
 import { MOBILE_TABS, NAV_FOOTER, NAV_GROUPS, NAV_TOP, PAGE_TITLES, USER_MENU, greeting } from "@/lib/data";
 
@@ -251,6 +252,16 @@ export function AppShell({
   }
   // The chat keeps working while closed: "working" pulses its button, "replied" bounces it until opened.
   const [assistantActivity, setAssistantActivity] = useState<"idle" | "working" | "replied">("idle");
+
+  // Sounds (components/notification-sound.ts): a chime with each new notification's ring, a lighter
+  // note when a reply lands while the chat is closed. Audio unlocks on the first click or key press.
+  useEffect(() => unlockSoundOnInteraction(), []);
+  useEffect(() => {
+    if (notifications.ring > 0) playSound("notification");
+  }, [notifications.ring]);
+  useEffect(() => {
+    if (assistantActivity === "replied") playSound("reply");
+  }, [assistantActivity]);
 
   // A navigation ends the visit that opened the drawer — close it so the next
   // page doesn't render underneath an open overlay. Adjusting state during
