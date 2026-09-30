@@ -4,7 +4,9 @@ import { useActionState } from "react";
 import { sendEmailLogin, verifyEmailCode, type EmailLoginState } from "./actions";
 
 const inputClass =
-  "h-[44px] w-full rounded-full border border-line bg-surface px-4 text-center text-[13.5px] text-ink outline-none placeholder:text-faint focus:border-[#9aa78a]";
+  "h-[42px] w-full rounded-[12px] border border-line bg-surface px-3 text-[13.5px] text-ink outline-none placeholder:text-faint focus:border-[#9aa78a]";
+const primaryButton =
+  "h-[42px] w-full cursor-pointer rounded-[12px] bg-ink text-[13.5px] font-semibold text-bg disabled:opacity-50";
 
 /**
  * "Continue with email": step 1 sends a sign-in link + code; step 2 takes the
@@ -23,15 +25,11 @@ export function EmailLogin() {
           type="email"
           required
           autoComplete="email"
-          placeholder="Personal or work email"
+          placeholder="Enter your email"
           aria-label="Email address"
           className={inputClass}
         />
-        <button
-          type="submit"
-          disabled={sending}
-          className="h-[44px] w-full cursor-pointer rounded-full border border-line bg-surface text-[13.5px] font-semibold text-ink disabled:opacity-50"
-        >
+        <button type="submit" disabled={sending} className={primaryButton}>
           {sending ? "Sending…" : "Continue with email"}
         </button>
         {sent.error ? <span className="text-[12px] text-bad-fg">{sent.error}</span> : null}
@@ -41,7 +39,7 @@ export function EmailLogin() {
 
   return (
     <div className="flex w-full flex-col gap-[10px]">
-      <p className="m-0 text-[12.5px] leading-[1.55] text-body">
+      <p className="m-0 text-center text-[12.5px] leading-[1.55] text-body">
         We sent a sign-in link and code to <span className="font-semibold">{email}</span>. Open the link, or enter the
         code here.
       </p>
@@ -57,13 +55,9 @@ export function EmailLogin() {
           placeholder="6-digit code"
           aria-label="6-digit code"
           autoFocus
-          className={`${inputClass} font-mono tracking-[0.3em]`}
+          className={`${inputClass} text-center font-mono tracking-[0.3em]`}
         />
-        <button
-          type="submit"
-          disabled={verifying}
-          className="h-[44px] w-full cursor-pointer rounded-full bg-ink text-[13.5px] font-semibold text-bg disabled:opacity-50"
-        >
+        <button type="submit" disabled={verifying} className={primaryButton}>
           {verifying ? "Checking…" : "Sign in"}
         </button>
         {verified.error ? <span className="text-[12px] text-bad-fg">{verified.error}</span> : null}

@@ -4,6 +4,8 @@ import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import { Icon, type IconName } from "@/components/icons";
 import { currentSession } from "@/lib/auth";
+import { firstParam } from "@/lib/data";
+import { LoginCard } from "./login/login-card";
 
 export const metadata: Metadata = {
   title: "Clandar — the AI assistant for business owners who do it all",
@@ -181,9 +183,14 @@ const STEPS = [
   },
 ];
 
-export default async function LandingPage() {
+/**
+ * The front door: sign in on the first screen (the same card as the old /login, which now
+ * redirects here), and what Clandar does as you scroll.
+ */
+export default async function LandingPage({ searchParams }: PageProps<"/">) {
   const session = await currentSession();
   if (session) redirect("/overview");
+  const error = firstParam((await searchParams).error);
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -192,78 +199,89 @@ export default async function LandingPage() {
           C.
         </span>
         <span className="text-[16px] font-bold tracking-[-0.02em]">Clandar</span>
-        <Link
-          href="/login"
-          className="ml-auto shrink-0 rounded-full border border-line bg-surface px-[16px] py-[9px] text-[12.5px] font-semibold text-body"
+        <a
+          href="#features"
+          className="ml-auto hidden shrink-0 px-[10px] py-[9px] text-[12.5px] font-medium text-body-soft hover:text-ink sm:block"
+        >
+          What it does
+        </a>
+        <a
+          href="#signin"
+          className="shrink-0 rounded-full bg-ink px-[16px] py-[9px] text-[12.5px] font-semibold text-bg max-sm:ml-auto"
         >
           Sign in
-        </Link>
+        </a>
       </header>
 
-      {/* Hero */}
-      <section className="mx-auto flex w-full max-w-[1120px] flex-col items-center gap-[22px] px-5 pt-[38px] pb-[54px] text-center lg:px-8 lg:pt-[64px]">
-        <span className="rounded-full border border-line bg-surface px-[14px] py-[7px] text-[11.5px] font-medium text-body-soft">
-          For business owners who wear every hat
-        </span>
-        <h1 className="m-0 max-w-[780px] text-[34px] leading-[1.12] font-bold tracking-[-0.03em] lg:text-[50px]">
-          The assistant every business owner wishes they could afford
-        </h1>
-        <p className="m-0 max-w-[560px] text-[15px] leading-[1.6] text-body-soft lg:text-[16.5px]">
-          Clandar handles the busywork of running a service business — quoting jobs from photos, keeping the
-          schedule straight, chasing invoices, and answering customer email — so you can get back to the work
-          you actually do.
-        </p>
-        <div className="flex flex-wrap items-center justify-center gap-[12px]">
-          <Link
-            href="/login"
-            className="flex items-center gap-[10px] rounded-full bg-ink px-[22px] py-[13px] text-[14px] font-semibold text-bg"
-          >
-            <svg width="17" height="17" viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                fill="#EA4335"
-                d="M12 10.2v3.9h5.5c-.24 1.4-1.7 4.2-5.5 4.2-3.3 0-6-2.7-6-6.1s2.7-6.1 6-6.1c1.9 0 3.1.8 3.9 1.5l2.7-2.6C17 3.4 14.8 2.4 12 2.4 6.9 2.4 2.7 6.6 2.7 11.7s4.2 9.3 9.3 9.3c5.4 0 9-3.8 9-9.1 0-.6-.1-1.1-.2-1.6z"
-              />
-            </svg>
-            Continue with Google
-          </Link>
-          <a
-            href="#features"
-            className="rounded-full border border-line bg-surface px-[22px] py-[13px] text-[14px] font-semibold text-body"
-          >
-            See what it does
+      {/* First screen: sign in (left) beside a preview of the product (right); phones stack them. */}
+      <section
+        id="signin"
+        className="mx-auto grid w-full max-w-[1120px] scroll-mt-4 grid-cols-1 items-center gap-[36px] px-5 pt-[26px] pb-[60px] lg:grid-cols-2 lg:gap-[48px] lg:px-8 lg:pt-[48px] lg:pb-[90px]"
+      >
+        <div className="flex flex-col items-center gap-[18px] text-center">
+          <h1 className="m-0 max-w-[520px] text-[32px] leading-[1.12] font-bold tracking-[-0.03em] lg:text-[44px]">
+            The assistant every business owner wishes they could afford
+          </h1>
+          <p className="m-0 max-w-[440px] text-[14.5px] leading-[1.6] text-body-soft">
+            Quotes from photos, a straight schedule, invoices chased, email answered — so you can get back to
+            the real work.
+          </p>
+          <LoginCard error={error || undefined} />
+          <a href="#features" className="text-[12.5px] font-medium text-muted underline hover:text-ink">
+            See what Clandar does ↓
           </a>
         </div>
-        <p className="m-0 text-[11.5px] text-faint">
-          Sign in with the Google account your business already uses — your workspace is created automatically.
-        </p>
 
-        {/* A lightweight product preview — not a real screenshot, just the shape of a job card */}
-        <div className="mt-[18px] w-full max-w-[520px] rounded-[22px] border border-line bg-surface p-[6px] text-left shadow-[0_20px_60px_rgba(16,18,17,0.08)]">
-          <div className="flex flex-col gap-[10px] rounded-[16px] bg-bg p-[16px]">
-            <div className="flex items-center gap-[10px]">
-              <span className="flex size-[34px] shrink-0 items-center justify-center rounded-[11px] bg-ok-bg text-ok-fg">
-                <Icon name="briefcase" size={17} />
-              </span>
-              <div className="flex min-w-0 flex-col leading-[1.3]">
-                <span className="truncate text-[12.5px] font-semibold">Repaint kitchen &amp; hallway</span>
-                <span className="truncate text-[11px] text-muted">Jordan Alvarez · Painting</span>
+        {/* A product preview, drawn in the app's own style — not a screenshot. */}
+        <div className="relative mx-auto w-full max-w-[480px] rounded-[26px] bg-[linear-gradient(160deg,#eef3e2,#f6f7f3_55%,#e9ede2)] p-[18px] lg:p-[26px]">
+          <div className="flex flex-col gap-[12px]">
+            <div className="flex flex-col gap-[10px] rounded-[18px] border border-line bg-surface p-[14px] shadow-[0_14px_40px_rgba(16,18,17,0.08)]">
+              <div className="flex items-center gap-[10px]">
+                <span className="flex size-[34px] shrink-0 items-center justify-center rounded-[11px] bg-ok-bg text-ok-fg">
+                  <Icon name="briefcase" size={17} />
+                </span>
+                <div className="flex min-w-0 flex-col text-left leading-[1.3]">
+                  <span className="truncate text-[12.5px] font-semibold">Repaint kitchen &amp; hallway</span>
+                  <span className="truncate text-[11px] text-muted">Jordan Alvarez · Painting</span>
+                </div>
+                <span className="ml-auto shrink-0 rounded-full bg-warn-bg px-[9px] py-[3px] text-[10.5px] font-medium text-warn-fg">
+                  Quoted
+                </span>
               </div>
-              <span className="ml-auto shrink-0 rounded-full bg-warn-bg px-[9px] py-[3px] text-[10.5px] font-medium text-warn-fg">
-                Quoted
-              </span>
+              <div className="flex items-center gap-[10px] rounded-[12px] border border-line bg-bg px-[12px] py-[9px] text-left">
+                <Icon name="camera" size={15} className="shrink-0 text-body-soft" />
+                <span className="min-w-0 flex-1 truncate text-[11.5px] text-body-soft">
+                  AI estimate from 3 photos — $1,240
+                </span>
+                <span className="shrink-0 text-[11px] font-semibold text-ok-fg">Send</span>
+              </div>
             </div>
-            <div className="flex items-center gap-[10px] rounded-[12px] border border-line bg-surface px-[12px] py-[10px]">
-              <Icon name="camera" size={15} className="shrink-0 text-body-soft" />
-              <span className="min-w-0 flex-1 truncate text-[11.5px] text-body-soft">
-                AI estimate ready from 3 photos — $1,240
-              </span>
-              <span className="shrink-0 text-[11px] font-medium text-ok-fg underline">Send</span>
+
+            <div className="flex flex-col gap-[8px] rounded-[18px] border border-line bg-surface p-[14px] text-left shadow-[0_14px_40px_rgba(16,18,17,0.08)]">
+              <span className="text-[11px] font-semibold text-body-soft">Thursday</span>
+              {[
+                ["9:00 AM", "Tile install", "Smith bathroom · 14 Oak St"],
+                ["1:30 PM", "Estimate visit", "Nguyen deck · 88 Pine Ave"],
+              ].map(([time, what, where]) => (
+                <div key={time} className="flex items-start gap-[10px]">
+                  <span className="mt-[5px] size-[8px] shrink-0 rounded-full bg-ink" />
+                  <div className="flex min-w-0 flex-col leading-[1.35]">
+                    <span className="font-mono text-[10.5px] text-muted">{time}</span>
+                    <span className="text-[12px] font-semibold">{what}</span>
+                    <span className="truncate text-[11px] text-muted">{where}</span>
+                  </div>
+                </div>
+              ))}
             </div>
-            <div className="flex items-center gap-[10px] rounded-[12px] border border-line bg-surface px-[12px] py-[10px]">
-              <Icon name="calendar" size={15} className="shrink-0 text-body-soft" />
-              <span className="min-w-0 flex-1 truncate text-[11.5px] text-body-soft">
-                Scheduled Thu 9:00 AM – 1:00 PM
+
+            <div className="flex items-end gap-[8px]">
+              <span className="flex size-[30px] shrink-0 items-center justify-center rounded-[10px] bg-lime">
+                <Icon name="bot" size={15} />
               </span>
+              <div className="rounded-[16px] rounded-bl-[6px] bg-ink px-[13px] py-[10px] text-left text-[12px] leading-[1.5] text-bg shadow-[0_14px_40px_rgba(16,18,17,0.14)]">
+                Good morning — 2 jobs today, 22 min between them. The Nguyen quote is 3 days old; want me to
+                follow up?
+              </div>
             </div>
           </div>
         </div>
@@ -338,14 +356,14 @@ export default async function LandingPage() {
             Ready to get your evenings back?
           </h2>
           <p className="m-0 text-[13.5px] leading-[1.6] text-[#b7bcb2]">
-            Sign in with Google and your workspace is ready — no setup, nothing to install.
+            Sign in and your workspace is ready — no setup, nothing to install.
           </p>
-          <Link
-            href="/login"
+          <a
+            href="#signin"
             className="flex items-center gap-[10px] rounded-full bg-lime px-[22px] py-[13px] text-[14px] font-semibold text-ink"
           >
-            Continue with Google
-          </Link>
+            Get started
+          </a>
         </div>
       </section>
 
