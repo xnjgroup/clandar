@@ -12,10 +12,9 @@ import {
 } from "@/lib/project-photos";
 import { changeFileDocType, moveFile, removeFile, removeFolder, renameFolder, reparseFile } from "./actions";
 import { AutoSubmitSelect } from "./auto-submit-select";
-import { NewFolderForm } from "./new-folder-form";
 import { RefreshWhile } from "./refresh-while";
 import { TagsDialog } from "./tags-dialog";
-import { UploadForm } from "./upload-form";
+import { FilesActions } from "./files-actions";
 
 const smallInput =
   "min-w-0 flex-1 rounded-[10px] border border-line bg-surface px-2 py-[5px] text-[12px] text-ink outline-none placeholder:text-faint focus:border-[#9aa78a]";
@@ -74,6 +73,9 @@ export async function FilesSection({ projectId, params }: { projectId: string; p
             </span>
           ))}
         </nav>
+        {tag ? null : (
+          <FilesActions projectId={projectId} folderId={folderId} folderName={folderId ? pathOf(folderId) : null} />
+        )}
       </TableHeader>
 
       {tags.length > 0 ? (
@@ -101,18 +103,7 @@ export async function FilesSection({ projectId, params }: { projectId: string; p
             Clear
           </Link>
         </div>
-      ) : (
-        <div className="flex flex-col gap-[10px] border-t border-line-soft px-[18px] py-[13px]">
-          <UploadForm
-            endpoint={`/api/projects/${projectId}/files`}
-            fields={{ folderId: folderId ?? "" }}
-            allowFolders
-            withTags
-            withDocType
-          />
-          <NewFolderForm projectId={projectId} parentId={folderId ?? ""} />
-        </div>
-      )}
+      ) : null}
 
       {subfolders.map((f) => (
         <div key={f.id} className="flex min-h-[48px] flex-wrap items-center gap-x-3 gap-y-[4px] border-t border-line-soft px-[18px] py-[9px]">
