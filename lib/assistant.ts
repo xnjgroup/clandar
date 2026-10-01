@@ -1116,7 +1116,10 @@ async function runToolUnsafe(
     }
     case "list_customers": {
       const customers = await listCustomers(orgId);
-      return { summary: `Listed ${customers.length} customer(s).`, data: customers };
+      return {
+        summary: `Listed ${customers.length} customer(s).`,
+        data: customers.map((c) => ({ ...c, link: `/customers/${c.id}` })),
+      };
     }
     case "create_customer": {
       const name2 = str(args.name);
@@ -1155,7 +1158,10 @@ async function runToolUnsafe(
     case "list_projects": {
       const status = str(args.status) as ProjectStatus | "";
       const projects = await listProjects(orgId, status ? { status } : {});
-      return { summary: `Listed ${projects.length} project(s).`, data: projects };
+      return {
+        summary: `Listed ${projects.length} project(s).`,
+        data: projects.map((p) => ({ ...p, link: `/projects/${p.id}` })),
+      };
     }
     case "create_project": {
       const customerName = str(args.customerName);
@@ -1206,7 +1212,7 @@ async function runToolUnsafe(
     }
     case "list_tasks": {
       const tasks = await listTasks(orgId);
-      return { summary: `Listed ${tasks.length} open task(s).`, data: tasks };
+      return { summary: `Listed ${tasks.length} open task(s).`, data: tasks.map((t) => ({ ...t, link: `/tasks/${t.id}` })) };
     }
     case "create_task": {
       const title2 = str(args.title);
@@ -1291,7 +1297,11 @@ function systemPrompt(
     "create_project_types. Once you have what you need, finish with a reply summarizing what you did or answering " +
     "the question. In replies, link to pages in the app with markdown links, e.g. " +
     '"[Project Types](/projects/types)" — the chat renders them as clickable links. Common pages: /projects, ' +
-    "/projects/types, /projects/new, /customers, /schedule, /tasks, /settings." +
+    "/projects/types, /projects/new, /customers, /schedule, /tasks, /settings. Item pages: /projects/<id>, " +
+    "/customers/<id>, /tasks/<id>, /invoices/<vendor-slug>?id=<id> — tools return each item's ready-made `link`; use it as is. Always write " +
+    "these as relative paths in markdown links, e.g. \"[Nashville trip](/projects/<id>)\" — never a full URL and " +
+    "never a domain (don't invent one): the same link opens the page on the website and the screen in the iPhone app. " +
+    "When you mention a specific project, customer or task, link it." +
     "\n\nEmail search: when several mailboxes are connected, ask which one before searching — never search them all. " +
     "Email cleanup: to delete (trash) emails, first call search_email, then tell the user the mailbox, the " +
     "exact count and 2–3 example senders/subjects, and ask them to confirm. Only after they clearly say yes, call " +
@@ -1555,6 +1565,10 @@ export async function* askAssistant(
     yield { type: "error", message, conversationId: convId };
     return;
   }
+  // Links to Clandar's own pages become plain paths ("/projects/…"), however the model wrote them
+  // (a full or made-up clandar.com address) — each app then opens them in place: the website as a
+  // page, the iPhone app as a screen. The saved reply replaces the streamed text in both.
+  finalReply = relativizeAppLinks(finalReply);
   await saveTrace({ reply: finalReply });
 
   const assistantRow = await queryOne<{ id: string }>(
@@ -1572,6 +1586,20 @@ export async function* askAssistant(
   }
 
   yield { type: "done", conversationId: convId };
+}
+
+/**
+ * Clandar addresses (any clandar.com host) → app paths. Inside a markdown link, "[Trip](https://app.clandar.com/projects/x)"
+ * becomes "[Trip](/projects/x)"; a bare or <…> address becomes "[Open in Clandar](/projects/x)" so it's still a link.
+ * Other links are untouched.
+ */
+export function relativizeAppLinks(text: string): string {
+  const url = /(\]\(|<)?https?:\/\/(?:[a-z0-9-]+\.)*clandar\.com(\/[^\s)\]>"']*?)?([.,;:!?]?)(>)?(?=[\s)\]"']|$)/gi;
+  return text.replace(url, (_, before: string | undefined, path: string | undefined, punct: string, closeAngle: string | undefined) => {
+    const target = path || "/";
+    if (before === "](") return `](${target}${punct}`;
+    return `[Open in Clandar](${target})${closeAngle && before === "<" ? "" : (closeAngle ?? "")}${punct}`;
+  });
 }
 
 /** Streams one chat attachment's bytes back — gated by its message's conversation actually belonging to the org (see app/api/assistant/attachments/[id]/route.ts). */
