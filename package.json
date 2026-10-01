@@ -13,6 +13,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1142.0",
     "apexcharts": "^3.54.1",
+    "apns2": "^12.2.0",
     "bullmq": "^6.3.9",
     "eventsource-parser": "^4.1.1",
     "exceljs": "^4.4.0",

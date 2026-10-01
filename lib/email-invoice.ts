@@ -144,6 +144,41 @@ export async function setInvoiceProject(invoiceId: string, orgId: string, projec
 }
 
 /**
+ * Approves or rejects an invoice (the approval queue). Approving needs every flag cleared first;
+ * the approver is recorded. Returns an error message, or null when done.
+ */
+export async function setInvoiceStatus(
+  invoiceId: string,
+  orgId: string,
+  status: "approved" | "rejected" | "pending_review",
+  approverId: string | null,
+): Promise<string | null> {
+  if (status === "approved") {
+    const open = await queryOne<{ n: number }>(
+      `SELECT count(*)::int AS n FROM invoice_flags f JOIN invoices i ON i.id = f.invoice_id
+        WHERE f.invoice_id = $1 AND i.org_id = $2 AND f.cleared_at IS NULL`,
+      [invoiceId, orgId],
+    );
+    if ((open?.n ?? 0) > 0) return "Clear all flags before approving.";
+  }
+  const updated = await query(
+    `UPDATE invoices SET status = $3, approver_id = CASE WHEN $3 = 'approved' THEN $4::uuid ELSE approver_id END
+      WHERE id = $1 AND org_id = $2 RETURNING id`,
+    [invoiceId, orgId, status, approverId],
+  );
+  return updated.length ? null : "Invoice not found.";
+}
+
+/** Clears one flag on an invoice (it's been checked) — flags must be cleared before approving. */
+export async function clearInvoiceFlag(flagId: string, orgId: string): Promise<void> {
+  await query(
+    `UPDATE invoice_flags f SET cleared_at = now() FROM invoices i
+      WHERE f.id = $1 AND i.id = f.invoice_id AND i.org_id = $2 AND f.cleared_at IS NULL`,
+    [flagId, orgId],
+  );
+}
+
+/**
  * Deletes an invoice: its line items, flags and source documents go with it
  * (FK cascade), and the documents' stored bytes are removed too. A project
  * file it was parsed from stays, reset so it can be read again.

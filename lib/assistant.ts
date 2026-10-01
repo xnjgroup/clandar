@@ -42,6 +42,7 @@ import { enqueueTrashSearch } from "@/lib/queue";
 import { listInvoiceDocuments, recordInvoiceFromEmail, setInvoiceProject } from "@/lib/email-invoice";
 import { invoiceDetail } from "@/lib/queries";
 import { copyEmailAttachmentsToProject } from "@/lib/email-to-project";
+import { postComment, readDiscussion } from "@/lib/assistant-discussion";
 import {
   createScheduleEntry,
   deleteScheduleEntry,
@@ -59,6 +60,8 @@ export type AssistantContext = {
   timeZone: string;
   /** Aborted when the person presses Stop (the browser drops the request): the turn ends where it is. */
   signal?: AbortSignal;
+  /** Set by askAssistant — tools that need the user's go-ahead check it against this conversation. */
+  conversationId?: string;
 };
 
 export type AgentAttachment = { id: string; fileName: string; contentType: string };
@@ -286,6 +289,33 @@ const TOOLS: { name: string; description: string; parameters: JsonSchema; emailO
     ),
   },
   { name: "list_tasks", description: "List this org's open tasks.", parameters: obj({}) },
+  {
+    name: "read_project_discussion",
+    description:
+      "Read a project's Discussion — its threaded comments, with authors, dates, @-mentions and #-references filled in, " +
+      "and each comment's id (to reply to it).",
+    parameters: obj({ projectTitle: PROJECT_TITLE }, ["projectTitle"]),
+  },
+  {
+    name: "post_project_comment",
+    description:
+      "Post a comment (or a reply) on a project's Discussion as the user. Two steps: first call it with the comment — " +
+      "this only previews it; show the user the text and who it notifies and ask them to confirm. When they say yes, " +
+      "call it with just projectTitle and confirm: true — that posts exactly the previewed comment. Write mentions in " +
+      "the body as \"@Name\" and list them in mentions (each mentioned person is notified); write links to the " +
+      "project's tasks/invoices/files/photos/estimates as \"#Title\" and list them in references.",
+    parameters: obj(
+      {
+        projectTitle: PROJECT_TITLE,
+        body: str("The comment, with @Name / #Title where they belong"),
+        mentions: { type: "array", items: { type: "string" }, description: "People to mention — names or emails, as written after @" },
+        references: { type: "array", items: { type: "string" }, description: "Task/invoice/file/photo/estimate titles, as written after #" },
+        parentCommentId: str("To reply: the comment's id from read_project_discussion"),
+        confirm: { type: "boolean", description: "true only after the user said yes to the preview — posts the previewed comment" },
+      },
+      ["projectTitle"],
+    ),
+  },
   {
     name: "create_task",
     description: "Create a to-do (with optional checklist steps), a shopping list (with optional items), or a reminder.",
@@ -1121,6 +1151,29 @@ async function runToolUnsafe(
       });
       return { summary: `Created project "${title}" for ${customerName}.`, data: { id, title, link: `/projects/${id}` } };
     }
+    case "read_project_discussion":
+    case "post_project_comment": {
+      const projectTitle = str(args.projectTitle);
+      const projectId = await findProjectIdByTitle(orgId, projectTitle);
+      if (!projectId) return { summary: `${name} failed: no project found named "${projectTitle}" — call list_projects for exact titles.` };
+      if (name === "read_project_discussion") return readDiscussion(orgId, projectId, projectTitle);
+      const person = personId
+        ? await queryOne<{ id: string; name: string }>(`SELECT id, coalesce(nullif(name, ''), email) AS name FROM people WHERE id = $1`, [personId])
+        : null;
+      const list = (v: unknown) => (Array.isArray(v) ? v.map((x) => str(x)).filter(Boolean) : []);
+      return postComment({
+        orgId,
+        person,
+        conversationId: context.conversationId,
+        projectId,
+        projectTitle,
+        body: str(args.body),
+        mentions: list(args.mentions),
+        references: list(args.references),
+        parentCommentId: str(args.parentCommentId) || null,
+        confirm: args.confirm === true,
+      });
+    }
     case "list_tasks": {
       const tasks = await listTasks(orgId);
       return { summary: `Listed ${tasks.length} open task(s).`, data: tasks };
@@ -1213,6 +1266,9 @@ function systemPrompt(
     "Email cleanup: to delete (trash) emails, first call search_email, then tell the user the mailbox, the " +
     "exact count and 2–3 example senders/subjects, and ask them to confirm. Only after they clearly say yes, call " +
     "trash_email_search with that mailbox, query and count. Never trash on your own initiative." +
+    "\n\nProject discussions: read_project_discussion shows a project's comments. To comment for the user, call " +
+    "post_project_comment with the comment first (a preview), show them the comment and who it notifies, and only " +
+    "after they say yes call it with confirm: true. Never post on your own initiative." +
     "\n\nSeveral team members can share this conversation: each user message starts with its sender's name in " +
     "brackets, e.g. \"[Joy Wang] …\". Keep track of who asked for what, and when someone says \"me\", \"my\" or " +
     "\"I\", it means that sender. Don't start your own replies with a bracketed name." +
@@ -1267,6 +1323,7 @@ export async function* askAssistant(
   }
 
   const convId = conversationId ?? (await createConversation(orgId, personId));
+  context = { ...context, conversationId: convId };
   // Up front, so a turn stopped before it finishes still leaves the browser on the right conversation.
   yield { type: "started", conversationId: convId };
 

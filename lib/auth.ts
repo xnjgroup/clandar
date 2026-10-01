@@ -12,7 +12,7 @@
  * profile is read, a plain server-side session takes over.
  */
 import "server-only";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { cache } from "react";
 import { SignJWT, jwtVerify } from "jose";
@@ -62,13 +62,21 @@ async function verifySessionToken(token: string): Promise<string | null> {
   }
 }
 
-async function createSession(personId: string): Promise<void> {
-  const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
+/** A native app's session lasts longer than the web's — people don't expect to sign in to an app monthly. */
+const APP_SESSION_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+
+/** A new session row and its signed token — the web sets it as a cookie, the iOS app keeps it in the Keychain. */
+async function issueSession(personId: string, ttlMs: number): Promise<{ token: string; expiresAt: Date }> {
+  const expiresAt = new Date(Date.now() + ttlMs);
   const row = await queryOne<{ id: string }>(
     `INSERT INTO sessions (person_id, expires_at) VALUES ($1, $2) RETURNING id`,
     [personId, expiresAt],
   );
-  const token = await signSessionToken(row!.id, expiresAt);
+  return { token: await signSessionToken(row!.id, expiresAt), expiresAt };
+}
+
+async function createSession(personId: string): Promise<void> {
+  const { token, expiresAt } = await issueSession(personId, SESSION_TTL_MS);
   const jar = await cookies();
   jar.set(SESSION_COOKIE, token, {
     httpOnly: true,
@@ -117,6 +125,17 @@ type SessionRow = {
 };
 
 /**
+ * The session token for this request: `Authorization: Bearer <token>` (the iOS app) or the session
+ * cookie (the web). Same signed token either way, checked against the `sessions` row, so revoking a
+ * session works for both.
+ */
+async function sessionTokenFromRequest(): Promise<string | null> {
+  const auth = (await headers()).get("authorization");
+  if (auth?.toLowerCase().startsWith("bearer ")) return auth.slice(7).trim() || null;
+  return (await cookies()).get(SESSION_COOKIE)?.value ?? null;
+}
+
+/**
  * Reads the session cookie without redirecting — for the few places that
  * behave differently when signed out (the login page itself, which redirects
  * *away* to "/" if a session already exists). `cache()` memoizes this for the
@@ -124,8 +143,7 @@ type SessionRow = {
  * costs one query, not two.
  */
 export const currentSession = cache(async (): Promise<SessionInfo | null> => {
-  const jar = await cookies();
-  const token = jar.get(SESSION_COOKIE)?.value;
+  const token = await sessionTokenFromRequest();
   if (!token) return null;
   const sid = await verifySessionToken(token);
   if (!sid) return null;
@@ -357,6 +375,19 @@ async function resolvePersonForLogin(identity: LoginIdentity): Promise<string> {
     }
     return insertPerson("owner", orgId);
   });
+}
+
+/** The iOS app's sign-in: the same account resolution, but the session comes back as a token (no cookie). */
+export async function signInForApp(identity: LoginIdentity): Promise<{ token: string; expiresAt: Date }> {
+  const personId = await resolvePersonForLogin(identity);
+  return issueSession(personId, APP_SESSION_TTL_MS);
+}
+
+/** Ends the session behind this request's bearer token or cookie (the app's Sign out). */
+export async function revokeCurrentSession(): Promise<void> {
+  const token = await sessionTokenFromRequest();
+  const sid = token ? await verifySessionToken(token) : null;
+  if (sid) await query(`DELETE FROM sessions WHERE id = $1`, [sid]);
 }
 
 /** Signs someone in by any method: resolves (or creates) their account and starts a session. */

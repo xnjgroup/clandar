@@ -10,9 +10,9 @@ import { SignInLink } from "./login/sign-in-link";
 import { BrandLockup } from "@/components/brand-lockup";
 
 export const metadata: Metadata = {
-  title: "Clandar — the AI assistant for business owners who do it all",
+  title: "Clandar — your personal chief of staff",
   description:
-    "Clandar quotes jobs from photos, manages your schedule, chases invoices, and answers customer email — the assistant your business doesn't have to hire.",
+    "For your household or your business: Clandar tracks spending and bills, keeps every project on budget and on schedule, and gives you an AI assistant that handles the busywork — receipts, reminders, budgets and follow-ups.",
 };
 
 /* ── Feature tile previews — small mocked-up "screens", not real screenshots ── */
@@ -53,20 +53,50 @@ function MiniRow({
 
 const FEATURES: { icon: IconName; title: string; body: string; preview: ReactNode }[] = [
   {
-    icon: "briefcase",
-    title: "Customers & Projects",
-    body: "Every customer, every property, every project — tracked in one place from first call to final invoice.",
+    icon: "wallet",
+    title: "Spending & bills",
+    body: "Ask Clandar to read a bill, invoice, or receipt from your inbox and it becomes a tracked expense — by category, month, and project.",
     preview: (
       <MiniScreen>
-        <MiniRow icon="briefcase" title="Repaint kitchen" sub="Jordan Alvarez" tone="warn" toneLabel="Quoted" />
-        <MiniRow icon="briefcase" title="Deck repair" sub="Maria Chen" tone="ok" toneLabel="Scheduled" />
+        <MiniRow icon="bolt" title="Electric bill" sub="$86.40 · due Oct 8" tone="warn" toneLabel="due soon" />
+        <MiniRow icon="doc" title="Grocery run" sub="$142.30 · Food" tone="ok" toneLabel="logged" />
+      </MiniScreen>
+    ),
+  },
+  {
+    icon: "chart",
+    title: "Budgets & alerts",
+    body: "Set monthly budgets and get a heads-up on duplicate charges, price hikes, and subscriptions you forgot about.",
+    preview: (
+      <MiniScreen>
+        <div className="flex flex-col gap-[5px] rounded-[10px] bg-surface px-[9px] py-[7px]">
+          <div className="flex justify-between text-[10.5px]">
+            <span className="font-medium">Dining out</span>
+            <span className="text-body-soft">$312 of $400</span>
+          </div>
+          <div className="h-[5px] overflow-hidden rounded-full bg-idle-bg">
+            <div className="h-full w-[78%] rounded-full bg-ink" />
+          </div>
+        </div>
+        <MiniRow icon="alert" title="Streaming plan" sub="Up $3/mo from last month" tone="warn" toneLabel="price hike" />
+      </MiniScreen>
+    ),
+  },
+  {
+    icon: "briefcase",
+    title: "Projects",
+    body: "Client jobs, renovations, trips, side gigs — each with its own budget, schedule, tasks, files, and photos.",
+    preview: (
+      <MiniScreen>
+        <MiniRow icon="home" title="Kitchen refresh" sub="$3,120 of $8,500" tone="ok" toneLabel="on budget" />
+        <MiniRow icon="briefcase" title="Deck repair — Maria Chen" sub="Client job · Thu 1:30" tone="warn" toneLabel="quoted" />
       </MiniScreen>
     ),
   },
   {
     icon: "camera",
-    title: "AI quoting",
-    body: "Snap photos of the job site and get a line-itemized estimate in seconds, ready to review and send.",
+    title: "Estimates from photos",
+    body: "Snap a few photos of a repair or a job site and get a line-by-line estimate — to budget for it, or to send as a quote.",
     preview: (
       <MiniScreen>
         <div className="flex items-center gap-[7px] rounded-[10px] bg-surface px-[9px] py-[7px]">
@@ -84,7 +114,7 @@ const FEATURES: { icon: IconName; title: string; body: string; preview: ReactNod
           </div>
         </div>
         <div className="flex items-center justify-between rounded-[10px] bg-ink px-[9px] py-[6px] text-[10.5px] font-semibold text-lime">
-          <span>Total</span>
+          <span>Estimate</span>
           <span>$365</span>
         </div>
       </MiniScreen>
@@ -92,61 +122,38 @@ const FEATURES: { icon: IconName; title: string; body: string; preview: ReactNod
   },
   {
     icon: "calendar",
-    title: "Scheduling",
-    body: "See the whole crew's week at a glance, and never double-book a job again.",
-    preview: (
-      <MiniScreen>
-        <MiniRow icon="calendar" title="9:00 — Repaint kitchen" sub="Sam" />
-        <MiniRow icon="calendar" title="1:00 — Deck repair" sub="Alex" />
-        <MiniRow icon="calendar" title="3:30 — Site walk-through" sub="Sam" />
-      </MiniScreen>
-    ),
-  },
-  {
-    icon: "clipboard",
-    title: "Task management",
-    body: "To-dos, shopping lists, and reminders — nothing falls through the cracks.",
+    title: "Calendar & tasks",
+    body: "Appointments, to-dos, shopping lists, and reminders in one place — with a briefing every morning.",
     preview: (
       <MiniScreen>
         <div className="flex items-center gap-[8px] rounded-[10px] bg-surface px-[9px] py-[7px]">
           <span className="flex size-[14px] shrink-0 items-center justify-center rounded-[4px] bg-ok-bg text-ok-fg">
             <Icon name="check2" size={9} />
           </span>
-          <span className="truncate text-[11px] text-faint line-through">Buy drop cloths</span>
+          <span className="truncate text-[11px] text-faint line-through">Pay water bill</span>
         </div>
         <div className="flex items-center gap-[8px] rounded-[10px] bg-surface px-[9px] py-[7px]">
           <span className="size-[14px] shrink-0 rounded-[4px] border border-line" />
-          <span className="truncate text-[11px] font-medium">Deck permit — due Friday</span>
+          <span className="truncate text-[11px] font-medium">Book hotel — due Friday</span>
         </div>
         <div className="flex items-center gap-[8px] rounded-[10px] bg-surface px-[9px] py-[7px]">
           <span className="size-[14px] shrink-0 rounded-[4px] border border-line" />
-          <span className="truncate text-[11px] font-medium">Order tile, 40 sq ft</span>
+          <span className="truncate text-[11px] font-medium">Renew car registration</span>
         </div>
       </MiniScreen>
     ),
   },
   {
-    icon: "mail",
-    title: "Customer support",
-    body: "Read, summarize, and reply to customer email without leaving the app.",
+    icon: "bot",
+    title: "Your AI assistant",
+    body: "Ask where the money went, or have it do the work — file a receipt, add a task, plan a trip, reply to a customer.",
     preview: (
       <MiniScreen>
-        <MiniRow icon="mail" title="Maria Chen" sub="Can we push Thursday to 2pm?" tone="warn" toneLabel="new" />
+        <MiniRow icon="mail" title="Con Edison" sub="Your September bill is ready" tone="warn" toneLabel="new" />
         <div className="flex items-center gap-[7px] rounded-[10px] bg-surface px-[9px] py-[7px]">
           <Icon name="bot" size={13} className="shrink-0 text-body-soft" />
-          <span className="truncate text-[10.5px] text-body-soft">Draft reply ready — confirm 2:00 PM</span>
+          <span className="truncate text-[10.5px] text-body-soft">Added $86.40 to Utilities — reminder set</span>
         </div>
-      </MiniScreen>
-    ),
-  },
-  {
-    icon: "wallet",
-    title: "Invoices & expenses",
-    body: "Track spend, approvals, and budgets automatically, with fraud checks built in.",
-    preview: (
-      <MiniScreen>
-        <MiniRow icon="doc" title="Ace Hardware" sub="$142.30" tone="ok" toneLabel="approved" />
-        <MiniRow icon="doc" title="Sherwin-Williams" sub="$286.10" tone="warn" toneLabel="pending" />
       </MiniScreen>
     ),
   },
@@ -154,34 +161,34 @@ const FEATURES: { icon: IconName; title: string; body: string; preview: ReactNod
 
 const VALUE_PROPS: { icon: IconName; title: string; body: string }[] = [
   {
-    icon: "clock",
-    title: "Hours back every week",
-    body: "Quoting, scheduling, and follow-ups that used to eat your evenings now happen in the background.",
+    icon: "chart",
+    title: "Know where your money goes",
+    body: "Every expense lands in a category and a budget, so surprises show up before the statement does.",
   },
   {
     icon: "shield",
     title: "Nothing gets dropped",
-    body: "Every customer, task, and invoice lives in one system instead of six sticky notes and a notebook.",
+    body: "Bills, projects, customers, and to-dos live in one place instead of six apps, a spreadsheet, and a notebook.",
   },
   {
-    icon: "check2",
-    title: "Looks professional",
-    body: "Send polished, itemized estimates and timely replies without hiring an office manager.",
+    icon: "clock",
+    title: "Hours back every week",
+    body: "Receipts, reminders, and follow-ups that used to eat your evenings now sort themselves out.",
   },
 ];
 
 const STEPS = [
   {
-    title: "Sign in with Google",
-    body: "Connect your Gmail in one click — no setup, no software to install.",
+    title: "Sign in",
+    body: "Use Apple, Google, or just your email — no setup, nothing to install.",
   },
   {
-    title: "Add your customers and jobs",
-    body: "Or let the AI draft your first estimate straight from a few photos of the site.",
+    title: "Connect your inbox",
+    body: "Ask Clandar about any email — it files bills and receipts as expenses, flags new customer requests, and drafts replies.",
   },
   {
-    title: "Let it run",
-    body: "Schedules, reminders, and customer replies stay organized automatically as work happens.",
+    title: "Ask your assistant",
+    body: "Plan a project, set a budget, or ask what's due this week — it keeps everything organized as you go.",
   },
 ];
 
@@ -216,11 +223,11 @@ export default async function LandingPage({ searchParams }: PageProps<"/">) {
       >
         <div className="flex flex-col items-center gap-[18px] text-center">
           <h1 className="m-0 max-w-[520px] text-[32px] leading-[1.12] font-bold tracking-[-0.03em] lg:text-[44px]">
-            The assistant every business owner wishes they could afford
+            Your personal chief of staff
           </h1>
           <p className="m-0 max-w-[440px] text-[14.5px] leading-[1.6] text-body-soft">
-            Quotes from photos, a straight schedule, invoices chased, email answered — so you can get back to
-            the real work.
+            Track spending and bills, keep every project on budget, and let an AI assistant handle the receipts,
+            reminders, and follow-ups.
           </p>
           <LoginCard error={error || undefined} />
           <a href="#features" className="text-[12.5px] font-medium text-muted underline hover:text-ink">
@@ -234,30 +241,32 @@ export default async function LandingPage({ searchParams }: PageProps<"/">) {
             <div className="flex flex-col gap-[10px] rounded-[18px] border border-line bg-surface p-[14px] shadow-[0_14px_40px_rgba(16,18,17,0.08)]">
               <div className="flex items-center gap-[10px]">
                 <span className="flex size-[34px] shrink-0 items-center justify-center rounded-[11px] bg-ok-bg text-ok-fg">
-                  <Icon name="briefcase" size={17} />
+                  <Icon name="home" size={17} />
                 </span>
                 <div className="flex min-w-0 flex-col text-left leading-[1.3]">
-                  <span className="truncate text-[12.5px] font-semibold">Repaint kitchen &amp; hallway</span>
-                  <span className="truncate text-[11px] text-muted">Jordan Alvarez · Painting</span>
+                  <span className="truncate text-[12.5px] font-semibold">Kitchen refresh</span>
+                  <span className="truncate text-[11px] text-muted">Home project · 6 tasks</span>
                 </div>
-                <span className="ml-auto shrink-0 rounded-full bg-warn-bg px-[9px] py-[3px] text-[10.5px] font-medium text-warn-fg">
-                  Quoted
+                <span className="ml-auto shrink-0 rounded-full bg-ok-bg px-[9px] py-[3px] text-[10.5px] font-medium text-ok-fg">
+                  On budget
                 </span>
               </div>
-              <div className="flex items-center gap-[10px] rounded-[12px] border border-line bg-bg px-[12px] py-[9px] text-left">
-                <Icon name="camera" size={15} className="shrink-0 text-body-soft" />
-                <span className="min-w-0 flex-1 truncate text-[11.5px] text-body-soft">
-                  AI estimate from 3 photos — $1,240
-                </span>
-                <span className="shrink-0 text-[11px] font-semibold text-ok-fg">Send</span>
+              <div className="flex flex-col gap-[6px] rounded-[12px] border border-line bg-bg px-[12px] py-[9px] text-left">
+                <div className="flex justify-between text-[11.5px]">
+                  <span className="text-body-soft">Spent so far</span>
+                  <span className="font-semibold">$3,120 of $8,500</span>
+                </div>
+                <div className="h-[6px] overflow-hidden rounded-full bg-idle-bg">
+                  <div className="h-full w-[37%] rounded-full bg-ink" />
+                </div>
               </div>
             </div>
 
             <div className="flex flex-col gap-[8px] rounded-[18px] border border-line bg-surface p-[14px] text-left shadow-[0_14px_40px_rgba(16,18,17,0.08)]">
               <span className="text-[11px] font-semibold text-body-soft">Thursday</span>
               {[
-                ["9:00 AM", "Tile install", "Smith bathroom · 14 Oak St"],
-                ["1:30 PM", "Estimate visit", "Nguyen deck · 88 Pine Ave"],
+                ["9:00 AM", "Contractor walk-through", "Kitchen refresh · 14 Oak St"],
+                ["1:30 PM", "Client call", "Deck repair quote · Maria Chen"],
               ].map(([time, what, where]) => (
                 <div key={time} className="flex items-start gap-[10px]">
                   <span className="mt-[5px] size-[8px] shrink-0 rounded-full bg-ink" />
@@ -275,8 +284,8 @@ export default async function LandingPage({ searchParams }: PageProps<"/">) {
                 <Icon name="bot" size={15} />
               </span>
               <div className="rounded-[16px] rounded-bl-[6px] bg-ink px-[13px] py-[10px] text-left text-[12px] leading-[1.5] text-bg shadow-[0_14px_40px_rgba(16,18,17,0.14)]">
-                Good morning — 2 jobs today, 22 min between them. The Nguyen quote is 3 days old; want me to
-                follow up?
+                Good morning — the electric bill ($86.40) is due Friday, and dining out is at 78% of this
+                month&rsquo;s budget. Want a reminder for the bill?
               </div>
             </div>
           </div>
@@ -287,11 +296,11 @@ export default async function LandingPage({ searchParams }: PageProps<"/">) {
       <section id="features" className="mx-auto w-full max-w-[1120px] px-5 py-[50px] lg:px-8">
         <div className="mb-[30px] flex flex-col items-center gap-[8px] text-center">
           <h2 className="m-0 text-[26px] font-bold tracking-[-0.02em] lg:text-[30px]">
-            Everything an assistant would do — done by Clandar
+            Your money, your projects, one assistant
           </h2>
           <p className="m-0 max-w-[520px] text-[13.5px] leading-[1.6] text-body-soft">
-            One place for customers, jobs, quotes, schedule, tasks, and the money — built for a business run by
-            one person, or a small crew.
+            Spending, budgets, bills, projects, calendar, and tasks in one place — with an AI assistant that keeps it
+            all in order. For your household, your business, or both.
           </p>
         </div>
         <div className="grid grid-cols-1 gap-[14px] sm:grid-cols-2 lg:grid-cols-3">
@@ -352,7 +361,7 @@ export default async function LandingPage({ searchParams }: PageProps<"/">) {
             Ready to get your evenings back?
           </h2>
           <p className="m-0 text-[13.5px] leading-[1.6] text-[#b7bcb2]">
-            Sign in and your workspace is ready — no setup, nothing to install.
+            Sign in and Clandar is ready — no setup, nothing to install.
           </p>
           <SignInLink className="flex items-center gap-[10px] rounded-full bg-lime px-[22px] py-[13px] text-[14px] font-semibold text-ink">
             Get started
@@ -362,7 +371,7 @@ export default async function LandingPage({ searchParams }: PageProps<"/">) {
 
       <footer className="mx-auto flex w-full max-w-[1120px] flex-col items-center gap-[8px] px-5 py-[26px] text-center lg:px-8">
         <span className="text-[12.5px] font-semibold">Clandar</span>
-        <span className="text-[11px] text-faint">Built for business owners who wear every hat.</span>
+        <span className="text-[11px] text-faint">Money, projects, and an AI assistant — for your life and your business.</span>
         <div className="flex gap-[14px] text-[11px] text-faint">
           <Link href="/privacy" className="underline">
             Privacy

@@ -136,12 +136,11 @@ function LoginSteps({
       ) : null}
       {!google && !apple && !email ? (
         <p className="m-0 text-center text-[12.5px] text-bad-fg">
-          No sign-in method is configured yet — set GOOGLE_CLIENT_ID/SECRET, APPLE_CLIENT_ID or SMTP_URL.
+          No sign-in method is configured yet — set GOOGLE_CLIENT_ID/SECRET, APPLE_CLIENT_ID or SMTP_HOST/USER/PASSWORD.
         </p>
       ) : null}
       <p className="m-0 mt-[2px] text-center text-[10.5px] leading-[1.6] text-faint">
-        First time? Signing in creates your company&rsquo;s workspace. Joining a team? Use the email your owner
-        invited. By continuing you agree to the{" "}
+        First time? Signing in sets up your Clandar. Joining someone&rsquo;s? Use the email they invited. By continuing you agree to the{" "}
         <Link href="/terms" className="underline">
           Terms
         </Link>{" "}

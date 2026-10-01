@@ -709,7 +709,7 @@ export function AssistantWidget({
             ) : (
               <div key={turn.id} className="flex max-w-[92%] flex-col gap-[6px] self-start">
                 {turn.toolCalls.length > 0 ? (
-                  <details className="rounded-[10px] border border-line-soft bg-bg px-[9px] py-[6px]" open={turn.id === "streaming"}>
+                  <details className="rounded-[10px] border border-line-soft bg-bg px-[9px] py-[6px]">
                     <summary className="cursor-pointer text-[11px] font-medium text-body-soft">
                       {turn.toolCalls.length} action{turn.toolCalls.length === 1 ? "" : "s"}
                     </summary>

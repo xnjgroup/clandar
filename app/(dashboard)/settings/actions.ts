@@ -3,8 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { encryptionConfigured } from "@/lib/crypto";
-import { sendMail, sendableGmailConnectorId } from "@/lib/gmail";
 import { query, queryOne } from "@/lib/db";
+import { ROLES, sendInviteEmail } from "@/lib/org-members";
 import { originFromHeaders } from "@/lib/request-origin";
 import {
   createLlmProvider,
@@ -166,7 +166,6 @@ export async function removeLlmProvider(form: FormData) {
 
 /* ── Team ─────────────────────────────────────────────────── */
 
-const ROLES = ["owner", "approver", "member", "crew"];
 
 export async function inviteMember(_prev: FormState, form: FormData): Promise<FormState> {
   const session = await requireSession();
@@ -182,52 +181,16 @@ export async function inviteMember(_prev: FormState, form: FormData): Promise<Fo
   return sent.ok ? { ok: `Invited ${email} — an invitation email is on its way.` } : { ok: `Invited ${email}. ${sent.why}` };
 }
 
-const ROLE_NAMES: Record<string, string> = { owner: "an owner", approver: "an approver", member: "a member", crew: "crew" };
-
-/**
- * Emails an invite from the org's first Gmail connector that's allowed to
- * send. Joining needs nothing but signing in with the invited Google account
- * (the pending invite is matched by email), so the email is just that link.
- * Never throws — a missing connector or a Gmail error comes back as `why`,
- * phrased for the person who sent the invite, with the link to share by hand.
- */
-async function emailInvite(
-  session: Awaited<ReturnType<typeof requireSession>>,
-  email: string,
-  role: string,
-): Promise<{ ok: true } | { ok: false; why: string }> {
-  const signInUrl = `${originFromHeaders(await headers())}/login`;
-  const manual = `Share this sign-in link with them: ${signInUrl}`;
-
-  const connectorId = await sendableGmailConnectorId(session.org.id);
-  if (!connectorId) return { ok: false, why: `No email was sent — connect a Gmail account with send access on /connectors to email invites. ${manual}` };
-
-  const inviter = session.person.name || session.person.email;
-  const orgName = session.org.name;
-  try {
-    await sendMail({
-      orgId: session.org.id,
-      connectorId,
-      to: email,
-      subject: `${inviter} invited you to join ${orgName}`,
-      body: [
-        `Hi,`,
-        ``,
-        `${inviter} has invited you to join ${orgName} on Clandar as ${ROLE_NAMES[role] ?? role}.`,
-        ``,
-        `To accept, sign in with your Google account for ${email}:`,
-        signInUrl,
-        ``,
-        `You'll be added to ${orgName} automatically the first time you sign in. If you weren't expecting this, you can ignore this email.`,
-      ].join("\n"),
-    });
-    return { ok: true };
-  } catch (error) {
-    return {
-      ok: false,
-      why: `The invitation email couldn't be sent (${error instanceof Error ? error.message : "unknown error"}). ${manual}`,
-    };
-  }
+/** Emails the invite (lib/org-members.ts) from this session's org and person. */
+async function emailInvite(session: Awaited<ReturnType<typeof requireSession>>, email: string, role: string) {
+  return sendInviteEmail({
+    orgId: session.org.id,
+    orgName: session.org.name,
+    inviter: session.person.name || session.person.email,
+    email,
+    role,
+    origin: originFromHeaders(await headers()),
+  });
 }
 
 /** Re-sends the invitation email for a pending invite. */
@@ -247,23 +210,26 @@ export async function resendInvite(_prev: FormState, form: FormData): Promise<Fo
 }
 
 export async function cancelInvite(form: FormData) {
-  const { org } = await requireSession();
+  const { org, person } = await requireSession();
+  if (person.role !== "owner") return;
   const id = field(form, "id");
   await revokeInvite(org.id, id);
   revalidatePath(PATH);
 }
 
 export async function changeTeammateRole(form: FormData) {
-  const { org } = await requireSession();
+  const { org, person } = await requireSession();
   const id = field(form, "id");
   const role = field(form, "role");
-  if (!ROLES.includes(role)) return;
+  // Owners only, and not on themselves (so a workspace can't lose its last owner by accident).
+  if (person.role !== "owner" || id === person.id || !ROLES.includes(role)) return;
   await updateTeammateRole(org.id, id, role);
   revalidatePath(PATH);
 }
 
 export async function removeTeammateAction(form: FormData) {
-  const { org } = await requireSession();
+  const { org, person } = await requireSession();
+  if (person.role !== "owner") return;
   const id = field(form, "id");
   await removeTeammate(org.id, id);
   revalidatePath(PATH);

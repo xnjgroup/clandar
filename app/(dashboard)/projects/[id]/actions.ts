@@ -7,6 +7,7 @@ import { markParsePending, parseProjectDocument } from "@/lib/document-ingest";
 import { requireSession } from "@/lib/auth";
 import { getConnectorForOrg, hasGmailModifyScope } from "@/lib/connectors";
 import { getProject, setProjectStatus } from "@/lib/projects";
+import { addProjectComment, deleteProjectComment, updateProjectComment } from "@/lib/project-comments";
 import {
   deleteProjectFile,
   deleteProjectFolder,
@@ -346,4 +347,29 @@ export async function reparseFile(form: FormData) {
     after(() => parseProjectDocument(fileId, projectId, session.org.id));
   }
   revalidatePath(`/projects/${projectId}`);
+}
+
+/** Discussion: a comment, or a reply when `parentId` is set. Mentions and replies notify people. */
+export async function addComment(_prev: FormState, form: FormData): Promise<FormState> {
+  const { org, person } = await requireSession();
+  const projectId = String(form.get("projectId") ?? "");
+  const parentId = String(form.get("parentId") ?? "") || null;
+  const result = await addProjectComment(org.id, projectId, { id: person.id, name: person.name || person.email }, String(form.get("body") ?? ""), parentId);
+  if ("error" in result) return { error: result.error };
+  revalidatePath(`/projects/${projectId}`);
+  return { ok: "Posted." };
+}
+
+export async function editComment(_prev: FormState, form: FormData): Promise<FormState> {
+  const { org, person } = await requireSession();
+  const result = await updateProjectComment(org.id, String(form.get("id") ?? ""), { id: person.id, name: person.name || person.email }, String(form.get("body") ?? ""));
+  if ("error" in result) return { error: result.error };
+  revalidatePath(`/projects/${result.projectId}`);
+  return { ok: "Saved." };
+}
+
+export async function removeComment(form: FormData) {
+  const { org, person } = await requireSession();
+  const result = await deleteProjectComment(org.id, String(form.get("id") ?? ""), { id: person.id, role: person.role });
+  if (!("error" in result)) revalidatePath(`/projects/${result.projectId}`);
 }

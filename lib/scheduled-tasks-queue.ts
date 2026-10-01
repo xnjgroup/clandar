@@ -11,7 +11,8 @@ import { redis } from "@/lib/redis";
 export const SCHEDULED_TASKS_QUEUE = "scheduled-tasks";
 const TICK_INTERVAL_MS = 5 * 60 * 1000;
 
-export type SchedulerJob = { kind: "tick" } | { kind: "run"; taskId: string; orgId: string };
+/** `manual`: "Run now" — runs whenever it's asked, without taking the schedule's next slot. */
+export type SchedulerJob = { kind: "tick" } | { kind: "run"; taskId: string; orgId: string; manual?: boolean };
 
 const globalForQueue = globalThis as typeof globalThis & {
   clandarScheduledTasksQueue?: Queue<SchedulerJob>;
@@ -41,5 +42,5 @@ export async function ensureTickScheduled(): Promise<void> {
 
 /** Runs a task immediately (the "Run now" button) rather than waiting for its schedule. */
 export async function enqueueRunNow(taskId: string, orgId: string): Promise<void> {
-  await scheduledTasksQueue().add("run", { kind: "run", taskId, orgId });
+  await scheduledTasksQueue().add("run", { kind: "run", taskId, orgId, manual: true });
 }

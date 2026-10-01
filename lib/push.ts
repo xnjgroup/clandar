@@ -5,6 +5,7 @@
  * With no VAPID keys configured, push is simply off.
  */
 import webpush from "web-push";
+import { pushToDevices } from "@/lib/apns";
 import { query } from "@/lib/db";
 
 let configured: boolean | null = null;
@@ -35,8 +36,15 @@ export async function deletePushSubscription(personId: string, endpoint: string)
   await query(`DELETE FROM push_subscriptions WHERE person_id = $1 AND endpoint = $2`, [personId, endpoint]);
 }
 
-/** Pushes to every browser the person enabled; subscriptions the push service reports as gone are removed. */
+/**
+ * Pushes to every browser the person enabled (subscriptions the push service reports as gone are
+ * removed) and every iPhone they're signed in on (lib/apns.ts).
+ */
 export async function pushToPerson(personId: string, payload: { title: string; body: string; link?: string | null }) {
+  await Promise.all([pushToBrowsers(personId, payload), pushToDevices(personId, payload)]);
+}
+
+async function pushToBrowsers(personId: string, payload: { title: string; body: string; link?: string | null }) {
   if (!pushConfigured()) return;
   const subs = await query<{ endpoint: string; p256dh: string; auth: string }>(
     `SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE person_id = $1`,

@@ -29,7 +29,7 @@ const QUICK_ASKS: { group: "Ask" | "Do"; label: string; prompt: string }[] = [
   {
     group: "Do",
     label: "Create a project",
-    prompt: "I want to create a new project. Ask me for the customer, the job and anything else you need.",
+    prompt: "I want to create a new project. Ask me what it is, who it's for (if anyone) and anything else you need.",
   },
   { group: "Do", label: "Set a reminder", prompt: "Set a reminder for me. Ask me what it's for and when." },
   {
@@ -78,7 +78,7 @@ export default async function OverviewPage() {
       sub: projectStats.tasksOverdue ? `${count(projectStats.tasksOverdue)} overdue` : "nothing overdue",
     },
     {
-      label: "Jobs this week",
+      label: "Scheduled this week",
       value: count(projectStats.jobsThisWeek),
       sub: projectStats.newLeads ? `${count(projectStats.newLeads)} new email lead${projectStats.newLeads === 1 ? "" : "s"}` : "on the schedule",
     },

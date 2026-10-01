@@ -852,6 +852,52 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
 );
 CREATE INDEX IF NOT EXISTS push_subscriptions_person_idx ON push_subscriptions (person_id);
 
+-- iPhone push (APNs): the device token the Clandar iOS app registers after sign-in. `environment` is
+-- which APNs host the token belongs to — 'sandbox' for Xcode/debug builds, 'production' for TestFlight/App Store.
+CREATE TABLE IF NOT EXISTS device_tokens (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  person_id    uuid NOT NULL REFERENCES people (id) ON DELETE CASCADE,
+  token        text NOT NULL UNIQUE,
+  environment  text NOT NULL DEFAULT 'production' CHECK (environment IN ('sandbox', 'production')),
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  last_seen_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS device_tokens_person_idx ON device_tokens (person_id);
+
+-- A project's Discussion: threaded comments (replies nest under `parent_id`, like a forum thread).
+-- The body is plain text with links (videos get a preview), @-mentions of people as <@person-uuid>
+-- (each notifies that person) and references to the project's things as <#kind:uuid> (task, invoice,
+-- file, photo, estimate) — both rendered with the current name, so renames show through. A comment
+-- with replies is soft-deleted (`deleted_at`, body cleared) so the thread under it survives.
+CREATE TABLE IF NOT EXISTS project_comments (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id      uuid NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+  project_id  uuid NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+  parent_id   uuid REFERENCES project_comments (id) ON DELETE CASCADE,
+  author_id   uuid REFERENCES people (id) ON DELETE SET NULL,
+  body        text NOT NULL,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  deleted_at  timestamptz
+);
+CREATE INDEX IF NOT EXISTS project_comments_project_idx ON project_comments (project_id, created_at);
+CREATE INDEX IF NOT EXISTS project_comments_parent_idx ON project_comments (parent_id);
+
+-- Assistant actions waiting for the user's go-ahead (e.g. posting a comment that notifies people). The
+-- assistant previews the action (a row here, with exactly what would happen); it's carried out only
+-- when confirmed in a later turn — after the user has written a new message — and only once.
+CREATE TABLE IF NOT EXISTS assistant_pending_actions (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  conversation_id uuid NOT NULL REFERENCES agent_conversations (id) ON DELETE CASCADE,
+  person_id       uuid NOT NULL REFERENCES people (id) ON DELETE CASCADE,
+  kind            text NOT NULL,
+  payload         jsonb NOT NULL,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  done_at         timestamptz
+);
+CREATE INDEX IF NOT EXISTS assistant_pending_actions_conversation_idx
+  ON assistant_pending_actions (conversation_id, created_at DESC);
+
 /* ── Org-scoping the legacy expense-tracking tables ──────────
    These predate multi-tenancy and were left global — every org shared the
    same locations/vendors/invoices/etc. `categories` stays global on purpose

@@ -3,18 +3,13 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireSession } from "@/lib/auth";
-import { findOrCreateCustomer } from "@/lib/customers";
-import { copyEmailAttachmentsToProject } from "@/lib/email-to-project";
-import { modifyMessageLabels } from "@/lib/gmail";
 import {
-  getLead,
   saveLeadFinderSettings,
   scanOrgForLeads,
   setLeadStatus,
   type LeadFinderSettings,
 } from "@/lib/lead-finder";
-import { createProject } from "@/lib/projects";
-import { createTask } from "@/lib/tasks";
+import { convertLeadToProject, dismissLead as dismissLeadCore, followUpOnLead } from "@/lib/lead-handling";
 
 export type LeadFormState = { error?: string; ok?: string };
 
@@ -28,79 +23,28 @@ function refresh() {
   revalidatePath("/tasks/scheduled/lead-finder");
 }
 
-/** "Create project" on a lead: customer from the sender, type/title/notes from the AI's read, attachments copied over. */
+/** "Create project" on a lead — see lib/lead-handling.ts. */
 export async function createProjectFromLead(form: FormData) {
   const session = await requireSession();
-  const lead = await getLead(field(form, "id"), session.org.id);
-  if (!lead) return;
-  if (lead.projectId) redirect(`/projects/${lead.projectId}`);
-
-  const customerId = await findOrCreateCustomer(session.org.id, lead.fromName || lead.fromEmail, {
-    email: lead.fromEmail,
-    phone: lead.details.phone,
-  });
-  const facts = [
-    lead.details.timeline ? `Timeline: ${lead.details.timeline}` : null,
-    lead.details.budget ? `Budget: ${lead.details.budget}` : null,
-    lead.details.phone ? `Phone: ${lead.details.phone}` : null,
-  ].filter(Boolean);
-  const projectId = await createProject({
-    orgId: session.org.id,
-    customerId,
-    title: lead.title || lead.subject || "New project",
-    projectTypeId: lead.projectTypeId,
-    address: lead.details.location ?? "",
-    notes: [lead.summary, facts.join(" · "), `From email: “${lead.subject}”`].filter(Boolean).join("\n"),
-    createdBy: session.person.id,
-  });
-  await copyEmailAttachmentsToProject({
-    orgId: session.org.id,
-    connectorId: lead.connectorId,
-    messageId: lead.messageId,
-    projectId,
-    uploadedBy: session.person.id,
-  }).catch(() => {}); // the project is what matters; attachments are a bonus
-  await setLeadStatus(lead.id, session.org.id, "converted", projectId);
+  const projectId = await convertLeadToProject(session.org.id, session.person.id, field(form, "id"));
+  if (!projectId) return;
   refresh();
   revalidatePath("/projects");
   redirect(`/projects/${projectId}`);
 }
 
-/** "Follow up": a reminder in two days (with a link back to the email), and the lead is marked reviewed. */
+/** "Follow up" — see lib/lead-handling.ts. */
 export async function followUpLead(form: FormData) {
   const session = await requireSession();
-  const lead = await getLead(field(form, "id"), session.org.id);
-  if (!lead) return;
-  const due = new Date(Date.now() + 2 * 86_400_000).toLocaleDateString("en-CA", {
-    timeZone: field(form, "timeZone") || "UTC",
-  });
-  await createTask({
-    orgId: session.org.id,
-    projectId: lead.projectId,
-    kind: "reminder",
-    title: `Follow up: ${lead.fromName || lead.fromEmail} — ${lead.title || lead.subject}`,
-    notes: `${lead.summary}\nEmail: /email/${lead.messageId}`,
-    dueDate: due,
-    assignedTo: session.person.id,
-    createdBy: session.person.id,
-    timeZone: field(form, "timeZone"),
-  });
-  if (lead.status === "new") await setLeadStatus(lead.id, session.org.id, "reviewed");
+  if (!(await followUpOnLead(session.org.id, session.person.id, field(form, "id"), field(form, "timeZone")))) return;
   refresh();
   revalidatePath("/tasks");
 }
 
-/** "Not a lead": out of the queue, its Gmail label removed, and remembered so the AI learns from it. */
+/** "Not a lead" — see lib/lead-handling.ts. */
 export async function dismissLead(form: FormData) {
   const session = await requireSession();
-  const lead = await getLead(field(form, "id"), session.org.id);
-  if (!lead) return;
-  await setLeadStatus(lead.id, session.org.id, "dismissed");
-  if (lead.gmailLabelId) {
-    await modifyMessageLabels(session.org.id, lead.connectorId, lead.messageId, { remove: [lead.gmailLabelId] }).catch(
-      () => {},
-    );
-  }
+  if (!(await dismissLeadCore(session.org.id, field(form, "id")))) return;
   refresh();
 }
 

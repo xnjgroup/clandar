@@ -312,18 +312,28 @@ async function unreadInboxSnapshot(orgId: string): Promise<
  * set the task up — a notification in the assistant's Updates (badging its
  * button) plus a push. Never touches customer-facing data.
  */
-export async function executeScheduledTask(taskId: string, orgId: string): Promise<void> {
+export async function executeScheduledTask(
+  taskId: string,
+  orgId: string,
+  options: { manual?: boolean } = {},
+): Promise<void> {
   const task = await getScheduledTask(taskId, orgId);
   if (!task) return;
 
-  // Claim this run by advancing next_run_at in one statement — if another worker
-  // (a second server, a dev machine on the same queue) already took it, stop here.
+  // A scheduled run claims its slot by advancing next_run_at in one statement — if another worker
+  // (a second server, a dev machine on the same queue) already took it, stop here. "Run now" isn't a
+  // slot: it always runs and leaves the schedule alone.
   const nextRunAt = computeNextRun(task.frequency, task.runTime, task.runWeekday, new Date(), task.timeZone);
-  const claimed = await queryOne<{ id: string; created_by: string | null }>(
-    `UPDATE scheduled_tasks SET last_run_at = now(), next_run_at = $2
-      WHERE id = $1 AND next_run_at <= now() RETURNING id, created_by`,
-    [taskId, nextRunAt],
-  );
+  const claimed = options.manual
+    ? await queryOne<{ id: string; created_by: string | null }>(
+        `UPDATE scheduled_tasks SET last_run_at = now() WHERE id = $1 AND org_id = $2 RETURNING id, created_by`,
+        [taskId, orgId],
+      )
+    : await queryOne<{ id: string; created_by: string | null }>(
+        `UPDATE scheduled_tasks SET last_run_at = now(), next_run_at = $2
+          WHERE id = $1 AND next_run_at <= now() RETURNING id, created_by`,
+        [taskId, nextRunAt],
+      );
   if (!claimed) return;
 
   // Runs cut off mid-way (a server restart) would otherwise say "running" forever.

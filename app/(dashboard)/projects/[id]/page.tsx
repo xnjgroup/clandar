@@ -15,6 +15,7 @@ import { listProjectInvoices } from "@/lib/email-invoice";
 import { listEstimates, type Estimate } from "@/lib/quoting";
 import { listSchedule, locateScheduleEntries } from "@/lib/schedule";
 import { listTasks } from "@/lib/tasks";
+import { listProjectComments, projectRefs } from "@/lib/project-comments";
 import { NewTaskDialog } from "../../tasks/new-task-dialog";
 import { TaskList } from "../../tasks/task-list";
 import { AddToScheduleDialog } from "../../schedule/add-to-schedule-dialog";
@@ -25,6 +26,7 @@ import { EditableEstimate } from "./editable-estimate";
 import { EstimateBuilder } from "./estimate-builder";
 import { PhotoLightbox } from "./photo-lightbox";
 import { FilesSection } from "./files-section";
+import { DiscussionSection } from "./discussion-section";
 import { UploadForm } from "./upload-form";
 import { answerEstimate, convertEstimateToTasks, removeEstimate, removePhoto } from "./actions";
 import { AutoSubmitSelect } from "./auto-submit-select";
@@ -134,7 +136,7 @@ const inputClass =
 export default async function ProjectDetailPage({ params, searchParams }: PageProps<"/projects/[id]">) {
   const { id } = await params;
   const query = await searchParams;
-  const { org } = await requireSession();
+  const { org, person } = await requireSession();
   const project = await getProject(id, org.id);
   if (!project) notFound();
   const due = describeDue(project.dueDate, project.status);
@@ -144,7 +146,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
   const yearAhead = new Date();
   yearAhead.setFullYear(yearAhead.getFullYear() + 1);
 
-  const [team, projectTypes, photos, estimates, schedule, tasks, gmailConnectors, letterhead, allFiles, invoices] = await Promise.all([
+  const [team, projectTypes, photos, estimates, schedule, tasks, gmailConnectors, letterhead, allFiles, invoices, comments, refs] = await Promise.all([
     listTeam(org.id),
     listProjectTypes(org.id),
     listProjectPhotos(project.id),
@@ -155,6 +157,8 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
     getLetterhead(org.id),
     listAllProjectFiles(project.id),
     listProjectInvoices(project.id, org.id),
+    listProjectComments(project.id, org.id),
+    projectRefs(project.id, org.id),
   ]);
   // Places for the schedule map: look up any entries still missing coordinates after the response.
   if (schedule.some((e) => e.lat === null && (e.location || e.projectAddress))) {
@@ -306,7 +310,7 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
           <EmptyRow>No estimates yet.</EmptyRow>
         ) : (
           estimates.map((estimate) => (
-            <div key={estimate.id} className="flex flex-col gap-[8px] border-t border-line-soft px-[18px] py-[13px]">
+            <div key={estimate.id} id={`estimate-${estimate.id}`} className="flex scroll-mt-4 flex-col gap-[8px] border-t border-line-soft px-[18px] py-[13px]">
               <div className="flex flex-wrap items-center gap-[9px]">
                 <span className="text-[13px] font-semibold">{money(estimate.total)}</span>
                 <Pill tone={estimate.status === "sent" || estimate.status === "accepted" ? "ok" : "idle"}>
@@ -404,8 +408,8 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
           </span>
         </TableHeader>
         <p className="m-0 border-t border-line-soft px-[18px] py-[10px] text-[12px] leading-[1.5] text-muted">
-          The days you (or your crew) will be working on this job. They show on the Scheduled page and in the morning
-          briefing. For to-dos and reminders, use Tasks below.
+          The days set aside for this project. They show on the Scheduled page and in the morning briefing. For
+          to-dos and reminders, use Tasks below.
         </p>
         <ScheduleViews
           storageKey="clandar.project-schedule-view"
@@ -427,6 +431,36 @@ export default async function ProjectDetailPage({ params, searchParams }: PagePr
           </span>
         </TableHeader>
         <TaskList tasks={tasks} redirectPath={`/projects/${project.id}`} emptyLabel="No tasks yet." />
+      </TableCard>
+
+      {/* Discussion: threaded comments — @ notifies people, # points at the project's things. */}
+      <div id="discussion" className="scroll-mt-4" />
+      <TableCard>
+        <TableHeader>
+          <TableTitle>Discussion</TableTitle>
+          {comments.length > 0 ? (
+            <span className="ml-auto text-[12px] text-muted">
+              {count(comments.filter((c) => !c.deleted).length)} comment{comments.filter((c) => !c.deleted).length === 1 ? "" : "s"}
+            </span>
+          ) : null}
+        </TableHeader>
+        <DiscussionSection
+          projectId={project.id}
+          comments={comments.map((c) => ({
+            id: c.id,
+            parentId: c.parentId,
+            body: c.body,
+            deleted: c.deleted,
+            authorId: c.authorId,
+            authorName: c.authorName,
+            createdAt: c.createdAt.toISOString(),
+            edited: c.updatedAt.getTime() - c.createdAt.getTime() > 1000,
+          }))}
+          members={team.map((m) => ({ id: m.id, name: m.name, email: m.email }))}
+          refs={refs}
+          viewerId={person.id}
+          viewerIsOwner={person.role === "owner"}
+        />
       </TableCard>
 
       {/* Spend: invoices and receipts linked to this project (from the invoice page, email, or a parsed file). */}

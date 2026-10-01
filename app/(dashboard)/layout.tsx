@@ -28,7 +28,7 @@ export const viewport: Viewport = {
 // No title here: the app shell renders "<page> · Clandar" for each page (components/app-shell.tsx).
 export const metadata: Metadata = {
   description:
-    "Customers, jobs, AI-assisted quoting, scheduling, tasks, and invoice/expense tracking.",
+    "Spending, bills, budgets, projects, AI estimates, scheduling, and tasks — with an AI assistant.",
   // SVG only (brand/clandar-logo-v2/favicon.svg): a light tile, dark in dark-mode browsers.
   icons: { icon: [{ url: "/favicon.svg", type: "image/svg+xml" }] },
 };

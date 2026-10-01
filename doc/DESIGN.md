@@ -263,53 +263,55 @@ streams to the browser over SSE (`GET /api/gmail-jobs/[jobId]`, own-org jobs onl
 - Untrusted email HTML in a sandboxed iframe with a `default-src 'none'` CSP.
 - Gmail: `gmail.modify` only; every delete is the reversible Trash.
 - Destructive assistant actions need an explicit, code-checked confirmation (see the assistant).
+- Assistant actions that reach other people (posting a project comment that notifies them) are previewed
+  first and stored in `assistant_pending_actions`; `confirm: true` carries out exactly the stored preview,
+  once, and only after the user has written a new message since it (`lib/assistant-discussion.ts`).
 - `/admin` gated by an email allowlist, independent of org roles.
 
 ## Native iOS client
 
-The web app is the only client today. What a native app can reuse, and what it needs:
+The iPhone app lives in its own repo (`clandar-ios`: SwiftUI, iOS 26, XcodeGen). It is a thin client
+over the same server — every rule stays in `lib/*`, shared with the web.
 
-**Reusable as-is**
-- The data model and all business logic (`lib/*`), Postgres schema, workers, LLM integration and
-  every server-side rule (org scoping, confirmations, time zones).
-- JSON/stream endpoints: `POST/GET/PATCH /api/assistant` (SSE chat with the event protocol
-  above, conversation list/load/archive), `/api/assistant/attachments/[id]`,
-  `GET/POST/DELETE /api/notifications` (items, unread, running jobs; mark read; dismiss),
-  `GET/POST /api/gmail-jobs/[jobId]` (progress SSE; pause/resume/cancel), file/photo
-  upload + download under `/api/projects/[projectId]/…`, email attachments, invoice documents.
+**Auth.** `POST /api/v1/auth/{email/start, email/verify, google, apple}` verify the sign-in (email
+code; Google ID token with aud `GOOGLE_IOS_CLIENT_ID`; Apple identity token with aud
+`APPLE_BUNDLE_ID`) and return a 90-day session token (`signInForApp` in `lib/auth.ts`). The app sends
+it as `Authorization: Bearer …`; `sessionTokenFromRequest()` accepts that or the cookie, so every
+existing route works for both. `DELETE /api/v1/auth/session` signs out; `DELETE /api/v1/account`
+deletes the account (owner: the whole company, confirmed by its name; others: leave, confirmed by
+email) — App Store guideline 5.1.1(v).
 
-**Gaps to close first**
-1. **Auth for a native client.** Sessions are a signed httpOnly cookie set by the web Google
-   OAuth callback. A native app needs Sign in with Google via `ASWebAuthenticationSession`
-   (custom-scheme/universal-link callback) that mints a session, and a bearer-token variant of
-   `requireSession()` (e.g. `Authorization: Bearer <session token>`) with its own
-   expiry/refresh. App Review requires an equivalent privacy-focused login option alongside
-   Google sign-in (guideline 4.8) — in practice, Sign in with Apple.
-2. **A JSON API for the rest.** Most reads are Server Components and most writes are Server
-   Actions (form posts) — neither is callable from Swift. Add a versioned REST layer
-   (`/api/v1/...`) over the existing `lib/*` functions for customers, projects (+ estimates,
-   files, photos), schedule entries, tasks/reminders, automations, email (list/read/search),
-   invoices, overview stats and settings. Keep validation in `lib/*` so web and iOS share it.
-3. **Push via APNs.** Web Push covers browsers (and iOS Safari PWAs), not native apps. Add an
-   APNs sender alongside `pushToPerson` (a `device_tokens` table: person, platform, token) —
-   `pushToPerson` then fans out to both. Notification `link`s (e.g. `/overview?chat=<id>`,
-   `/tasks/<id>`) map naturally to deep links.
-4. **Time zone on the client.** Send the device's IANA zone with every write that takes a
-   wall-clock time (as the web sends `timeZone`); render instants in the device zone.
-5. **Maps.** On iOS use MapKit (`MKLocalSearch`, `MKDirections`) for search, routes and
-   directions; the server's stored `lat`/`lng` and `location` text work unchanged. Keep
-   `lib/geocode.ts` for the server-side and assistant tools.
-6. **Background jobs.** Bulk trash / automations already run server-side; the app only needs the
-   progress SSE (or polling `/api/notifications`) and pushes.
+**`/api/v1` (JSON, `lib/api.ts`).** `api()` wraps each handler (`ApiError` → `{ error }` + status;
+`apiSession()` → 401, never a redirect). Route files export only handlers — shared helpers live in
+`lib/api-*.ts`. Endpoints:
+- `me`, `today`, `overview`, `lookups`
+- `tasks`, `tasks/[id]`, `tasks/[id]/items`, `task-items/[id]`
+- `projects`, `projects/[id]` (the hub, incl. its Discussion: `comments` + `refs`),
+  `projects/[id]/quote` (AI proposal / save as estimate), `projects/[id]/comments` (post/reply),
+  `comments/[id]` (edit/delete), `estimates/[id]`, `customers`, `customers/[id]`
+- `schedule`, `schedule/[id]`
+- `email`, `email/accounts`, `email/[id]`, `email/trash`, `email/leads`, `email/leads/[id]`
+- `invoices`, `invoices/[id]` (GET by vendor slug + `?id=`; PATCH approve/reject/link project),
+  `invoice-flags/[id]`, `finance` (stats, expenses, recurring, budgets, fraud, approvals),
+  `directory` (vendors, assets, locations)
+- `automations`, `automations/[id]`, `automations/[id]/run`, `lead-finder`, `lead-finder/scan`
+- `settings` (names, people, invites), `settings/invites[/id]`, `settings/members/[id]`
+- `devices` (APNs token register/unregister)
 
-**Mapping the web UI to iOS**
-- Tab bar: Overview, Projects, Scheduled, Tasks, and the assistant (with the unread badge);
-  Email, Customers, Finance, Settings from a More tab or sidebar on iPad.
-- The assistant: a sheet or tab using the same SSE stream (`URLSession` bytes stream), a Stop
-  button that cancels the task, the Updates list, and local notification sounds/haptics in place
-  of the web chime/animations.
-- Modals → sheets with the same fields; Timeline/List/Map schedule views → SwiftUI lists and
-  MapKit.
+Reused unchanged: `/api/assistant` (SSE chat, conversations, attachments as data URLs — keep a
+request under Vercel's 4.5 MB body cap), `/api/assistant/attachments/[id]`, `/api/notifications`,
+`/api/gmail-jobs/[jobId]`, project photo/file routes, email attachments.
+
+**Push.** `pushToPerson` fans out to Web Push and APNs (`lib/apns.ts`, `apns2`, token-based `.p8`
+key: `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_PRIVATE_KEY`). Device tokens live in `device_tokens`
+(per environment: sandbox for Xcode builds, production for TestFlight/App Store); tokens APNs
+reports dead are deleted. The notification's `link` rides in the payload and the app maps it to a
+screen (`/projects/<id>`, `/customers/<id>`, `/invoices/<slug>?id=`, `/email`, `/schedule`,
+`/tasks`, any `?chat=<conversation>`).
+
+**Client conventions.** The device's IANA zone goes with every wall-clock write (`timeZone`);
+MapKit replaces the web map; untrusted email HTML renders in a `WKWebView` with JavaScript off and a
+`default-src 'none'` CSP; AI providers and connectors (browser OAuth) open on the website.
 
 ## Where to look next
 

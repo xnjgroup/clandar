@@ -4,6 +4,7 @@ import { CategoryTile, EmptyRow, PageBody, TableCard } from "@/components/ui";
 import { firstParam, hrefWith, money, shortDate } from "@/lib/data";
 import { requireSession } from "@/lib/auth";
 import { APPROVAL_TABS, listApprovals, type ApprovalTab } from "@/lib/queries";
+import { decideInvoice } from "./actions";
 
 const PATH = "/approvals";
 
@@ -54,9 +55,12 @@ export default async function ApprovalsPage({ searchParams }: PageProps<"/approv
             ) : null}
 
             {tab === "Pending" ? (
-              <div className="ml-2 flex shrink-0 items-center gap-[7px]">
+              <form action={decideInvoice} className="ml-2 flex shrink-0 items-center gap-[7px]">
+                <input type="hidden" name="id" value={row.id} />
                 <button
-                  type="button"
+                  type="submit"
+                  name="decision"
+                  value="approve"
                   disabled={row.flags > 0}
                   title={row.flags > 0 ? "Clear all flags before approving" : undefined}
                   className="rounded-full bg-lime px-3 py-[6px] text-[11.5px] font-semibold text-ink enabled:cursor-pointer disabled:cursor-not-allowed disabled:bg-idle-bg disabled:text-faint"
@@ -64,12 +68,14 @@ export default async function ApprovalsPage({ searchParams }: PageProps<"/approv
                   Approve
                 </button>
                 <button
-                  type="button"
+                  type="submit"
+                  name="decision"
+                  value="reject"
                   className="cursor-pointer rounded-full border border-line px-3 py-[6px] text-[11.5px] font-medium"
                 >
                   Reject
                 </button>
-              </div>
+              </form>
             ) : (
               <span
                 className={`ml-2 shrink-0 rounded-full px-2 py-[3px] text-[10.5px] font-medium ${

@@ -37,7 +37,7 @@ export function startScheduledTasksWorker() {
         }
         return;
       }
-      await executeScheduledTask(job.data.taskId, job.data.orgId);
+      await executeScheduledTask(job.data.taskId, job.data.orgId, { manual: job.data.manual ?? false });
     },
     { connection: createRedisConnection(), concurrency: 2 },
   );
