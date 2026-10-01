@@ -12,6 +12,9 @@ export type ScheduleEntry = {
   projectId: string | null;
   projectTitle: string | null;
   projectAddress: string | null;
+  /** The project's type and its icon (components/icons.tsx names) — the app shows it as a coloured tile. */
+  projectTypeId: string | null;
+  projectTypeIcon: string | null;
   customerName: string | null;
   assignedTo: string | null;
   assignedName: string | null;
@@ -29,6 +32,8 @@ type ScheduleRow = {
   project_id: string | null;
   project_title: string | null;
   project_address: string | null;
+  project_type_id: string | null;
+  project_type_icon: string | null;
   customer_name: string | null;
   assigned_to: string | null;
   assigned_name: string | null;
@@ -46,6 +51,8 @@ function toEntry(row: ScheduleRow): ScheduleEntry {
     projectId: row.project_id,
     projectTitle: row.project_title,
     projectAddress: row.project_address,
+    projectTypeId: row.project_type_id,
+    projectTypeIcon: row.project_type_icon,
     customerName: row.customer_name,
     assignedTo: row.assigned_to,
     assignedName: row.assigned_name,
@@ -59,10 +66,12 @@ function toEntry(row: ScheduleRow): ScheduleEntry {
 }
 
 const SELECT = `SELECT s.id, s.project_id, j.title AS project_title, j.address AS project_address,
+       j.project_type_id, pt.icon AS project_type_icon,
        c.name AS customer_name, s.assigned_to, p.name AS assigned_name,
        s.starts_at, s.ends_at, s.notes, s.location, s.lat, s.lng
   FROM schedule_entries s
   LEFT JOIN projects j ON j.id = s.project_id
+  LEFT JOIN project_types pt ON pt.id = j.project_type_id
   LEFT JOIN customers c ON c.id = j.customer_id
   LEFT JOIN people p ON p.id = s.assigned_to`;
 
