@@ -73,6 +73,8 @@ export async function POST(request: Request) {
     /** Set on an email page: the open message, read here server-side (never trusted from the client). */
     email?: { id?: string; account?: string } | null;
     timeZone?: string;
+    /** From the iPhone app: its Apple Calendar — connected (with the next two weeks as text) or not. */
+    deviceCalendar?: { status?: string; events?: string } | null;
   };
   const question = body.question?.trim();
   if (!question) return NextResponse.json({ error: "Type a question first." }, { status: 400 });
@@ -113,7 +115,18 @@ export async function POST(request: Request) {
     attachments,
     body.pageContext ?? null,
     // request.signal aborts when the browser drops the stream — the chat's Stop button.
-    { email, emailAttachments, timeZone, signal: request.signal },
+    {
+      email,
+      emailAttachments,
+      timeZone,
+      signal: request.signal,
+      deviceCalendar:
+        body.deviceCalendar?.status === "on"
+          ? { status: "on", events: String(body.deviceCalendar.events ?? "").slice(0, 12_000) }
+          : body.deviceCalendar?.status === "off"
+            ? { status: "off" }
+            : undefined,
+    },
   );
 
   // Server-Sent Events: `data: <json>` frames. text/event-stream is what proxies/CDNs (Vercel's

@@ -62,7 +62,37 @@ export type AssistantContext = {
   signal?: AbortSignal;
   /** Set by askAssistant — tools that need the user's go-ahead check it against this conversation. */
   conversationId?: string;
+  /**
+   * The iPhone app's Apple Calendar (EventKit — it never reaches the server otherwise): "on" with the
+   * next two weeks of events as text, "off" when it isn't connected, absent on the website.
+   */
+  deviceCalendar?: { status: "on" | "off"; events?: string };
 };
+
+/** The app's link that connects Apple Calendar (the iPhone app handles it; it asks iOS for access). */
+export const CONNECT_APPLE_CALENDAR_LINK = "clandar://connect/apple-calendar";
+
+function deviceCalendarBlock(calendar: AssistantContext["deviceCalendar"]): string {
+  if (!calendar) {
+    return (
+      "\n\nApple Calendar: the user is on the website, which can't see their iPhone's calendar. If they ask about " +
+      "Apple/iPhone calendar events, say it's available in the Clandar iPhone app (Settings → Connectors → Apple Calendar)."
+    );
+  }
+  if (calendar.status === "off") {
+    return (
+      "\n\nApple Calendar: not connected in this iPhone app. If the user asks about their calendar, events or " +
+      "appointments outside Clandar's schedule, say you can't see their Apple Calendar yet and offer this link to " +
+      `connect it: [Connect Apple Calendar](${CONNECT_APPLE_CALENDAR_LINK}). Answer from Clandar's own schedule otherwise.`
+    );
+  }
+  return (
+    "\n\nThe user's Apple Calendar (their iPhone's calendars — read-only; times in their time zone), next 14 days:\n" +
+    (calendar.events?.trim() || "(no events)") +
+    "\nUse it together with Clandar's own schedule (list_schedule) when they ask what's coming up. You can't change " +
+    "these events — to add something, use create_schedule_entry (Clandar's schedule)."
+  );
+}
 
 export type AgentAttachment = { id: string; fileName: string; contentType: string };
 
@@ -1274,6 +1304,7 @@ function systemPrompt(
     "\"I\", it means that sender. Don't start your own replies with a bracketed name." +
     (sender ? `\n\nThe latest message is from ${sender.name} (${sender.email}).` : "") +
     (pageContext ? `\n\nThe user is currently viewing: ${pageContext}.` : "") +
+    deviceCalendarBlock(context.deviceCalendar) +
     `\n\nToday is ${new Date().toLocaleDateString("en-CA", { timeZone: context.timeZone })} in the user's time zone (${context.timeZone}).` +
     (context.email
       ? "\n\nWhen asked to draft replies, write them out in your reply for the user to choose from; only call " +
