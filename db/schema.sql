@@ -1218,3 +1218,20 @@ CREATE TABLE IF NOT EXISTS dashboard_layouts (
   PRIMARY KEY (person_id, page)
 );
 
+
+/* ── Sample data ──────────────────────────────────────────── */
+
+-- The rows a workspace's sample ("demo") data created (lib/demo-data.ts), so removing it deletes
+-- exactly those and nothing the person made themselves.
+CREATE TABLE IF NOT EXISTS demo_records (
+  org_id     uuid NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+  kind       text NOT NULL CHECK (kind IN ('customer', 'project', 'project_type', 'task', 'schedule_entry')),
+  record_id  uuid NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (kind, record_id)
+);
+CREATE INDEX IF NOT EXISTS demo_records_org_idx ON demo_records (org_id, kind);
+-- Sample data also includes crew, suppliers, bills and budgets.
+ALTER TABLE demo_records DROP CONSTRAINT IF EXISTS demo_records_kind_check;
+ALTER TABLE demo_records ADD CONSTRAINT demo_records_kind_check
+  CHECK (kind IN ('customer', 'project', 'project_type', 'task', 'schedule_entry', 'person', 'vendor', 'invoice', 'budget'));

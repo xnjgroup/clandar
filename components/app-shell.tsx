@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Icon, type IconName } from "@/components/icons";
 import { AssistantWidget } from "@/components/assistant-widget";
+import { SampleDataBanner } from "@/components/sample-data";
 import { HEADER_ACTIONS_ID } from "@/components/header-actions";
 import { playSound, unlockSoundOnInteraction } from "@/components/notification-sound";
 import { useNotifications } from "@/components/use-notifications";
@@ -227,6 +228,7 @@ export function AppShell({
   badges,
   isAdmin,
   onSignOut,
+  sampleData,
 }: {
   children: ReactNode;
   user: ShellUser;
@@ -236,6 +238,8 @@ export function AppShell({
   badges: Record<string, number>;
   isAdmin: boolean;
   onSignOut: () => Promise<void>;
+  /** Set while the workspace has sample data — shows the banner to remove it. */
+  sampleData: { hasOwnData: boolean } | null;
 }) {
   const pathname = usePathname();
   const [crumb, title] = useHeading(pathname, user?.name ?? null);
@@ -366,6 +370,7 @@ export function AppShell({
             <div id={HEADER_ACTIONS_ID} className="ml-auto flex shrink-0 items-center gap-[8px]" />
           </header>
 
+          {sampleData ? <SampleDataBanner hasOwnData={sampleData.hasOwnData} /> : null}
           {children}
         </main>
 

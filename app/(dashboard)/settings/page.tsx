@@ -13,6 +13,8 @@ import { relativeTime, type Tone } from "@/lib/data";
 import { listLlmProviders, type ProviderStatus } from "@/lib/llm-providers";
 import { listPendingInvites, listTeam, requireSession } from "@/lib/auth";
 import { AddLlmForm } from "./add-llm-form";
+import { RemoveSampleDataButton, SampleDataOffer } from "@/components/sample-data";
+import { demoStatus } from "@/lib/demo-data";
 import { DeleteCompanyForm } from "./delete-company-form";
 import { InviteForm } from "./invite-form";
 import { ResendInviteButton } from "./resend-invite-button";
@@ -57,10 +59,11 @@ const STATUS_LABEL: Record<ProviderStatus, string> = {
 
 export default async function SettingsPage() {
   const { org, person } = await requireSession();
-  const [providers, team, invites] = await Promise.all([
+  const [providers, team, invites, demo] = await Promise.all([
     listLlmProviders(org.id),
     listTeam(org.id),
     listPendingInvites(org.id),
+    demoStatus(org.id).catch(() => null),
   ]);
   const isOwner = person.role === "owner";
 
@@ -74,6 +77,19 @@ export default async function SettingsPage() {
           <span className="text-[12.5px] text-body-soft">{org.name}</span>
         )}
       </Card>
+
+      {/* Sample data: remove it while it's here; add it to a workspace that's still empty. */}
+      {demo?.hasDemo ? (
+        <Card className="flex flex-wrap items-center gap-[12px]">
+          <div className="flex min-w-0 flex-1 flex-col gap-[3px]">
+            <CardTitle>Sample data</CardTitle>
+            <span className="text-[12px] text-muted">The sample projects, customers, schedule and tasks. Your own work stays.</span>
+          </div>
+          <RemoveSampleDataButton />
+        </Card>
+      ) : demo?.isEmpty ? (
+        <SampleDataOffer dismissible={false} />
+      ) : null}
 
       <Card>
         <AddLlmForm hasAny={providers.length > 0} />

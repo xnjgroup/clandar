@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useRef, useState, type KeyboardEvent } from "react";
+import { useActionState, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
 import { Icon, type IconName } from "@/components/icons";
 import { MENTION, REF, commentSegments, videoLink, type Ref, type RefKind } from "@/lib/comment-text";
 import { addComment, editComment, removeComment, type FormState } from "./actions";
@@ -108,7 +108,7 @@ function Thread({ comment, depth, ctx }: { comment: CommentView; depth: number; 
           {comment.deleted ? "[deleted]" : comment.authorName}
         </span>
         <span>
-          {new Date(comment.createdAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
+          <LocalDateTime iso={comment.createdAt} />
           {comment.edited && !comment.deleted ? " · edited" : ""}
         </span>
         {collapsed && replies.length > 0 ? (
@@ -402,5 +402,20 @@ function Composer({
         </span>
       </div>
     </form>
+  );
+}
+
+const noSubscribe = () => () => {};
+
+/**
+ * A timestamp in the reader's own time zone. Rendered only in the browser (the server's zone differs,
+ * which made the server and browser text disagree — a hydration error).
+ */
+function LocalDateTime({ iso }: { iso: string }) {
+  const inBrowser = useSyncExternalStore(noSubscribe, () => true, () => false);
+  return (
+    <time dateTime={iso}>
+      {inBrowser ? new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : null}
+    </time>
   );
 }

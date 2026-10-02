@@ -6,6 +6,8 @@ import { OpenAssistantButton } from "@/components/open-assistant-button";
 import { Card, CardTitle, EmptyRow, PageBody, Pill, StatCard, StatRow, TableCard } from "@/components/ui";
 import { count, delta, money0 } from "@/lib/data";
 import { requireSession } from "@/lib/auth";
+import { SampleDataOffer } from "@/components/sample-data";
+import { demoStatus } from "@/lib/demo-data";
 import { DashboardGrid, type DashboardWidget } from "@/components/dashboard-grid";
 import { getDashboardLayout, type Placement } from "@/lib/dashboard-layout";
 import { saveOverviewLayout } from "./actions";
@@ -60,6 +62,8 @@ export default async function OverviewPage() {
     needsAttention(org.id),
     recentInvoices(org.id, 5),
   ]);
+  // A brand-new, empty workspace is offered sample data (never fails the page).
+  const demo = await demoStatus(org.id).catch(() => null);
 
   const projectCards = [
     {
@@ -311,6 +315,7 @@ export default async function OverviewPage() {
 
   return (
     <PageBody>
+      {demo?.isEmpty ? <SampleDataOffer /> : null}
       <DashboardGrid widgets={widgets} layout={layout} defaultLayout={DEFAULT_LAYOUT} onSave={saveOverviewLayout} />
     </PageBody>
   );
