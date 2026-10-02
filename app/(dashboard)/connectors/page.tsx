@@ -26,9 +26,11 @@ import {
   checkConnector,
   connectGoogle,
   reconnectGoogle,
+  signInMcpConnector,
   removeConnector,
   toggleConnector,
 } from "./actions";
+import { ToolSwitches } from "./tool-switches";
 
 const STATUS_TONE: Record<ConnectorStatus, Tone> = {
   connected: "ok",
@@ -53,6 +55,16 @@ const AUTH_LABEL: Record<Connector["authType"], string> = {
   basic: "basic auth",
   oauth2: "OAuth",
 };
+
+/** An MCP connector's tools with their on/off state. */
+function mcpToolSwitches(c: Connector) {
+  const disabled = new Set((Array.isArray(c.metadata?.disabledTools) ? c.metadata.disabledTools : []) as string[]);
+  return c.tools.map((tool) => ({
+    name: tool.name,
+    description: tool.description,
+    enabled: !disabled.has(tool.name),
+  }));
+}
 
 function isGoogleKind(kind: Connector["kind"]): kind is GoogleService {
   return kind === "google_gmail" || kind === "google_calendar";
@@ -177,6 +189,19 @@ export default async function ConnectorsPage({ searchParams }: PageProps<"/conne
                   Test
                 </button>
               </form>
+              {c.kind === "mcp" && (c.authType === "oauth2" || /HTTP 401/.test(c.statusDetail ?? "")) ? (
+                <form action={signInMcpConnector}>
+                  <input type="hidden" name="id" value={c.id} />
+                  <button
+                    type="submit"
+                    className={`cursor-pointer rounded-full px-3 py-[6px] text-[11.5px] font-medium ${
+                      c.status === "connected" ? "border border-line" : "bg-ink text-bg"
+                    }`}
+                  >
+                    {c.status === "connected" ? "Sign in again" : "Sign in"}
+                  </button>
+                </form>
+              ) : null}
               {isGoogleKind(c.kind) ? (
                 <form action={reconnectGoogle}>
                   <input type="hidden" name="id" value={c.id} />
@@ -208,22 +233,21 @@ export default async function ConnectorsPage({ searchParams }: PageProps<"/conne
             </div>
 
             {c.tools.length > 0 ? (
-              <div className="flex w-full flex-wrap gap-[6px] pl-[46px]">
-                {c.tools.slice(0, 12).map((tool) => (
-                  <span
-                    key={tool.name}
-                    title={tool.description}
-                    className="rounded-full bg-idle-bg px-2 py-[3px] font-mono text-[10px] text-body-soft"
-                  >
-                    {tool.name}
-                  </span>
-                ))}
-                {c.tools.length > 12 ? (
-                  <span className="text-[10.5px] text-faint">
-                    +{c.tools.length - 12} more
-                  </span>
-                ) : null}
-              </div>
+              c.kind === "mcp" ? (
+                <ToolSwitches connectorId={c.id} connectorName={c.name} tools={mcpToolSwitches(c)} />
+              ) : (
+                <div className="flex w-full flex-wrap gap-[6px] pl-[46px]">
+                  {c.tools.map((tool) => (
+                    <span
+                      key={tool.name}
+                      title={tool.description}
+                      className="rounded-full bg-idle-bg px-2 py-[3px] font-mono text-[10px] text-body-soft"
+                    >
+                      {tool.name}
+                    </span>
+                  ))}
+                </div>
+              )
             ) : null}
           </div>
         ))}

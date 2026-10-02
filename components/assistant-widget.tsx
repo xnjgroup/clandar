@@ -547,7 +547,7 @@ export function AssistantWidget({
           title="New conversation"
           className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-[9px] text-faint hover:text-body"
         >
-          <Icon name="doc" size={15} />
+          <Icon name="compose" size={16} />
         </button>
         {conversationId ? (
           // Copies this conversation's id — give it to a developer to look up its trace (agent_traces).
@@ -598,7 +598,7 @@ export function AssistantWidget({
                 onClick={startNewConversation}
                 className="flex w-full cursor-pointer items-center gap-[8px] rounded-[10px] px-[10px] py-[9px] text-left text-[12.5px] font-medium hover:bg-bg"
               >
-                <Icon name="doc" size={14} className="shrink-0 text-body-soft" />
+                <Icon name="compose" size={14} className="shrink-0 text-body-soft" />
                 New conversation
               </button>
             ) : null}
@@ -709,17 +709,18 @@ export function AssistantWidget({
             ) : (
               <div key={turn.id} className="flex max-w-[92%] flex-col gap-[6px] self-start">
                 {turn.toolCalls.length > 0 ? (
-                  <details className="rounded-[10px] border border-line-soft bg-bg px-[9px] py-[6px]">
+                  <details className="min-w-0 rounded-[10px] border border-line-soft bg-bg px-[9px] py-[6px]">
                     <summary className="cursor-pointer text-[11px] font-medium text-body-soft">
                       {turn.toolCalls.length} action{turn.toolCalls.length === 1 ? "" : "s"}
                     </summary>
                     <div className="mt-[6px] flex flex-col gap-[5px]">
                       {turn.toolCalls.map((step, i) => (
-                        <div key={i} className="flex items-center gap-[7px]">
-                          <span className="shrink-0 rounded-[5px] bg-ok-bg px-[6px] py-[2px] font-mono text-[9.5px] text-ok-fg">
+                        // Wraps: connected-server tool names are long and space-less (dna__gridservice_create_api_…).
+                        <div key={i} className="flex flex-wrap items-center gap-x-[7px] gap-y-[3px]">
+                          <span className="max-w-full rounded-[5px] bg-ok-bg px-[6px] py-[2px] font-mono text-[9.5px] break-all text-ok-fg">
                             {step.tool}
                           </span>
-                          <span className="min-w-0 text-[11px] text-body-soft">{step.detail}</span>
+                          <span className="min-w-0 text-[11px] break-words text-body-soft">{step.detail}</span>
                         </div>
                       ))}
                     </div>

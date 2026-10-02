@@ -6,7 +6,8 @@ import { CardTitle } from "@/components/ui";
 import { addMcpServer, type FormState } from "./actions";
 
 const AUTH_OPTIONS = [
-  { value: "none", label: "No auth" },
+  { value: "none", label: "No auth (sign-in detected automatically)" },
+  { value: "oauth2", label: "OAuth sign-in" },
   { value: "bearer", label: "Bearer token" },
   { value: "api-key", label: "API key header" },
   { value: "basic", label: "Basic auth" },
@@ -86,6 +87,11 @@ export function AddMcpForm() {
             type="url"
             required
             inputMode="url"
+            // No autocorrect / capitalization / spell-check / smart text — the address stays exactly as typed.
+            autoCorrect="off"
+            autoCapitalize="none"
+            autoComplete="off"
+            spellCheck={false}
             placeholder="https://mcp.example.com/mcp"
             className={`${inputClass} font-mono`}
           />
@@ -113,6 +119,9 @@ export function AddMcpForm() {
             <input
               name="headerName"
               defaultValue="X-API-Key"
+              autoCorrect="off"
+              autoCapitalize="none"
+              spellCheck={false}
               className={`${inputClass} font-mono`}
             />
           </label>

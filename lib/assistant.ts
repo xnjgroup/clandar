@@ -43,6 +43,7 @@ import { listInvoiceDocuments, recordInvoiceFromEmail, setInvoiceProject } from 
 import { invoiceDetail } from "@/lib/queries";
 import { copyEmailAttachmentsToProject } from "@/lib/email-to-project";
 import { postComment, readDiscussion } from "@/lib/assistant-discussion";
+import { mcpToolsForOrg, runMcpTool, type McpToolRef } from "@/lib/mcp-tools";
 import {
   createScheduleEntry,
   deleteScheduleEntry,
@@ -72,6 +73,8 @@ export type AssistantContext = {
    * reply, where the iPhone app shows each as a confirmation card. Nothing changes until the user taps.
    */
   deviceActions?: string[];
+  /** The org's connected MCP servers' tools offered this turn, by the name the model sees (lib/mcp-tools.ts). */
+  mcpRoutes?: Map<string, McpToolRef>;
 };
 
 /** The app's link that connects Apple Calendar (the iPhone app handles it; it asks iOS for access). */
@@ -1340,8 +1343,12 @@ async function runToolUnsafe(
         data: { photoCount, fileCount },
       };
     }
-    default:
+    default: {
+      // A connected MCP server's tool (lib/mcp-tools.ts).
+      const route = context.mcpRoutes?.get(name);
+      if (route) return runMcpTool(route, args);
       return { summary: `Unknown tool "${name}" — ignored.` };
+    }
   }
 }
 
@@ -1380,6 +1387,8 @@ function systemPrompt(
     "Email cleanup: to delete (trash) emails, first call search_email, then tell the user the mailbox, the " +
     "exact count and 2–3 example senders/subjects, and ask them to confirm. Only after they clearly say yes, call " +
     "trash_email_search with that mailbox, query and count. Never trash on your own initiative." +
+    "\n\nConnected systems: tools named <server>__<tool> come from MCP servers the user connected (Settings → " +
+    "Connectors). Use them when a request is about that system." +
     "\n\nProject discussions: read_project_discussion shows a project's comments. To comment for the user, call " +
     "post_project_comment with the comment first (a preview), show them the comment and who it notifies, and only " +
     "after they say yes call it with confirm: true. Never post on your own initiative." +
@@ -1539,13 +1548,15 @@ export async function* askAssistant(
 
   // Native tool calling: tools go in the request's `tools`, reply text streams straight through,
   // and each tool result goes back as a `tool` message.
-  const tools = TOOLS.filter(
-    (t) => (!t.emailOnly || context.email) && (!t.deviceCalendarOnly || context.deviceCalendar?.status === "on"),
-  ).map(({ name, description, parameters }) => ({
-    name,
-    description,
-    parameters,
-  }));
+  // The org's connected MCP servers' tools (the ones switched on in Configure tools).
+  const mcp = await mcpToolsForOrg(orgId).catch(() => ({ definitions: [], routes: new Map<string, McpToolRef>() }));
+  context = { ...context, mcpRoutes: mcp.routes };
+  const tools = [
+    ...TOOLS.filter(
+      (t) => (!t.emailOnly || context.email) && (!t.deviceCalendarOnly || context.deviceCalendar?.status === "on"),
+    ).map(({ name, description, parameters }) => ({ name, description, parameters })),
+    ...mcp.definitions,
+  ];
   const toolCalls: { tool: string; detail: string }[] = [];
   const replyParts: string[] = [];
   let finalReply: string;
@@ -1628,7 +1639,12 @@ export async function* askAssistant(
         });
         toolCalls.push({ tool: call.name, detail: result.summary });
         yield { type: "tool_call", tool: call.name, detail: result.summary };
-        messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(result.data ?? result.summary) });
+        // Both the summary (it carries instructions, e.g. "not run yet — ask the user to confirm") and the data.
+        messages.push({
+          role: "tool",
+          tool_call_id: call.id,
+          content: JSON.stringify(result.data === undefined ? result.summary : { summary: result.summary, data: result.data }),
+        });
       }
       await saveTrace();
       // Keep any narration before the tool calls apart from what the model writes next.

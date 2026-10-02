@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1142.0",
+    "@modelcontextprotocol/sdk": "^1.31.0",
     "apexcharts": "^3.54.1",
     "apns2": "^12.2.0",
     "bullmq": "^6.3.9",

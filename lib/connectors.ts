@@ -7,6 +7,7 @@
  */
 import { decryptSecret, encryptSecret } from "@/lib/crypto";
 import { query, queryOne } from "@/lib/db";
+import { mcpAccessToken } from "@/lib/mcp-oauth";
 
 export type ConnectorKind = "mcp" | "google_gmail" | "google_calendar";
 export type ConnectorStatus = "unverified" | "pending_auth" | "connected" | "error" | "disabled";
@@ -194,6 +195,41 @@ export async function createMcpConnector(input: {
   return row!.id;
 }
 
+/** Switches one of an MCP connector's tools on or off for the assistant (kept in metadata.disabledTools). */
+export async function setMcpToolEnabled(id: string, orgId: string, tool: string, enabled: boolean) {
+  await query(
+    `UPDATE connectors
+        SET metadata = jsonb_set(
+              coalesce(metadata, '{}'::jsonb),
+              '{disabledTools}',
+              CASE WHEN $4
+                   THEN coalesce(metadata->'disabledTools', '[]'::jsonb) - $3
+                   ELSE (coalesce(metadata->'disabledTools', '[]'::jsonb) - $3) || to_jsonb($3::text)
+              END)
+      WHERE id = $1 AND org_id = $2 AND kind = 'mcp'`,
+    [id, orgId, tool, enabled],
+  );
+}
+
+/** Sets the whole list of an MCP connector's switched-off tools (the dialog's All on / All off). */
+export async function setMcpDisabledTools(id: string, orgId: string, tools: string[]) {
+  await query(
+    `UPDATE connectors SET metadata = jsonb_set(coalesce(metadata, '{}'::jsonb), '{disabledTools}', $3::jsonb)
+      WHERE id = $1 AND org_id = $2 AND kind = 'mcp'`,
+    [id, orgId, JSON.stringify(tools)],
+  );
+}
+
+/** Switches an MCP connector to OAuth sign-in (found by discovery after a 401). */
+export async function setConnectorOAuth(id: string, orgId: string) {
+  await query(
+    `UPDATE connectors SET auth_type = 'oauth2', header_name = NULL, secret_cipher = NULL, status = 'pending_auth',
+            status_detail = 'Sign-in needed'
+      WHERE id = $1 AND org_id = $2 AND kind = 'mcp'`,
+    [id, orgId],
+  );
+}
+
 /** `orgId` scopes the update so one org can never toggle/delete another's connector by guessing an id. */
 export async function setConnectorEnabled(id: string, orgId: string, enabled: boolean) {
   await query(
@@ -283,6 +319,21 @@ async function authHeaders(
   return { [headerName || "X-API-Key"]: secret };
 }
 
+/**
+ * The auth headers for calling an MCP connector — its token / API key / basic auth, or for OAuth a
+ * current access token (refreshed when needed). Null when an OAuth connector needs signing in again.
+ */
+export async function mcpAuthHeaders(connector: Connector): Promise<Record<string, string> | null> {
+  if (connector.authType === "oauth2") {
+    const token = connector.url ? await mcpAccessToken(connector.id, connector.url) : null;
+    return token ? { Authorization: `Bearer ${token}` } : null;
+  }
+  return authHeaders(connector.id, connector.authType, connector.headerName);
+}
+
+/** A tool as the assistant needs it: its inputs (and MCP's readOnlyHint, kept for later use). */
+export type McpToolSpec = { name: string; description: string; inputSchema: Record<string, unknown>; readOnly: boolean };
+
 type JsonRpcResult = { result?: unknown; error?: { code: number; message: string } };
 
 /** Reads a JSON-RPC reply from either a JSON body or an SSE `data:` frame. */
@@ -319,10 +370,17 @@ export async function probeMcpConnector(connector: Connector) {
     return { ok: false, message: "No URL configured" };
   }
 
+  const auth = await mcpAuthHeaders(connector);
+  if (!auth) {
+    const detail = "Sign-in needed — use Sign in on this connector";
+    await recordCheck(connector.id, false, detail);
+    return { ok: false, message: detail, unauthorized: true };
+  }
+
   const headers: Record<string, string> = {
     "content-type": "application/json",
     accept: "application/json, text/event-stream",
-    ...(await authHeaders(connector.id, connector.authType, connector.headerName)),
+    ...auth,
   };
 
   const post = (body: unknown, sessionId?: string | null) =>
@@ -343,9 +401,12 @@ export async function probeMcpConnector(connector: Connector) {
     });
 
     if (initResponse.status === 401 || initResponse.status === 403) {
-      const detail = `Server rejected the credentials (HTTP ${initResponse.status})`;
+      const detail =
+        connector.authType === "oauth2"
+          ? "Sign-in expired — use Sign in on this connector"
+          : `Server rejected the credentials (HTTP ${initResponse.status})`;
       await recordCheck(connector.id, false, detail);
-      return { ok: false, message: detail };
+      return { ok: false, message: detail, unauthorized: initResponse.status === 401 };
     }
     if (!initResponse.ok) {
       const detail = `initialize failed — HTTP ${initResponse.status}`;
@@ -371,10 +432,22 @@ export async function probeMcpConnector(connector: Connector) {
       sessionId,
     );
     let tools: { name: string; description: string }[] = [];
+    // Kept in metadata for the assistant (lib/mcp-tools.ts): inputs and the read-only hint.
+    let specs: McpToolSpec[] = [];
     if (toolsResponse.ok) {
       const listed = await readRpc(toolsResponse).catch(() => ({ result: undefined }));
-      const raw = (listed.result as { tools?: { name: string; description?: string }[] })?.tools;
+      const raw = (
+        listed.result as {
+          tools?: { name: string; description?: string; inputSchema?: Record<string, unknown>; annotations?: { readOnlyHint?: boolean } }[];
+        }
+      )?.tools;
       tools = (raw ?? []).map((t) => ({ name: t.name, description: t.description ?? "" }));
+      specs = (raw ?? []).map((t) => ({
+        name: t.name,
+        description: t.description ?? "",
+        inputSchema: t.inputSchema ?? { type: "object", properties: {} },
+        readOnly: t.annotations?.readOnlyHint === true,
+      }));
     }
 
     await replaceTools(connector.id, tools);
@@ -384,7 +457,13 @@ export async function probeMcpConnector(connector: Connector) {
     const detail = `${label} — ${tools.length} tool${tools.length === 1 ? "" : "s"}`;
     await recordCheck(connector.id, true, detail, {
       toolCount: tools.length,
-      metadata: { serverInfo: serverInfo ?? null, protocolVersion: PROTOCOL_VERSION },
+      metadata: {
+        serverInfo: serverInfo ?? null,
+        protocolVersion: PROTOCOL_VERSION,
+        tools: specs,
+        // The tools switched off on the Connectors page survive a re-check.
+        disabledTools: Array.isArray(connector.metadata?.disabledTools) ? connector.metadata.disabledTools : [],
+      },
     });
     return { ok: true, message: detail };
   } catch (error) {

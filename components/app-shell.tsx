@@ -344,7 +344,9 @@ export function AppShell({
       <div className="flex min-w-0">
         {/* Bottom padding: on phones, room for the floating tab bar above the home indicator; on desktop, room for the floating assistant
             button (components/assistant-widget.tsx) — 24px up + 52px tall. */}
-        <main className="flex min-w-0 flex-1 flex-col gap-[14px] px-[14px] pt-4 pb-[calc(96px+env(safe-area-inset-bottom))] lg:gap-4 lg:px-[26px] lg:pt-[22px] lg:pb-[96px]">
+        {/* Desktop: the page scrolls on its own (h-screen + overflow), so its scrollbar sits beside the page — left of the
+            docked assistant — not at the window's edge past it. */}
+        <main className="flex min-w-0 flex-1 flex-col gap-[14px] px-[14px] pt-4 pb-[calc(96px+env(safe-area-inset-bottom))] lg:h-screen lg:gap-4 lg:overflow-y-auto lg:px-[26px] lg:pt-[22px] lg:pb-[96px]">
           <header className="flex min-w-0 items-center gap-[14px]">
             <button
               type="button"
