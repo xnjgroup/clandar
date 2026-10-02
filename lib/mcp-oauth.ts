@@ -11,6 +11,7 @@ import type {
   OAuthClientMetadata,
   OAuthTokens,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
+import { oauthState } from "@/lib/connectors";
 import { decryptSecret, encryptSecret } from "@/lib/crypto";
 import { query, queryOne } from "@/lib/db";
 
@@ -50,6 +51,8 @@ class ConnectorOAuthProvider implements OAuthClientProvider {
   constructor(
     private readonly connectorId: string,
     private readonly redirect: string,
+    /** Started from the iOS app — the callback hands back to the app (oauthState). */
+    private readonly fromApp = false,
   ) {}
 
   get redirectUrl() {
@@ -68,7 +71,7 @@ class ConnectorOAuthProvider implements OAuthClientProvider {
   }
 
   async state(): Promise<string> {
-    const state = crypto.randomUUID();
+    const state = oauthState(this.fromApp);
     await query(`DELETE FROM oauth_states WHERE connector_id = $1 OR expires_at < now()`, [this.connectorId]);
     await query(`INSERT INTO oauth_states (state, connector_id, redirect_uri) VALUES ($1, $2, $3)`, [
       state,
@@ -111,8 +114,8 @@ class ConnectorOAuthProvider implements OAuthClientProvider {
  * when needed, and returns where to send the browser — or null when it's already signed in (a
  * refresh token was enough). Throws when the server doesn't do OAuth.
  */
-export async function startMcpOAuth(connectorId: string, serverUrl: string, origin: string): Promise<URL | null> {
-  const provider = new ConnectorOAuthProvider(connectorId, mcpOAuthRedirectUrl(origin));
+export async function startMcpOAuth(connectorId: string, serverUrl: string, origin: string, fromApp = false): Promise<URL | null> {
+  const provider = new ConnectorOAuthProvider(connectorId, mcpOAuthRedirectUrl(origin), fromApp);
   const result = await auth(provider, { serverUrl });
   return result === "REDIRECT" ? provider.authorizationUrl : null;
 }

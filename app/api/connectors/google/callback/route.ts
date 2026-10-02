@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import {
   completeGoogleAuth,
   consumeOAuthState,
+  oauthDoneUrl,
   googleRedirectUri,
   logConnectorEvent,
 } from "@/lib/connectors";
@@ -19,8 +20,8 @@ export async function GET(request: NextRequest) {
   const error = params.get("error");
 
   const consumed = state ? await consumeOAuthState(state) : null;
-  const back = (message: string) =>
-    NextResponse.redirect(new URL(`/connectors?notice=${encodeURIComponent(message)}`, request.url));
+  // Back to the website's Connectors page — or to the app, for a sign-in it started.
+  const back = (message: string, ok = false) => NextResponse.redirect(oauthDoneUrl(state, message, ok, request.url));
 
   if (error) {
     if (consumed) {
@@ -44,7 +45,7 @@ export async function GET(request: NextRequest) {
       // fall back to deriving it the same way the auth request would have.
       redirectUri ?? googleRedirectUri(originFromHeaders(request.headers)),
     );
-    return back("Connected.");
+    return back("Connected.", true);
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : "Unknown error";
     await logConnectorEvent(connectorId, "auth", false, message);

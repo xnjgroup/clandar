@@ -1,14 +1,14 @@
 "use client";
 
-import { useOptimistic, useTransition } from "react";
+import { useOptimistic, useState, useTransition } from "react";
 import { ModalDialog } from "@/components/modal-dialog";
-import { setMcpTools, toggleMcpTool } from "./actions";
+import { refreshMcpTools, setMcpTools, toggleMcpTool } from "./actions";
 
 type Tool = { name: string; description: string; enabled: boolean };
 
 /**
  * An MCP connector's tools: a one-line summary on the row, and a "Configure tools" dialog to switch
- * each on or off for the assistant.
+ * each on or off for the assistant. Refresh tools asks the server for its list again.
  */
 export function ToolSwitches({ connectorId, connectorName, tools }: { connectorId: string; connectorName: string; tools: Tool[] }) {
   const [, startTransition] = useTransition();
@@ -16,6 +16,22 @@ export function ToolSwitches({ connectorId, connectorName, tools }: { connectorI
     current.map((t) => (change.names.includes(t.name) ? { ...t, enabled: change.enabled } : t)),
   );
   const onCount = optimistic.filter((t) => t.enabled).length;
+  const [refreshing, startRefresh] = useTransition();
+  const [refreshNote, setRefreshNote] = useState<{ ok: boolean; message: string } | null>(null);
+
+  function refresh() {
+    setRefreshNote(null);
+    startRefresh(async () => setRefreshNote(await refreshMcpTools(connectorId)));
+  }
+
+  const refreshButton = (
+    <button type="button" onClick={refresh} disabled={refreshing} className="cursor-pointer underline disabled:cursor-default disabled:opacity-60">
+      {refreshing ? "Refreshing…" : "Refresh tools"}
+    </button>
+  );
+  const note = refreshNote ? (
+    <span className={refreshNote.ok ? "text-ok-fg" : "text-bad-fg"}>{refreshNote.message}</span>
+  ) : null;
 
   function toggle(tool: Tool) {
     const enabled = !tool.enabled;
@@ -40,7 +56,7 @@ export function ToolSwitches({ connectorId, connectorName, tools }: { connectorI
   }
 
   return (
-    <div className="flex w-full items-center gap-[10px] pl-[46px] text-[11.5px] text-muted">
+    <div className="flex w-full flex-wrap items-center gap-x-[10px] gap-y-[4px] pl-[46px] text-[11.5px] text-muted">
       <span>
         The assistant can use {onCount} of {optimistic.length} tool{optimistic.length === 1 ? "" : "s"}
       </span>
@@ -54,11 +70,13 @@ export function ToolSwitches({ connectorId, connectorName, tools }: { connectorI
       >
         {() => (
           <div className="flex flex-col gap-[12px]">
-            <div className="flex items-center gap-[10px] text-[11.5px] text-muted">
+            <div className="flex flex-wrap items-center gap-x-[10px] gap-y-[4px] text-[11.5px] text-muted">
               <span>
                 {onCount} of {optimistic.length} on
               </span>
+              {note}
               <span className="ml-auto flex shrink-0 gap-[10px] font-medium whitespace-nowrap">
+                {refreshButton}
                 <button type="button" onClick={() => setAll(true)} className="cursor-pointer underline">
                   All on
                 </button>
@@ -96,6 +114,8 @@ export function ToolSwitches({ connectorId, connectorName, tools }: { connectorI
           </div>
         )}
       </ModalDialog>
+      <span className="font-medium text-ink">{refreshButton}</span>
+      {note}
     </div>
   );
 }

@@ -12,7 +12,7 @@ export async function resolveAccount(orgId: string, account: string | null): Pro
 /** Gmail failures (expired access, rate limits) become a readable 502 instead of a 500. */
 export function gmailFailure(error: unknown): never {
   if (error instanceof GmailError) {
-    throw new ApiError(502, error.reconnect ? `${error.message} — reconnect the account on the website.` : error.message);
+    throw new ApiError(502, error.reconnect ? `${error.message} — reconnect it in Settings → Connectors (or Connectors on the website).` : error.message);
   }
   throw error;
 }

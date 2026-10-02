@@ -561,12 +561,13 @@ async function beginGoogleConsent(
   connectorId: string,
   service: GoogleService,
   origin: string,
+  fromApp = false,
 ): Promise<string> {
   const { clientId } = googleCredentials();
   const redirectUri = googleRedirectUri(origin);
   const definition = GOOGLE_SERVICES[service];
 
-  const state = crypto.randomUUID();
+  const state = oauthState(fromApp);
   await query(`DELETE FROM oauth_states WHERE connector_id = $1 OR expires_at < now()`, [
     connectorId,
   ]);
@@ -638,9 +639,10 @@ export async function startGoogleAuth(
   orgId: string,
   createdBy: string | null,
   origin: string,
+  fromApp = false,
 ): Promise<string> {
   const id = await insertGoogleConnectorRow(service, orgId, createdBy);
-  const url = await beginGoogleConsent(id, service, origin);
+  const url = await beginGoogleConsent(id, service, origin, fromApp);
   await logConnectorEvent(id, "auth", true, `Consent requested for ${GOOGLE_SERVICES[service].label}`);
   return url;
 }
@@ -656,6 +658,7 @@ export async function reauthorizeGoogleConnector(
   connectorId: string,
   orgId: string,
   origin: string,
+  fromApp = false,
 ): Promise<string> {
   const connector = await getConnector(connectorId);
   if (!connector || (connector.kind !== "google_gmail" && connector.kind !== "google_calendar")) {
@@ -669,9 +672,27 @@ export async function reauthorizeGoogleConnector(
   );
   if (updated.length === 0) throw new Error("That connector is not part of your organization");
 
-  const url = await beginGoogleConsent(connectorId, connector.kind as GoogleService, origin);
+  const url = await beginGoogleConsent(connectorId, connector.kind as GoogleService, origin, fromApp);
   await logConnectorEvent(connectorId, "auth", true, `Consent re-requested for ${connector.name}`);
   return url;
+}
+
+/**
+ * A sign-in's `state`. One started from the iOS app (its secure sign-in sheet) is marked with an
+ * `app_` prefix, so the callback hands the result back to the app (clandar://connectors) rather than
+ * the website's Connectors page.
+ */
+export function oauthState(fromApp: boolean): string {
+  return `${fromApp ? APP_STATE_PREFIX : ""}${crypto.randomUUID()}`;
+}
+const APP_STATE_PREFIX = "app_";
+
+/** Where a sign-in's callback goes when it's done: the app for an app-started one, else /connectors. */
+export function oauthDoneUrl(state: string, message: string, ok: boolean, requestUrl: string): URL {
+  const query = `notice=${encodeURIComponent(message)}&ok=${ok ? 1 : 0}`;
+  return state.startsWith(APP_STATE_PREFIX)
+    ? new URL(`clandar://connectors?${query}`)
+    : new URL(`/connectors?${query}`, requestUrl);
 }
 
 export async function consumeOAuthState(

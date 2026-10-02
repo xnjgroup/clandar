@@ -3,11 +3,8 @@
 import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { encryptionConfigured } from "@/lib/crypto";
 import {
-  createMcpConnector,
   deleteConnector,
-  getConnector,
   getConnectorForOrg,
   googleOAuthConfigured,
   isGoogleService,
@@ -16,101 +13,40 @@ import {
   probeMcpConnector,
   reauthorizeGoogleConnector,
   setConnectorEnabled,
-  setConnectorOAuth,
   setMcpDisabledTools,
   setMcpToolEnabled,
   startGoogleAuth,
-  type AuthType,
 } from "@/lib/connectors";
 import { requireSession } from "@/lib/auth";
-import { startMcpOAuth } from "@/lib/mcp-oauth";
+import { addMcpServerFor, startMcpSignIn } from "@/lib/connector-setup";
 import { originFromHeaders } from "@/lib/request-origin";
 
 const PATH = "/connectors";
 
 export type FormState = { error?: string; ok?: string };
 
-const AUTH_TYPES: AuthType[] = ["none", "bearer", "api-key", "basic", "oauth2"];
-
 function field(form: FormData, name: string) {
   const value = form.get(name);
   return typeof value === "string" ? value.trim() : "";
 }
 
-/** Adds any HTTP MCP server, then immediately runs the handshake against it. */
+/** Adds any HTTP MCP server, then immediately runs the handshake against it (lib/connector-setup.ts). */
 export async function addMcpServer(_prev: FormState, form: FormData): Promise<FormState> {
   const session = await requireSession();
-  const name = field(form, "name");
-  const url = field(form, "url");
-  const authType = field(form, "authType") as AuthType;
-  const secret = field(form, "secret");
-  const headerName = field(form, "headerName");
-
-  if (!name) return { error: "Give the server a name." };
-  if (!AUTH_TYPES.includes(authType)) return { error: "Pick an authentication type." };
-
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return { error: "Enter the server's full URL, for example https://example.com/mcp." };
-  }
-  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-    return { error: "Only http:// and https:// URLs are supported." };
-  }
-  if (authType !== "none" && authType !== "oauth2" && !secret) {
-    return { error: "This authentication type needs a token, key or user:password." };
-  }
-  if (authType !== "none" && authType !== "oauth2" && !encryptionConfigured()) {
-    return {
-      error: "APP_ENCRYPTION_KEY is not set, so credentials cannot be stored. Add one to .env.local.",
-    };
-  }
-
-  let id: string;
-  try {
-    id = await createMcpConnector({
-      orgId: session.org.id,
-      name,
-      // Exactly as typed — parsing only validates it; URL's normalizing would rewrite slashes etc.
-      url,
-      authType,
-      headerName: authType === "api-key" ? headerName || "X-API-Key" : null,
-      secret: authType === "none" || authType === "oauth2" ? null : secret,
-      createdBy: session.person.id,
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "";
-    if (message.includes("connectors_org_name_key")) {
-      return { error: `A connector named “${name}” already exists.` };
-    }
-    return { error: message || "Could not save the connector." };
-  }
-
-  await logConnectorEvent(id, "created", true, `Added ${parsed.host}`);
-
-  // OAuth sign-in: straight to the server's sign-in page.
-  if (authType === "oauth2") {
-    const signIn = await startSignIn(id, url, session.org.id);
-    if (typeof signIn !== "string") return signIn;
-    redirect(signIn);
-  }
-
-  const connector = await getConnector(id);
-  const probe: { ok: boolean; message: string; unauthorized?: boolean } = connector
-    ? await probeMcpConnector(connector)
-    : { ok: false, message: "not found" };
-
-  // Auto-discovery: a server added without auth that answers 401 and advertises OAuth → sign in.
-  if (!probe.ok && probe.unauthorized && authType === "none") {
-    const signIn = await startSignIn(id, url, session.org.id, { switchToOAuth: true });
-    if (typeof signIn === "string") redirect(signIn);
-  }
-
+  const result = await addMcpServerFor(
+    { orgId: session.org.id, personId: session.person.id },
+    {
+      name: field(form, "name"),
+      url: field(form, "url"),
+      authType: field(form, "authType"),
+      secret: field(form, "secret"),
+      headerName: field(form, "headerName"),
+    },
+    originFromHeaders(await headers()),
+  );
+  if (result.signInUrl) redirect(result.signInUrl);
   revalidatePath(PATH);
-  return probe.ok
-    ? { ok: `${name} connected — ${probe.message}.` }
-    : { error: `${name} was saved, but the handshake failed: ${probe.message}` };
+  return { ok: result.ok, error: result.error };
 }
 
 export async function checkConnector(form: FormData) {
@@ -169,43 +105,15 @@ export async function reconnectGoogle(form: FormData) {
   redirect(url);
 }
 
-/**
- * Starts the OAuth sign-in for an MCP connector (discovery + registration by the SDK): returns where to
- * send the browser, or a form state when there's nothing to do / it failed.
- */
-async function startSignIn(
-  id: string,
-  url: string,
-  orgId: string,
-  options: { switchToOAuth?: boolean } = {},
-): Promise<string | FormState> {
-  if (!encryptionConfigured()) return { error: "APP_ENCRYPTION_KEY is not set, so sign-in tokens cannot be stored." };
-  try {
-    if (options.switchToOAuth) await setConnectorOAuth(id, orgId);
-    const target = await startMcpOAuth(id, url, originFromHeaders(await headers()));
-    if (!target) {
-      const connector = await getConnector(id);
-      if (connector) await probeMcpConnector(connector);
-      revalidatePath(PATH);
-      return { ok: "Signed in." };
-    }
-    await logConnectorEvent(id, "auth", true, `Sign-in started at ${target.host}`);
-    return target.toString();
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "unknown error";
-    await logConnectorEvent(id, "auth", false, message);
-    revalidatePath(PATH);
-    return { error: `Couldn't start the sign-in: ${message}` };
-  }
-}
-
 /** "Sign in" on an MCP connector that uses OAuth (or answered 401 and supports it). */
 export async function signInMcpConnector(form: FormData) {
   const { org } = await requireSession();
   const connector = await getConnectorForOrg(field(form, "id"), org.id);
   if (!connector || connector.kind !== "mcp" || !connector.url) return;
-  const signIn = await startSignIn(connector.id, connector.url, org.id, { switchToOAuth: connector.authType !== "oauth2" });
-  if (typeof signIn === "string") redirect(signIn);
+  const signIn = await startMcpSignIn(connector.id, connector.url, org.id, originFromHeaders(await headers()), {
+    switchToOAuth: connector.authType !== "oauth2",
+  });
+  if (signIn.signInUrl) redirect(signIn.signInUrl);
   revalidatePath(PATH);
 }
 
@@ -228,4 +136,22 @@ export async function setMcpTools(form: FormData) {
   }
   await setMcpDisabledTools(field(form, "id"), org.id, disabled);
   revalidatePath(PATH);
+}
+
+/** Refresh tools: asks the MCP server for its tool list again, and says what changed. */
+export async function refreshMcpTools(id: string): Promise<{ ok: boolean; message: string }> {
+  const { org } = await requireSession();
+  const connector = await getConnectorForOrg(id, org.id);
+  if (!connector || connector.kind !== "mcp") return { ok: false, message: "Connector not found." };
+  const before = new Set(connector.tools.map((t) => t.name));
+  const probe = await probeMcpConnector(connector);
+  revalidatePath(PATH);
+  if (!probe.ok) {
+    return { ok: false, message: probe.unauthorized ? "The server needs you to sign in again." : `Couldn't reach the server: ${probe.message}` };
+  }
+  const after = (await getConnectorForOrg(id, org.id))?.tools.map((t) => t.name) ?? [];
+  const added = after.filter((n) => !before.has(n)).length;
+  const removed = [...before].filter((n) => !after.includes(n)).length;
+  const changes = [added ? `${added} new` : "", removed ? `${removed} removed` : ""].filter(Boolean).join(", ");
+  return { ok: true, message: `${after.length} tool${after.length === 1 ? "" : "s"}${changes ? ` — ${changes}` : " — no changes"}.` };
 }

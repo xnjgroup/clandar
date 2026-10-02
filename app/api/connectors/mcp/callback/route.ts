@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { consumeOAuthState, getConnector, logConnectorEvent, probeMcpConnector } from "@/lib/connectors";
+import { consumeOAuthState, oauthDoneUrl, getConnector, logConnectorEvent, probeMcpConnector } from "@/lib/connectors";
 import { completeMcpOAuth } from "@/lib/mcp-oauth";
 
 /**
@@ -12,8 +12,8 @@ export async function GET(request: NextRequest) {
   const state = params.get("state") ?? "";
   const code = params.get("code");
   const error = params.get("error");
-  const back = (message: string) =>
-    NextResponse.redirect(new URL(`/connectors?notice=${encodeURIComponent(message)}`, request.url));
+  // Back to the website's Connectors page — or to the app, for a sign-in it started.
+  const back = (message: string, ok = false) => NextResponse.redirect(oauthDoneUrl(state, message, ok, request.url));
 
   const consumed = state ? await consumeOAuthState(state) : null;
   if (error) {
@@ -29,7 +29,10 @@ export async function GET(request: NextRequest) {
     await completeMcpOAuth(connector.id, connector.url, code, consumed.redirectUri);
     await logConnectorEvent(connector.id, "auth", true, "Signed in");
     const probe = await probeMcpConnector(connector);
-    return back(probe.ok ? `${connector.name} connected — ${probe.message}.` : `Signed in, but the check failed: ${probe.message}`);
+    return back(
+      probe.ok ? `${connector.name} connected — ${probe.message}.` : `Signed in, but the check failed: ${probe.message}`,
+      probe.ok,
+    );
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : "Unknown error";
     await logConnectorEvent(connector.id, "auth", false, message);
