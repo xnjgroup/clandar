@@ -5,7 +5,7 @@ export const metadata: Metadata = { title: "Privacy Policy — Clandar" };
 
 export default function PrivacyPage() {
   return (
-    <LegalDoc title="Privacy Policy" updated="September 30, 2026">
+    <LegalDoc title="Privacy Policy" updated="October 1, 2026">
       <p>
         This policy describes what Clandar (&ldquo;the app,&rdquo; &ldquo;we&rdquo;) collects, why, and how it&rsquo;s
         used, for the account holder and anyone they invite to their organization&rsquo;s workspace.
@@ -25,6 +25,12 @@ export default function PrivacyPage() {
           labeling, trashing, and sending mail — never permanently deleting anything, and never sending anything
           without you clicking &ldquo;Send&rdquo;). Connecting Calendar grants read-only access. This data is read
           live from Google each time it&rsquo;s needed; the app does not keep a standing copy of your mailbox.
+        </li>
+        <li>
+          <strong>Apple Calendar — only in the iPhone app, and only if you connect it.</strong> Events are read on your
+          iPhone to show them next to your schedule. If you allow the assistant to read your calendar, the next two weeks
+          of events are sent with your chat messages so it can answer about them; they aren&rsquo;t stored separately. The
+          app adds or deletes a calendar event only when you confirm that change in the app.
         </li>
         <li>
           <strong>Business data you enter.</strong> Customers, jobs, estimates, schedule entries, tasks, invoices,

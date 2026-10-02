@@ -67,6 +67,11 @@ export type AssistantContext = {
    * next two weeks of events as text, "off" when it isn't connected, absent on the website.
    */
   deviceCalendar?: { status: "on" | "off"; events?: string };
+  /**
+   * Apple Calendar changes the model prepared this turn, as clandar://calendar/… links — appended to the
+   * reply, where the iPhone app shows each as a confirmation card. Nothing changes until the user taps.
+   */
+  deviceActions?: string[];
 };
 
 /** The app's link that connects Apple Calendar (the iPhone app handles it; it asks iOS for access). */
@@ -89,8 +94,11 @@ function deviceCalendarBlock(calendar: AssistantContext["deviceCalendar"]): stri
   return (
     "\n\nThe user's Apple Calendar (their iPhone's calendars — read-only; times in their time zone), next 14 days:\n" +
     (calendar.events?.trim() || "(no events)") +
-    "\nUse it together with Clandar's own schedule (list_schedule) when they ask what's coming up. You can't change " +
-    "these events — to add something, use create_schedule_entry (Clandar's schedule)."
+    "\nUse it together with Clandar's own schedule (list_schedule) when they ask what's coming up. To add an event to " +
+    "their Apple Calendar call add_apple_calendar_event; to delete one call delete_apple_calendar_event with the event's " +
+    "id from the list above. Either only prepares the change: a confirmation card appears under your reply and nothing " +
+    "changes until the user taps it — so say it's ready to confirm, never that it's done. For Clandar's own schedule " +
+    "(projects, crew) use create_schedule_entry instead."
   );
 }
 
@@ -263,7 +271,38 @@ const PROJECT_TITLE = str("The project's title, matched case-insensitively");
  * The tools offered to the model through its native tool calling. `emailOnly`
  * tools act on the email the user has open, so they're only offered on an email page.
  */
-const TOOLS: { name: string; description: string; parameters: JsonSchema; emailOnly?: boolean }[] = [
+const TOOLS: { name: string; description: string; parameters: JsonSchema; emailOnly?: boolean; deviceCalendarOnly?: boolean }[] = [
+  {
+    name: "add_apple_calendar_event",
+    description:
+      "Prepare a new event on the user's Apple Calendar (their iPhone). Shows a confirmation card; it's added only when they tap Add.",
+    parameters: obj(
+      {
+        title: str(),
+        start: str("Local start, YYYY-MM-DDTHH:MM (or YYYY-MM-DD with allDay)"),
+        end: str("Local end, YYYY-MM-DDTHH:MM — default one hour after start"),
+        allDay: { type: "boolean" },
+        location: str(),
+        calendar: str("A calendar's name from the list (e.g. Work); omit for the default calendar"),
+      },
+      ["title", "start"],
+    ),
+    deviceCalendarOnly: true,
+  },
+  {
+    name: "delete_apple_calendar_event",
+    description:
+      "Prepare deleting an event from the user's Apple Calendar. Shows a confirmation card; it's deleted only when they tap Delete.",
+    parameters: obj(
+      {
+        eventId: str("The event's id from the Apple Calendar list"),
+        title: str("The event's title, as listed"),
+        start: str("The event's start as listed, YYYY-MM-DDTHH:MM"),
+      },
+      ["eventId", "title", "start"],
+    ),
+    deviceCalendarOnly: true,
+  },
   {
     name: "list_project_types",
     description: "List this org's project types (the kinds of work it does).",
@@ -1187,6 +1226,41 @@ async function runToolUnsafe(
       });
       return { summary: `Created project "${title}" for ${customerName}.`, data: { id, title, link: `/projects/${id}` } };
     }
+    case "add_apple_calendar_event":
+    case "delete_apple_calendar_event": {
+      if (context.deviceCalendar?.status !== "on") {
+        return { summary: `${name} failed: Apple Calendar isn't connected in the iPhone app.` };
+      }
+      const when = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$/;
+      const params = new URLSearchParams({ ref: crypto.randomUUID() });
+      if (name === "add_apple_calendar_event") {
+        const title = str(args.title);
+        const start = str(args.start);
+        const end = str(args.end);
+        if (!title || !when.test(start) || (end && !when.test(end))) {
+          return { summary: `${name} failed: needs a title and start as YYYY-MM-DDTHH:MM (end likewise).` };
+        }
+        params.set("title", title.slice(0, 200));
+        params.set("start", start);
+        if (end) params.set("end", end);
+        if (args.allDay === true) params.set("allDay", "1");
+        if (str(args.location)) params.set("location", str(args.location).slice(0, 300));
+        if (str(args.calendar)) params.set("calendar", str(args.calendar).slice(0, 100));
+        context.deviceActions?.push(`[Add “${title}” to Apple Calendar](clandar://calendar/add?${params})`);
+        return { summary: `Prepared adding "${title}" (${start}) — a card under the reply asks the user to confirm. Not added yet.` };
+      }
+      const eventId = str(args.eventId);
+      const title = str(args.title);
+      const start = str(args.start);
+      if (!eventId || !title || !when.test(start)) {
+        return { summary: `${name} failed: needs the event's id, title and start (YYYY-MM-DDTHH:MM) from the list.` };
+      }
+      params.set("eventId", eventId);
+      params.set("title", title.slice(0, 200));
+      params.set("start", start);
+      context.deviceActions?.push(`[Delete “${title}” from Apple Calendar](clandar://calendar/delete?${params})`);
+      return { summary: `Prepared deleting "${title}" — a card under the reply asks the user to confirm. Not deleted yet.` };
+    }
     case "read_project_discussion":
     case "post_project_comment": {
       const projectTitle = str(args.projectTitle);
@@ -1364,7 +1438,7 @@ export async function* askAssistant(
   }
 
   const convId = conversationId ?? (await createConversation(orgId, personId));
-  context = { ...context, conversationId: convId };
+  context = { ...context, conversationId: convId, deviceActions: [] };
   // Up front, so a turn stopped before it finishes still leaves the browser on the right conversation.
   yield { type: "started", conversationId: convId };
 
@@ -1465,7 +1539,9 @@ export async function* askAssistant(
 
   // Native tool calling: tools go in the request's `tools`, reply text streams straight through,
   // and each tool result goes back as a `tool` message.
-  const tools = TOOLS.filter((t) => !t.emailOnly || context.email).map(({ name, description, parameters }) => ({
+  const tools = TOOLS.filter(
+    (t) => (!t.emailOnly || context.email) && (!t.deviceCalendarOnly || context.deviceCalendar?.status === "on"),
+  ).map(({ name, description, parameters }) => ({
     name,
     description,
     parameters,
@@ -1569,6 +1645,8 @@ export async function* askAssistant(
   // (a full or made-up clandar.com address) — each app then opens them in place: the website as a
   // page, the iPhone app as a screen. The saved reply replaces the streamed text in both.
   finalReply = relativizeAppLinks(finalReply);
+  // Apple Calendar changes prepared this turn — the app turns each link into a confirmation card.
+  if (context.deviceActions?.length) finalReply = `${finalReply}\n\n${context.deviceActions.join("\n")}`;
   await saveTrace({ reply: finalReply });
 
   const assistantRow = await queryOne<{ id: string }>(
