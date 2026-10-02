@@ -15,7 +15,7 @@
  * whatever closure it captured at startup.
  */
 import { Worker, type Job } from "bullmq";
-import { createRedisConnection } from "@/lib/redis";
+import { createRedisConnection, logRedisError } from "@/lib/redis";
 import { GMAIL_CLEANUP_QUEUE, getJobControl, setJobControl, type GmailWorkerJob } from "@/lib/queue";
 import { BULK_TRASH_LABELS, runInboxScan, runTrashLabel, runTrashSearch } from "@/lib/gmail-cleanup";
 import { getConnector } from "@/lib/connectors";
@@ -134,6 +134,8 @@ export function startGmailCleanupWorker() {
     console.error(`[gmail-cleanup] ${job?.data.kind} failed for connector ${job?.data.connectorId}:`, error);
   });
   worker.on("ready", () => console.log("[gmail-cleanup] worker ready"));
+  // Losing Redis only pauses background work — log it (throttled), never let it crash the server.
+  worker.on("error", (error) => logRedisError("gmail-cleanup worker", error));
 
   globalForWorker.clandarGmailWorker = worker;
   return worker;

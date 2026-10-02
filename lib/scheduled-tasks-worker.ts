@@ -5,7 +5,7 @@
  * one "run" job per due task; each "run" job calls `executeScheduledTask`.
  */
 import { Worker, type Job } from "bullmq";
-import { createRedisConnection } from "@/lib/redis";
+import { createRedisConnection, logRedisError } from "@/lib/redis";
 import { SCHEDULED_TASKS_QUEUE, scheduledTasksQueue, type SchedulerJob } from "@/lib/scheduled-tasks-queue";
 import { dueScheduledTasks, executeScheduledTask } from "@/lib/scheduled-tasks";
 import { runLeadDigests, runLeadFinder } from "@/lib/lead-finder";
@@ -44,6 +44,8 @@ export function startScheduledTasksWorker() {
 
   worker.on("failed", (job, error) => console.error(`[scheduled-tasks] job ${job?.id} failed:`, error.message));
   worker.on("ready", () => console.log("[scheduled-tasks] worker ready"));
+  // Losing Redis only pauses background work — log it (throttled), never let it crash the server.
+  worker.on("error", (error) => logRedisError("scheduled-tasks worker", error));
 
   globalForWorker.clandarScheduledTasksWorker = worker;
   return worker;

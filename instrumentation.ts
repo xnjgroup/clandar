@@ -11,7 +11,9 @@ export async function register() {
 
     const { startScheduledTasksWorker } = await import("@/lib/scheduled-tasks-worker");
     startScheduledTasksWorker();
+    // Not awaited: with Redis unreachable this retries in the background instead of holding up startup
+    // (and with it every request this server instance would serve).
     const { ensureTickScheduled } = await import("@/lib/scheduled-tasks-queue");
-    await ensureTickScheduled();
+    ensureTickScheduled();
   }
 }

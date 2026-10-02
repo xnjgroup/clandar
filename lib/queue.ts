@@ -10,7 +10,7 @@
  */
 import { createHash } from "node:crypto";
 import { Queue, QueueEvents } from "bullmq";
-import { createRedisConnection, redis } from "@/lib/redis";
+import { createRedisConnection, logRedisError, redis, withRedis } from "@/lib/redis";
 
 export const GMAIL_CLEANUP_QUEUE = "gmail-cleanup";
 
@@ -57,6 +57,7 @@ export function gmailCleanupQueue(): Queue<GmailWorkerJob> {
         removeOnFail: { count: 20 },
       },
     });
+    globalForQueue.clandarGmailQueue.on("error", (error) => logRedisError("gmail-cleanup queue", error));
   }
   return globalForQueue.clandarGmailQueue;
 }
@@ -71,12 +72,13 @@ export function gmailQueueEvents(): QueueEvents {
     globalForQueue.clandarGmailQueueEvents = new QueueEvents(GMAIL_CLEANUP_QUEUE, {
       connection: createRedisConnection(),
     });
+    globalForQueue.clandarGmailQueueEvents.on("error", (error) => logRedisError("gmail-cleanup events", error));
   }
   return globalForQueue.clandarGmailQueueEvents;
 }
 
 export async function enqueueInboxAnalysis(connectorId: string, maxMessages = 2_000, label: string | null = null) {
-  return gmailCleanupQueue().add("analyze-inbox", { kind: "analyze-inbox", connectorId, maxMessages, label });
+  return withRedis(() => gmailCleanupQueue().add("analyze-inbox", { kind: "analyze-inbox", connectorId, maxMessages, label }));
 }
 
 /** No colons — BullMQ uses `:` as its own Redis key delimiter and rejects a custom job id containing one. */
@@ -92,16 +94,18 @@ export function bulkTrashJobId(connectorId: string, label: string) {
  * a job whose id already exists in a terminal (completed/failed) state.
  */
 export async function enqueueTrashLabel(connectorId: string, label: string, requestedBy?: string) {
-  const queueRef = gmailCleanupQueue();
-  const jobId = bulkTrashJobId(connectorId, label);
-  const existing = await queueRef.getJob(jobId);
-  if (existing) {
-    const state = await existing.getState();
-    if (state !== "completed" && state !== "failed") return existing;
-    await existing.remove();
-  }
-  await setJobControl(jobId, null);
-  return queueRef.add("trash-label", { kind: "trash-label", connectorId, label, requestedBy }, { jobId });
+  return withRedis(async () => {
+    const queueRef = gmailCleanupQueue();
+    const jobId = bulkTrashJobId(connectorId, label);
+    const existing = await queueRef.getJob(jobId);
+    if (existing) {
+      const state = await existing.getState();
+      if (state !== "completed" && state !== "failed") return existing;
+      await existing.remove();
+    }
+    await setJobControl(jobId, null);
+    return queueRef.add("trash-label", { kind: "trash-label", connectorId, label, requestedBy }, { jobId });
+  });
 }
 
 /** One job id per account + search, so asking twice while it runs doesn't start a duplicate. */
@@ -110,16 +114,18 @@ export function trashSearchJobId(connectorId: string, query: string) {
 }
 
 export async function enqueueTrashSearch(connectorId: string, query: string, requestedBy?: string) {
-  const queueRef = gmailCleanupQueue();
-  const jobId = trashSearchJobId(connectorId, query);
-  const existing = await queueRef.getJob(jobId);
-  if (existing) {
-    const state = await existing.getState();
-    if (state !== "completed" && state !== "failed") return existing;
-    await existing.remove();
-  }
-  await setJobControl(jobId, null);
-  return queueRef.add("trash-search", { kind: "trash-search", connectorId, query, requestedBy }, { jobId });
+  return withRedis(async () => {
+    const queueRef = gmailCleanupQueue();
+    const jobId = trashSearchJobId(connectorId, query);
+    const existing = await queueRef.getJob(jobId);
+    if (existing) {
+      const state = await existing.getState();
+      if (state !== "completed" && state !== "failed") return existing;
+      await existing.remove();
+    }
+    await setJobControl(jobId, null);
+    return queueRef.add("trash-search", { kind: "trash-search", connectorId, query, requestedBy }, { jobId });
+  });
 }
 
 export type RunningTrash = { jobId: string; connectorId: string } & (
@@ -128,7 +134,7 @@ export type RunningTrash = { jobId: string; connectorId: string } & (
 
 /** Bulk trashes (a label or a search) still queued or running — for the assistant's Updates. */
 export async function runningTrashJobs(): Promise<RunningTrash[]> {
-  const jobs = await gmailCleanupQueue().getJobs(["active", "waiting", "delayed", "prioritized"]);
+  const jobs = await withRedis(() => gmailCleanupQueue().getJobs(["active", "waiting", "delayed", "prioritized"]));
   const out: RunningTrash[] = [];
   for (const job of jobs) {
     if (!job?.id) continue;
@@ -160,20 +166,22 @@ export type JobControl = "pause" | "cancel";
 const controlKey = (jobId: string) => `clandar:job-control:${jobId}`;
 
 export async function setJobControl(jobId: string, control: JobControl | null): Promise<void> {
-  if (control) await redis().set(controlKey(jobId), control, "EX", 86_400);
-  else await redis().del(controlKey(jobId));
+  await withRedis(async () => {
+    if (control) await redis().set(controlKey(jobId), control, "EX", 86_400);
+    else await redis().del(controlKey(jobId));
+  });
 }
 
 export async function getJobControl(jobId: string): Promise<JobControl | null> {
-  const value = await redis().get(controlKey(jobId));
+  const value = await withRedis(() => redis().get(controlKey(jobId)));
   return value === "pause" || value === "cancel" ? value : null;
 }
 
 /** A job's current state and progress by its raw BullMQ id — what the SSE route sends on first connect, and what a page reads for its initial server-rendered paint. */
 export async function jobStatus(jobId: string): Promise<JobStatus | null> {
-  const job = await gmailCleanupQueue().getJob(jobId);
+  const job = await withRedis(() => gmailCleanupQueue().getJob(jobId));
   if (!job) return null;
-  const state = await job.getState();
+  const state = await withRedis(() => job.getState());
   const progress = job.progress as { done: number; total: number; paused?: boolean } | undefined;
   return {
     state,
@@ -186,7 +194,7 @@ export async function jobStatus(jobId: string): Promise<JobStatus | null> {
 
 /** Which connector a job belongs to — so the progress stream can check it's the viewer's org's. */
 export async function jobConnectorId(jobId: string): Promise<string | null> {
-  const job = await gmailCleanupQueue().getJob(jobId);
+  const job = await withRedis(() => gmailCleanupQueue().getJob(jobId));
   return job?.data.connectorId ?? null;
 }
 

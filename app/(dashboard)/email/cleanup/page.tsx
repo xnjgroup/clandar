@@ -72,7 +72,8 @@ export default async function EmailCleanupPage({ searchParams }: PageProps<"/ema
 
   const canTrash = hasGmailModifyScope(account);
   const scanning = scan?.status === "running";
-  const scanJobStatus = scan?.jobId ? await jobStatus(scan.jobId) : null;
+  // Background-job status is a nice-to-have here — with Redis down the page still loads.
+  const scanJobStatus = scan?.jobId ? await jobStatus(scan.jobId).catch(() => null) : null;
 
   return (
     <PageBody>

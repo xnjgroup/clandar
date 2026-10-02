@@ -6,7 +6,7 @@
  * the actual work.
  */
 import { Queue } from "bullmq";
-import { redis } from "@/lib/redis";
+import { logRedisError, redis, withRedis } from "@/lib/redis";
 
 export const SCHEDULED_TASKS_QUEUE = "scheduled-tasks";
 const TICK_INTERVAL_MS = 5 * 60 * 1000;
@@ -27,20 +27,31 @@ export function scheduledTasksQueue(): Queue<SchedulerJob> {
         removeOnFail: { count: 50 },
       },
     });
+    globalForQueue.clandarScheduledTasksQueue.on("error", (error) => logRedisError("scheduled-tasks queue", error));
   }
   return globalForQueue.clandarScheduledTasksQueue;
 }
 
-/** Idempotent — safe to call every time the server starts (instrumentation.ts does). */
-export async function ensureTickScheduled(): Promise<void> {
-  await scheduledTasksQueue().upsertJobScheduler(
-    "scheduled-tasks-tick",
-    { every: TICK_INTERVAL_MS },
-    { name: "tick", data: { kind: "tick" } },
-  );
+/**
+ * Idempotent — called every time the server starts (instrumentation.ts), without awaiting: while
+ * Redis is unreachable it keeps retrying in the background (every 30s) and never holds up startup.
+ */
+export function ensureTickScheduled(): void {
+  const attempt = () =>
+    withRedis(() =>
+      scheduledTasksQueue().upsertJobScheduler(
+        "scheduled-tasks-tick",
+        { every: TICK_INTERVAL_MS },
+        { name: "tick", data: { kind: "tick" } },
+      ),
+    ).catch((error: unknown) => {
+      logRedisError("scheduling the 5-minute tick", error);
+      setTimeout(attempt, 30_000).unref?.();
+    });
+  void attempt();
 }
 
 /** Runs a task immediately (the "Run now" button) rather than waiting for its schedule. */
 export async function enqueueRunNow(taskId: string, orgId: string): Promise<void> {
-  await scheduledTasksQueue().add("run", { kind: "run", taskId, orgId, manual: true });
+  await withRedis(() => scheduledTasksQueue().add("run", { kind: "run", taskId, orgId, manual: true }));
 }
