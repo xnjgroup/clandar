@@ -68,6 +68,16 @@ _Last updated: 2026-10-02._
 - Resilience: losing Redis only pauses background jobs; the site stays up.
 - Landing page = sign-in, Google Analytics, page titles, new logo and favicons.
 
+### Clandar as an MCP server
+
+- `/mcp` (Streamable HTTP): Claude, ChatGPT or any MCP client uses the same tools as Clandar's chat —
+  projects, customers, schedule, tasks, estimates, invoices, email search / bulk trash, Library
+  search and saving articles, discussions, maps — as the person who connected it, in their org.
+- OAuth 2.1 with Clandar as the authorization server: discovery (`/.well-known/…`), dynamic client
+  registration, PKCE (S256) consent screen after Clandar's normal sign-in, rotating refresh
+  tokens, revocation; Settings → Connected AI agents shows the server URL and disconnects agents.
+- Confirm-first actions stay confirm-first (preview, then the agent's confirm call).
+
 ### Native iOS app (SwiftUI, iOS 26)
 
 - Sign in (Apple, Google, email); first-launch walkthrough.
@@ -113,10 +123,6 @@ articles, with search the chat can use.
 
 ## Next
 
-- **MCP endpoint for other AI agents** — serve Clandar itself as a remote MCP server at `/mcp`
-  exposing the same tools the chat uses (projects, schedule, tasks, invoices, email, library …),
-  with OAuth sign-in (`/oauth/register|authorize|token|revoke`) so Claude and other agents can
-  connect as the user, scoped to their org and role.
 - **Background jobs without the Upstash quota problem** — the BullMQ workers poll Redis from every
   Vercel instance and used up the free tier (Gmail bulk trash, automations and reminders are paused
   until this is decided): cron + Postgres for scheduled work, one always-on worker host, or a paid

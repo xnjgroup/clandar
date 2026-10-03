@@ -709,6 +709,44 @@ function scheduleEntryForModel(e: ScheduleEntry, timeZone: string) {
   };
 }
 
+/* ── The same tools for outside AI agents (Clandar's MCP server, app/mcp) ── */
+
+/**
+ * Tools an outside agent can't use: those that act on the email open in the chat or on files attached
+ * to a chat message, and the iPhone's Apple Calendar (it only exists on the phone).
+ */
+const NOT_FOR_AGENTS = new Set(["attach_files_to_project"]);
+
+/** The chat's tools as an outside agent sees them (name, description, JSON Schema for the arguments). */
+export function agentToolDefinitions(): { name: string; description: string; parameters: JsonSchema }[] {
+  return TOOLS.filter((t) => !t.emailOnly && !t.deviceCalendarOnly && !NOT_FOR_AGENTS.has(t.name)).map(({ name, description, parameters }) => ({
+    name,
+    description,
+    parameters,
+  }));
+}
+
+/** Runs one of those tools as the person, in their org — the same code the chat runs. */
+export async function runAgentTool(
+  orgId: string,
+  personId: string,
+  name: string,
+  args: Record<string, unknown>,
+  context: { timeZone: string; conversationId: string },
+): Promise<ToolResult> {
+  if (!agentToolDefinitions().some((t) => t.name === name)) return { summary: `Unknown tool "${name}".` };
+  return runTool(orgId, personId, name, args, [], { email: null, timeZone: context.timeZone, conversationId: context.conversationId });
+}
+
+/** What the chat's model is told about using the tools, for an outside agent (MCP server instructions). */
+export const AGENT_INSTRUCTIONS =
+  "Clandar is a small-business workspace: customers, projects (with estimates, schedule, tasks, files and a " +
+  "discussion), invoices and expenses, email, and a Library of documents and saved articles. These tools act as the " +
+  "signed-in person, in their workspace. Find things before changing them (list_projects, list_customers, " +
+  "list_schedule, list_tasks, search_library, search_email) and use exact titles from those lists. Some actions only " +
+  "preview first — post_project_comment and trash_email_search — show the person what will happen and call again to " +
+  "confirm only after they say yes. Results carry links on Clandar's website.";
+
 async function runTool(
   orgId: string,
   personId: string | null,

@@ -2,7 +2,7 @@
 
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { signInWithIdentity } from "@/lib/auth";
+import { signInWithIdentity, takeAfterSignIn } from "@/lib/auth";
 import { consumeLoginCode, consumeLoginLink, normalizeEmail, sendLoginEmail } from "@/lib/email-login";
 import { originFromHeaders } from "@/lib/request-origin";
 
@@ -33,7 +33,7 @@ export async function verifyEmailCode(_prev: EmailLoginState, form: FormData): P
   const result = await consumeLoginCode(email, String(form.get("code") ?? ""));
   if (result !== true) return { sentTo: email, error: result };
   await signInWithIdentity({ provider: "email", email });
-  redirect("/overview");
+  redirect(await takeAfterSignIn());
 }
 
 /** The confirm page's button for a sign-in link. */
@@ -41,5 +41,5 @@ export async function confirmEmailLink(form: FormData) {
   const email = await consumeLoginLink(String(form.get("token") ?? ""));
   if (!email) redirect(`/login?error=${encodeURIComponent("That sign-in link has expired or was already used — send a new one.")}`);
   await signInWithIdentity({ provider: "email", email });
-  redirect("/overview");
+  redirect(await takeAfterSignIn());
 }

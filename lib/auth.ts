@@ -185,6 +185,39 @@ export const currentSession = cache(async (): Promise<SessionInfo | null> => {
  * they must call it themselves too (see the Next.js authentication guide's
  * guidance on treating each as its own entry point).
  */
+/* ── Where to go after signing in ─────────────────────────── */
+
+const AFTER_SIGN_IN_COOKIE = "clandar_after_sign_in";
+
+/** Only a path on this site (never another host, never the sign-in pages themselves). */
+function safeReturnPath(path: string | undefined): string | null {
+  if (!path || !path.startsWith("/") || path.startsWith("//") || path.startsWith("/\\")) return null;
+  if (path === "/" || path.startsWith("/login")) return null;
+  return path;
+}
+
+/** Remember a page to come back to once signed in (e.g. an AI agent's "Allow access" screen). */
+export async function rememberAfterSignIn(path: string): Promise<void> {
+  const safe = safeReturnPath(path);
+  if (!safe) return;
+  (await cookies()).set(AFTER_SIGN_IN_COOKIE, safe, {
+    httpOnly: true,
+    // "none": Apple's sign-in comes back as a cross-site POST, which doesn't carry lax cookies.
+    sameSite: "none",
+    secure: true,
+    path: "/",
+    maxAge: 15 * 60,
+  });
+}
+
+/** Where to go now that sign-in is done: the remembered page (once), else Overview. */
+export async function takeAfterSignIn(): Promise<string> {
+  const jar = await cookies();
+  const path = safeReturnPath(jar.get(AFTER_SIGN_IN_COOKIE)?.value);
+  if (path) jar.delete(AFTER_SIGN_IN_COOKIE);
+  return path ?? "/overview";
+}
+
 export async function requireSession(): Promise<SessionInfo> {
   const session = await currentSession();
   if (!session) redirect("/login");

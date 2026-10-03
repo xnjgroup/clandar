@@ -1302,3 +1302,42 @@ CREATE INDEX IF NOT EXISTS library_chunks_search_idx ON library_chunks USING pgr
 -- pictures themselves: [{ "key": storage key, "type": MIME, "size": bytes }] in order.
 ALTER TABLE library_items ADD COLUMN IF NOT EXISTS content_html text;
 ALTER TABLE library_items ADD COLUMN IF NOT EXISTS images jsonb NOT NULL DEFAULT '[]';
+
+/* ── Clandar as an MCP server (/mcp) ──────────────────────── */
+
+-- AI agents (Claude, ChatGPT, …) that registered to connect (OAuth dynamic client registration).
+CREATE TABLE IF NOT EXISTS mcp_clients (
+  client_id     text PRIMARY KEY,
+  client_name   text NOT NULL,
+  redirect_uris text[] NOT NULL,
+  created_at    timestamptz NOT NULL DEFAULT now()
+);
+
+-- One-time codes from the "Allow access" screen (PKCE), exchanged for tokens within minutes.
+CREATE TABLE IF NOT EXISTS mcp_auth_codes (
+  code_hash      text PRIMARY KEY,
+  client_id      text NOT NULL REFERENCES mcp_clients (client_id) ON DELETE CASCADE,
+  person_id      uuid NOT NULL REFERENCES people (id) ON DELETE CASCADE,
+  org_id         uuid NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+  redirect_uri   text NOT NULL,
+  code_challenge text NOT NULL,
+  resource       text,
+  expires_at     timestamptz NOT NULL
+);
+
+-- A person's approval of one agent: its current access / refresh tokens (hashed), and the hidden
+-- conversation its confirm-first actions are recorded in. Revoking it disconnects the agent.
+CREATE TABLE IF NOT EXISTS mcp_grants (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id         text NOT NULL REFERENCES mcp_clients (client_id) ON DELETE CASCADE,
+  person_id         uuid NOT NULL REFERENCES people (id) ON DELETE CASCADE,
+  org_id            uuid NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+  access_hash       text UNIQUE,
+  access_expires_at timestamptz,
+  refresh_hash      text UNIQUE,
+  conversation_id   uuid REFERENCES agent_conversations (id) ON DELETE SET NULL,
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  last_used_at      timestamptz,
+  revoked_at        timestamptz
+);
+CREATE INDEX IF NOT EXISTS mcp_grants_person_idx ON mcp_grants (person_id, created_at DESC);

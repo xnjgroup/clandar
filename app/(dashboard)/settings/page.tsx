@@ -15,6 +15,9 @@ import { listPendingInvites, listTeam, requireSession } from "@/lib/auth";
 import { AddLlmForm } from "./add-llm-form";
 import { RemoveSampleDataButton, SampleDataOffer } from "@/components/sample-data";
 import { demoStatus } from "@/lib/demo-data";
+import { listConnectedAgents } from "@/lib/mcp-server-auth";
+import { originFromHeaders } from "@/lib/request-origin";
+import { headers } from "next/headers";
 import { DeleteCompanyForm } from "./delete-company-form";
 import { InviteForm } from "./invite-form";
 import { ResendInviteButton } from "./resend-invite-button";
@@ -24,6 +27,7 @@ import { FeatureProviderForm } from "./feature-provider-form";
 import {
   cancelInvite,
   changeTeammateRole,
+  disconnectAgent,
   makeDefaultProvider,
   removeLlmProvider,
   removeTeammateAction,
@@ -59,12 +63,14 @@ const STATUS_LABEL: Record<ProviderStatus, string> = {
 
 export default async function SettingsPage() {
   const { org, person } = await requireSession();
-  const [providers, team, invites, demo] = await Promise.all([
+  const [providers, team, invites, demo, agents] = await Promise.all([
     listLlmProviders(org.id),
     listTeam(org.id),
     listPendingInvites(org.id),
     demoStatus(org.id).catch(() => null),
+    listConnectedAgents(person.id).catch(() => []),
   ]);
+  const mcpUrl = `${originFromHeaders(await headers())}/mcp`;
   const isOwner = person.role === "owner";
 
   return (
@@ -75,6 +81,39 @@ export default async function SettingsPage() {
           <RenameOrgForm currentName={org.name} />
         ) : (
           <span className="text-[12.5px] text-body-soft">{org.name}</span>
+        )}
+      </Card>
+
+      {/* Clandar as an MCP server: connect Claude, ChatGPT or another agent; see and disconnect them. */}
+      <Card className="flex flex-col gap-[12px]">
+        <div className="flex flex-col gap-[3px]">
+          <CardTitle>Connected AI agents</CardTitle>
+          <span className="text-[12px] text-muted">
+            Use Clandar from Claude, ChatGPT or any MCP client: add this server URL as a custom connector, sign in, and allow
+            it. It works as you, with the same tools as Clandar&apos;s chat.
+          </span>
+        </div>
+        <code className="w-fit rounded-[10px] bg-bg px-[12px] py-[8px] font-mono text-[12.5px] select-all">{mcpUrl}</code>
+        {agents.length === 0 ? (
+          <span className="text-[12px] text-faint">No agents connected yet.</span>
+        ) : (
+          <div className="flex flex-col">
+            {agents.map((a) => (
+              <div key={a.id} className="flex items-center gap-[10px] border-t border-line-soft py-[10px] text-[12.5px]">
+                <span className="font-semibold">{a.clientName}</span>
+                <span className="text-muted">
+                  connected {relativeTime(a.createdAt)}
+                  {a.lastUsedAt ? ` · last used ${relativeTime(a.lastUsedAt)}` : ""}
+                </span>
+                <form action={disconnectAgent} className="ml-auto">
+                  <input type="hidden" name="id" value={a.id} />
+                  <button type="submit" className="cursor-pointer text-bad-fg hover:underline">
+                    Disconnect
+                  </button>
+                </form>
+              </div>
+            ))}
+          </div>
         )}
       </Card>
 

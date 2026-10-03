@@ -20,6 +20,7 @@ import {
   setQuoteProvider,
 } from "@/lib/llm-providers";
 import { redirect } from "next/navigation";
+import { revokeGrant } from "@/lib/mcp-server-auth";
 import {
   deleteOrganization,
   inviteTeammate,
@@ -274,4 +275,12 @@ export async function deleteCompany(_prev: FormState, form: FormData): Promise<F
   await deleteOrganization(org.id);
   await signOut();
   redirect("/");
+}
+
+/** Settings → Connected AI agents: disconnect one (its tokens stop working at once). */
+export async function disconnectAgent(form: FormData) {
+  const { person } = await requireSession();
+  const id = form.get("id");
+  if (typeof id === "string") await revokeGrant(id, person.id);
+  revalidatePath(PATH);
 }

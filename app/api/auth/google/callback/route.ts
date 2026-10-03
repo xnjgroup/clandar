@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { completeGoogleLogin, verifyLoginState } from "@/lib/auth";
+import { completeGoogleLogin, takeAfterSignIn, verifyLoginState } from "@/lib/auth";
 import { originFromHeaders } from "@/lib/request-origin";
 
 /** Where Google sends the browser after the person approves (or declines) signing in. */
@@ -22,5 +22,5 @@ export async function GET(request: NextRequest) {
   } catch (cause) {
     return back(cause instanceof Error ? cause.message : "Sign-in failed.");
   }
-  return NextResponse.redirect(`${origin}/overview`);
+  return NextResponse.redirect(`${origin}${await takeAfterSignIn()}`);
 }
