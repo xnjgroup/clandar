@@ -44,6 +44,8 @@ import { invoiceDetail } from "@/lib/queries";
 import { copyEmailAttachmentsToProject } from "@/lib/email-to-project";
 import { postComment, readDiscussion } from "@/lib/assistant-discussion";
 import { mcpToolsForOrg, runMcpTool, type McpToolRef } from "@/lib/mcp-tools";
+import { searchLibrary, syncLibrary } from "@/lib/library";
+import { saveArticle } from "@/lib/web-article";
 import {
   createScheduleEntry,
   deleteScheduleEntry,
@@ -361,6 +363,37 @@ const TOOLS: { name: string; description: string; parameters: JsonSchema; emailO
     ),
   },
   { name: "list_tasks", description: "List this org's open tasks.", parameters: obj({}) },
+  {
+    name: "search_library",
+    description:
+      "Search everything the workspace has filed — every project's files (contracts, permits, invoices, PDFs, Word, " +
+      "Excel …), documents uploaded to the Library and saved web articles — by their full text, in English or Chinese. Use it whenever an " +
+      "answer might be in a document. Query syntax: words are ANDed; \"exact phrase\"; OR; -word excludes. Returns " +
+      "matching documents with their best passage (about a page, and its PDF page) — answer from it and say which " +
+      "document it came from. One search with good key words is usually enough.",
+    parameters: obj(
+      {
+        query: { type: "string", description: "What to search for — key words or a phrase, in the document's language." },
+        projectTitle: { type: "string", description: "Only search this project's files (optional)." },
+      },
+      ["query"],
+    ),
+  },
+  {
+    name: "save_article",
+    description:
+      "Save a web article (any http(s) link — news, blog, WeChat 公众号 …) to the Library: it's read, summarized " +
+      "(summary, key points, tags) and made searchable. Use it when the user shares a link and asks to save, keep, " +
+      "file or summarize it. Returns the summary and key points (in the article's language) — show them in the " +
+      "language the user is writing in (translate if the article is in another language), with the saved item's link.",
+    parameters: obj(
+      {
+        url: { type: "string", description: "The article's link, exactly as the user gave it." },
+        tags: { type: "array", items: { type: "string" }, description: "Extra tags the user asked for (optional)." },
+      },
+      ["url"],
+    ),
+  },
   {
     name: "read_project_discussion",
     description:
@@ -1264,6 +1297,57 @@ async function runToolUnsafe(
       context.deviceActions?.push(`[Delete “${title}” from Apple Calendar](clandar://calendar/delete?${params})`);
       return { summary: `Prepared deleting "${title}" — a card under the reply asks the user to confirm. Not deleted yet.` };
     }
+    case "search_library": {
+      const text = str(args.query);
+      if (!text) return { summary: "search_library failed: give a query." };
+      const projectTitle = str(args.projectTitle);
+      const projectId = projectTitle ? await findProjectIdByTitle(orgId, projectTitle) : null;
+      if (projectTitle && !projectId) return { summary: `search_library failed: no project named "${projectTitle}".` };
+      // Pick up files added since the last look (a few, so the answer isn't held up).
+      await syncLibrary(orgId, 5).catch(() => 0);
+      const filter = projectId ? { projectId } : {};
+      let hits = await searchLibrary(orgId, text, filter, 8);
+      // All the words found nothing: try any of them (unless the query already uses operators).
+      const words = text.split(/\s+/).filter(Boolean);
+      if (hits.length === 0 && words.length > 1 && !/["()]|\bOR\b|(^|\s)-/.test(text)) {
+        hits = await searchLibrary(orgId, words.join(" OR "), filter, 8);
+      }
+      return {
+        summary: hits.length ? `Found ${hits.length} document${hits.length === 1 ? "" : "s"} for "${text}".` : `Nothing in the Library matches "${text}".`,
+        data: hits.map((h) => ({
+          title: h.title,
+          file: h.fileName,
+          project: h.projectTitle,
+          page: h.page,
+          passage: h.passage,
+          link: h.projectId ? `/projects/${h.projectId}#files` : null,
+        })),
+      };
+    }
+    case "save_article": {
+      const url = str(args.url);
+      if (!/^https?:\/\//i.test(url)) return { summary: "save_article failed: give the full http(s) link." };
+      try {
+        const tags = Array.isArray(args.tags) ? args.tags.map(String) : [];
+        const saved = await saveArticle(orgId, personId, url, tags);
+        return {
+          summary: `${saved.alreadySaved ? "Updated" : "Saved"} "${saved.title}" to the Library.`,
+          data: {
+            title: saved.title,
+            source: saved.siteName,
+            author: saved.author,
+            published: saved.publishedAt ? saved.publishedAt.toISOString().slice(0, 10) : null,
+            summary: saved.summary,
+            keyPoints: saved.keyPoints,
+            tags: saved.tags,
+            link: `/library/${saved.id}`,
+            original: saved.url,
+          },
+        };
+      } catch (error) {
+        return { summary: `save_article failed: ${error instanceof Error ? error.message : "couldn't read that page"}` };
+      }
+    }
     case "read_project_discussion":
     case "post_project_comment": {
       const projectTitle = str(args.projectTitle);
@@ -1387,6 +1471,10 @@ function systemPrompt(
     "Email cleanup: to delete (trash) emails, first call search_email, then tell the user the mailbox, the " +
     "exact count and 2–3 example senders/subjects, and ask them to confirm. Only after they clearly say yes, call " +
     "trash_email_search with that mailbox, query and count. Never trash on your own initiative." +
+    "\n\nDocuments: search_library searches the full text of every project's files and the Library (English and " +
+    "Chinese). When a question could be answered by a contract, permit, warranty, invoice, manual or any other " +
+    "document, search it first and answer from the passage — name the document (and page) you used. When the user " +
+    "shares a link to keep or summarize, save_article saves it to the Library and returns its summary." +
     "\n\nConnected systems: tools named <server>__<tool> come from MCP servers the user connected (Settings → " +
     "Connectors). Use them when a request is about that system." +
     "\n\nProject discussions: read_project_discussion shows a project's comments. To comment for the user, call " +

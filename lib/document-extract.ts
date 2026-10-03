@@ -118,3 +118,49 @@ export async function extractDocumentText(
     return { name, error: error instanceof Error ? error.message : `Could not read "${name}".` };
   }
 }
+
+/** A document's text split by page where the format has pages (PDF), else one part. Full length. */
+export type DocumentParts = { parts: { page: number | null; text: string }[] } | { error: string };
+
+/**
+ * The whole text of a document, for indexing (the Library): no truncation, and a PDF's pages kept
+ * apart so a search hit can say which page. Also reads HTML and saved emails (.eml). Images and
+ * unsupported formats return an error (nothing to index without reading the picture).
+ */
+export async function extractDocumentParts(name: string, mimeType: string, buffer: Buffer): Promise<DocumentParts> {
+  const ext = name.split(".").pop()?.toLowerCase() ?? "";
+  try {
+    if (mimeType === "application/pdf" || ext === "pdf") {
+      installDomMatrixPolyfill();
+      const { PDFParse } = await import("pdf-parse");
+      const parser = new PDFParse({ data: buffer });
+      try {
+        const result = await parser.getText();
+        return { parts: result.pages.map((p) => ({ page: p.num, text: p.text })) };
+      } finally {
+        await parser.destroy();
+      }
+    }
+    if (mimeType === "text/html" || ext === "html" || ext === "htm") {
+      const { convert } = await import("html-to-text");
+      return { parts: [{ page: null, text: convert(buffer.toString("utf8"), { wordwrap: false }) }] };
+    }
+    if (mimeType === "message/rfc822" || ext === "eml") {
+      const { parseEml } = await import("@/lib/eml");
+      const mail = await parseEml(buffer);
+      const header = [`Subject: ${mail.subject}`, `From: ${mail.from}`, `To: ${mail.to}`].join("\n");
+      const { convert } = await import("html-to-text");
+      const body = mail.text ?? (mail.html ? convert(mail.html, { wordwrap: false }) : "");
+      return { parts: [{ page: null, text: `${header}\n\n${body}` }] };
+    }
+    if (mimeType.startsWith("text/") || ["md", "txt", "markdown", "csv", "json"].includes(ext)) {
+      return { parts: [{ page: null, text: buffer.toString("utf8") }] };
+    }
+    if (ext === "docx" || mimeType.includes("wordprocessingml")) return { parts: [{ page: null, text: await extractDocx(buffer) }] };
+    if (ext === "xlsx" || mimeType.includes("spreadsheetml")) return { parts: [{ page: null, text: await extractXlsx(buffer) }] };
+    if (ext === "pptx" || mimeType.includes("presentationml")) return { parts: [{ page: null, text: await extractPptx(buffer) }] };
+    return { error: mimeType.startsWith("image/") ? "Images aren't read for search yet." : `Can't read ${ext || mimeType} files yet.` };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : `Could not read "${name}".` };
+  }
+}

@@ -1235,3 +1235,70 @@ CREATE INDEX IF NOT EXISTS demo_records_org_idx ON demo_records (org_id, kind);
 ALTER TABLE demo_records DROP CONSTRAINT IF EXISTS demo_records_kind_check;
 ALTER TABLE demo_records ADD CONSTRAINT demo_records_kind_check
   CHECK (kind IN ('customer', 'project', 'project_type', 'task', 'schedule_entry', 'person', 'vendor', 'invoice', 'budget'));
+
+/* ── Library ──────────────────────────────────────────────── */
+
+-- Full-text search over everything filed (lib/library.ts): PGroonga indexes Chinese, Japanese and
+-- Korean as well as English (Postgres's own text search splits on spaces, which CJK doesn't use).
+CREATE EXTENSION IF NOT EXISTS pgroonga;
+
+-- The Library's own folders, for documents not tied to a project (insurance, licenses, manuals …).
+CREATE TABLE IF NOT EXISTS library_folders (
+  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id     uuid NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+  parent_id  uuid REFERENCES library_folders (id) ON DELETE CASCADE,
+  name       text NOT NULL,
+  created_by uuid REFERENCES people (id) ON DELETE SET NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS library_folders_name_idx
+  ON library_folders (org_id, coalesce(parent_id, '00000000-0000-0000-0000-000000000000'::uuid), lower(name));
+
+-- One searchable thing: a project's file (mirrored — it goes when the file does), a document
+-- uploaded to the Library, or a saved web article. `content` is its extracted text, `status` how
+-- indexing went.
+CREATE TABLE IF NOT EXISTS library_items (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id          uuid NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+  kind            text NOT NULL CHECK (kind IN ('project_file', 'file', 'article')),
+  project_file_id uuid UNIQUE REFERENCES project_files (id) ON DELETE CASCADE,
+  folder_id       uuid REFERENCES library_folders (id) ON DELETE SET NULL,
+  title           text NOT NULL,
+  file_path       text,
+  file_name       text,
+  content_type    text,
+  size_bytes      integer,
+  url             text,
+  site_name       text,
+  author          text,
+  published_at    timestamptz,
+  summary         text,
+  tags            text[] NOT NULL DEFAULT '{}',
+  content         text NOT NULL DEFAULT '',
+  status          text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'indexed', 'failed', 'skipped')),
+  status_detail   text,
+  indexed_at      timestamptz,
+  created_by      uuid REFERENCES people (id) ON DELETE SET NULL,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS library_items_org_idx ON library_items (org_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS library_items_pending_idx ON library_items (org_id) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS library_items_title_search_idx ON library_items USING pgroonga (title);
+
+-- An item's text in passages of about a page, each searchable on its own — so a hit can show the
+-- passage (and PDF page) it came from.
+CREATE TABLE IF NOT EXISTS library_chunks (
+  id       uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  item_id  uuid NOT NULL REFERENCES library_items (id) ON DELETE CASCADE,
+  org_id   uuid NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+  ordinal  integer NOT NULL,
+  page     integer,
+  content  text NOT NULL
+);
+CREATE INDEX IF NOT EXISTS library_chunks_item_idx ON library_chunks (item_id, ordinal);
+CREATE INDEX IF NOT EXISTS library_chunks_search_idx ON library_chunks USING pgroonga (content);
+-- A saved article's formatted copy (cleaned HTML, pictures pointing at its own stored copies) and the
+-- pictures themselves: [{ "key": storage key, "type": MIME, "size": bytes }] in order.
+ALTER TABLE library_items ADD COLUMN IF NOT EXISTS content_html text;
+ALTER TABLE library_items ADD COLUMN IF NOT EXISTS images jsonb NOT NULL DEFAULT '[]';

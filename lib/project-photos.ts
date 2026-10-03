@@ -8,6 +8,8 @@
 import { query, queryOne } from "@/lib/db";
 import type { DocType } from "@/lib/doc-types";
 import { deleteUpload, readUpload, saveUpload } from "@/lib/storage";
+import { after } from "next/server";
+import { indexProjectFile } from "@/lib/library";
 
 export type ProjectPhoto = {
   id: string;
@@ -260,7 +262,14 @@ export async function addProjectFile(input: {
       input.docType ?? "general",
     ],
   );
-  return row!.id;
+  // Into the Library (lib/library.ts): mirrored and made searchable once the response has gone.
+  const id = row!.id;
+  try {
+    after(() => indexProjectFile(id).catch((error) => console.error("[library] index", error)));
+  } catch {
+    // Outside a request (a script): the next Library sync picks it up.
+  }
+  return id;
 }
 
 export async function readProjectFileBytes(file: ProjectFile): Promise<Buffer> {

@@ -254,6 +254,7 @@ export const NAV_TOP: NavItem[] = [
   { label: "Scheduled", icon: "calendar", href: "/schedule" },
   { label: "Tasks", icon: "clipboard", href: "/tasks" },
   { label: "Email", icon: "mail", href: "/email" },
+  { label: "Library", icon: "book", href: "/library" },
 ];
 
 /** Everything else, folded into two collapsible submenus (see components/app-shell.tsx). */
@@ -305,6 +306,7 @@ export const PAGE_TITLES: Record<string, [crumb: string, title: string]> = {
   admin: ["Platform", "Admin"],
   projects: ["Work", "Projects"],
   customers: ["Work", "Customers"],
+  library: ["Work", "Library"],
   schedule: ["Work", "Scheduled"],
   tasks: ["Work", "Tasks"],
   invoices: ["Invoices", "Invoices & extraction"],

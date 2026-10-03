@@ -13,6 +13,8 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1142.0",
     "@modelcontextprotocol/sdk": "^1.31.0",
+    "@mozilla/readability": "^0.6.0",
+    "@types/sanitize-html": "^2.16.2",
     "apexcharts": "^3.54.1",
     "apns2": "^12.2.0",
     "bullmq": "^6.3.9",
@@ -23,6 +25,7 @@
     "jose": "^6.2.12",
     "jszip": "^3.10.2",
     "leaflet": "^1.9.4",
+    "linkedom": "^0.18.13",
     "mammoth": "^1.13.0",
     "next": "16.3.6",
     "nodemailer": "^10.0.13",
@@ -35,6 +38,8 @@
     "react-leaflet": "^5.0.0",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
+    "sanitize-html": "^2.18.0",
+    "sharp": "^0.35.5",
     "web-push": "^3.6.7"
   },
   "devDependencies": {
