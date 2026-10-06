@@ -5,7 +5,7 @@
  * does (lib/auth.ts signInForApp).
  *
  *   GOOGLE_IOS_CLIENT_ID  the iOS OAuth client id from Google Cloud (comma-separate several)
- *   APPLE_BUNDLE_ID       the app's bundle id, e.g. com.clandar.app (Apple's audience for app tokens)
+ *   APPLE_BUNDLE_ID       the app's bundle id(s), current first — e.g. com.clandar.mobile,com.clandar.app (Apple's audience for app tokens; the first is also the push topic)
  */
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import type { LoginIdentity } from "@/lib/auth";
@@ -40,7 +40,7 @@ export async function verifyGoogleIdToken(idToken: string): Promise<LoginIdentit
 }
 
 export async function verifyAppleIdentityToken(identityToken: string, fullName?: string | null): Promise<LoginIdentity> {
-  const audience = list(process.env.APPLE_BUNDLE_ID || "com.clandar.app");
+  const audience = list(process.env.APPLE_BUNDLE_ID || "com.clandar.mobile,com.clandar.app");
   const { payload } = await jwtVerify(identityToken, appleKeys, { issuer: "https://appleid.apple.com", audience }).catch(
     () => {
       throw new Error("Couldn't verify the Apple sign-in.");

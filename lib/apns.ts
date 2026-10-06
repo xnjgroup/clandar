@@ -21,7 +21,8 @@ function client(environment: Environment): ApnsClient {
     team: process.env.APNS_TEAM_ID!,
     keyId: process.env.APNS_KEY_ID!,
     signingKey: process.env.APNS_PRIVATE_KEY!.replace(/\\n/g, "\n"),
-    defaultTopic: process.env.APPLE_BUNDLE_ID || "com.clandar.app",
+    // APPLE_BUNDLE_ID may list several ids (the app's current one first, older ones for Sign in with Apple).
+    defaultTopic: (process.env.APPLE_BUNDLE_ID || "com.clandar.mobile").split(",")[0].trim(),
     host: environment === "sandbox" ? "api.sandbox.push.apple.com" : "api.push.apple.com",
   }));
 }
