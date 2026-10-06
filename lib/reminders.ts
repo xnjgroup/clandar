@@ -1,8 +1,8 @@
 /**
  * Firing due reminders. A reminder task is due at due_date + remind_time
  * (09:00 when unset), as wall-clock time in the task's `time_zone`. Every few
- * minutes something calls `fireDueReminders` — the in-process BullMQ tick
- * (lib/scheduled-tasks-worker.ts) and/or /api/cron/reminders (Vercel Cron or
+ * minutes something calls `fireDueReminders` — the job runners' minute tick (lib/job-runner.ts)
+ * and/or /api/cron/tick or /api/cron/reminders (Vercel Cron or
  * an external pinger). Each due reminder is claimed with one atomic UPDATE
  * (setting `reminded_at`) before anything is sent, so two schedulers running
  * at once still notify only once.

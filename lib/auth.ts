@@ -185,6 +185,65 @@ export const currentSession = cache(async (): Promise<SessionInfo | null> => {
  * they must call it themselves too (see the Next.js authentication guide's
  * guidance on treating each as its own entry point).
  */
+/* ── Admin impersonation ───────────────────────────────────── */
+
+/** Holds the admin's own session token while they're signed in as someone else. */
+const IMPERSONATOR_COOKIE = "clandar_impersonator";
+const IMPERSONATION_TTL_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * An admin signs in as `personId` (lib/admin.ts checks they're an admin): a separate, short session
+ * for that person becomes the session cookie, and the admin's own session token is kept aside to
+ * return to. Not while already impersonating.
+ */
+export async function startImpersonation(admin: SessionInfo, personId: string): Promise<void> {
+  const jar = await cookies();
+  const adminToken = jar.get(SESSION_COOKIE)?.value;
+  if (!adminToken) throw new Error("Not signed in.");
+  if (jar.get(IMPERSONATOR_COOKIE)) throw new Error("Return to your own account first.");
+  if (personId === admin.person.id) throw new Error("That's you.");
+  const target = await queryOne<{ id: string; email: string }>(`SELECT id, email FROM people WHERE id = $1 AND org_id IS NOT NULL`, [personId]);
+  if (!target) throw new Error("No such person.");
+  const { token, expiresAt } = await issueSession(target.id, IMPERSONATION_TTL_MS);
+  const cookie = { httpOnly: true, secure: isProduction(), sameSite: "lax" as const, path: "/" };
+  jar.set(IMPERSONATOR_COOKIE, adminToken, { ...cookie, expires: new Date(Date.now() + SESSION_TTL_MS) });
+  jar.set(SESSION_COOKIE, token, { ...cookie, expires: expiresAt });
+  console.log(`[admin] ${admin.person.email} started impersonating ${target.email}`);
+}
+
+/** While impersonating: the admin behind it (their kept session must still be a valid admin session). */
+export async function impersonator(): Promise<{ name: string; email: string } | null> {
+  const token = (await cookies()).get(IMPERSONATOR_COOKIE)?.value;
+  if (!token) return null;
+  const sid = await verifySessionToken(token);
+  if (!sid) return null;
+  const row = await queryOne<{ name: string; email: string }>(
+    `SELECT p.name, p.email FROM sessions s JOIN people p ON p.id = s.person_id WHERE s.id = $1 AND s.expires_at > now()`,
+    [sid],
+  );
+  const { isAdminEmail } = await import("@/lib/admin");
+  return row && isAdminEmail(row.email) ? row : null;
+}
+
+/** Back to the admin's own account: the impersonation session ends, the admin's session returns. */
+export async function stopImpersonation(): Promise<boolean> {
+  const jar = await cookies();
+  const adminToken = jar.get(IMPERSONATOR_COOKIE)?.value;
+  if (!adminToken) return false;
+  const current = jar.get(SESSION_COOKIE)?.value;
+  const sid = current ? await verifySessionToken(current) : null;
+  if (sid) await query(`DELETE FROM sessions WHERE id = $1`, [sid]);
+  const adminSid = await verifySessionToken(adminToken);
+  jar.delete(IMPERSONATOR_COOKIE);
+  if (!adminSid) {
+    jar.delete(SESSION_COOKIE);
+    return false;
+  }
+  jar.set(SESSION_COOKIE, adminToken, { httpOnly: true, secure: isProduction(), sameSite: "lax", path: "/", expires: new Date(Date.now() + SESSION_TTL_MS) });
+  console.log("[admin] impersonation ended");
+  return true;
+}
+
 /* ── Where to go after signing in ─────────────────────────── */
 
 const AFTER_SIGN_IN_COOKIE = "clandar_after_sign_in";

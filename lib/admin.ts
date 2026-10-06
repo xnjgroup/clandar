@@ -28,7 +28,8 @@ export async function requireAdmin(): Promise<SessionInfo> {
   return session;
 }
 
-export type OrgSummary = { id: string; name: string; memberCount: number; onboarded: boolean; createdAt: Date };
+export type OrgMember = { id: string; name: string; email: string; role: string; lastLoginAt: Date | null };
+export type OrgSummary = { id: string; name: string; memberCount: number; onboarded: boolean; createdAt: Date; members: OrgMember[] };
 
 /** Cross-tenant — every organization on the platform, for the admin overview. */
 export async function listAllOrganizations(): Promise<OrgSummary[]> {
@@ -38,11 +39,19 @@ export async function listAllOrganizations(): Promise<OrgSummary[]> {
        FROM organizations o
       ORDER BY o.created_at DESC`,
   );
+  // Everyone's members in one query, owners first, then by name.
+  const people = await query<{ id: string; org_id: string; name: string; email: string; role: string; last_login_at: Date | null }>(
+    `SELECT id, org_id, name, email, role, last_login_at FROM people WHERE org_id IS NOT NULL
+      ORDER BY (role = 'owner') DESC, lower(name)`,
+  );
   return rows.map((r) => ({
     id: r.id,
     name: r.name,
     memberCount: Number(r.member_count),
     onboarded: r.onboarded,
     createdAt: r.created_at,
+    members: people
+      .filter((p) => p.org_id === r.id)
+      .map((p) => ({ id: p.id, name: p.name, email: p.email, role: p.role, lastLoginAt: p.last_login_at })),
   }));
 }

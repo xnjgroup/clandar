@@ -54,7 +54,7 @@ export type ScanStatus = "running" | "completed" | "failed";
 
 export type CleanupScan = {
   id: string;
-  /** The running BullMQ job's id — what the SSE progress endpoint subscribes to. Null once finished (jobs are pruned; the Postgres row is the permanent record). */
+  /** The scan's background job id — what the SSE progress endpoint follows. Null once finished (jobs are pruned; the Postgres row is the permanent record). */
   jobId: string | null;
   label: string | null;
   status: ScanStatus;

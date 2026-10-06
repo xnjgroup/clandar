@@ -24,14 +24,18 @@ docker run -d --name clandar-postgres -p 5432:5432 \
   pgvector/pgvector:pg17
 ```
 
-### 2. Redis
+### 2. Background jobs
 
-Backs the Gmail cleanup job queue (BullMQ). Optional — everything except
-inbox analysis works without it.
+Gmail scans and bulk trash, reminders, the lead finder and scheduled automations run as jobs on a
+queue in Postgres (`background_jobs`, `lib/jobs.ts`) — no Redis. A **runner** claims and runs them:
 
-```bash
-docker run -d --name clandar-redis -p 6379:6379 --restart unless-stopped redis:7-alpine
-```
+- `npm run dev` / `npm start` runs one in-process (set `RUNNER=off` to skip it);
+- `npm run runner` runs one anywhere with the app's env — your laptop, a small always-on box — like a
+  GitHub Actions runner (`RUNNER_NAME`, `RUNNER_KINDS=trash-label,trash-search`, `RUNNER_CONCURRENCY`);
+- on Vercel, call `GET /api/cron/tick` every minute with `Authorization: Bearer $CRON_SECRET` (a Vercel
+  Cron on Pro, or any external pinger) so reminders and automations fire even when no runner is on.
+
+Admin → Background jobs shows runners and every job, with cancel and retry.
 
 ### 3. Environment
 
@@ -43,7 +47,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"  # A
 | Variable | Used for |
 | --- | --- |
 | `DATABASE_URL` | Connection string; the database it names is created by `db:setup`. |
-| `REDIS_URL` | BullMQ's connection. Defaults to `redis://localhost:6379`. |
+| `CRON_SECRET` | Protects `/api/cron/tick` (and `/api/cron/reminders`). |
 | `APP_ENCRYPTION_KEY` | AES-256-GCM key for connector secrets. Rotating it makes stored secrets unreadable. |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | OAuth client for the Gmail and Calendar connectors. Leave empty to keep them greyed out. |
 | `GOOGLE_REDIRECT_URI` | Optional. Leave unset — the redirect URI is derived per-request from whichever address you're connecting from (see below), which is what lets the same app be reached from `localhost` and, say, a phone over Tailscale without reconfiguring anything. Set this only to pin one fixed URL for a production deployment behind a stable domain. |
@@ -253,14 +257,9 @@ Payload parsing (base64url bodies, nested multiparts, `"Name" <addr>` headers) l
 `/email/cleanup` finds old, low-value mail and lets you review it before anything is
 touched — nothing is ever deleted automatically.
 
-**Analyze inbox** enqueues a scan on a BullMQ queue backed by Redis; the worker that
-runs it (`lib/gmail-cleanup-worker.ts`) starts once from `instrumentation.ts` at server
-boot, in the same process as the app — not a separate script — specifically so it can
-use the same `@/lib/...` imports as everything else (a standalone script run with plain
-`node` can't resolve that alias; only Next's own bundler does). **This means editing
-worker code needs a server restart to take effect** — `instrumentation.ts`'s `register()`
-runs once per process, and the `Worker`'s processor callback keeps whatever closure it
-captured at that point, unlike route/page code which hot-reloads normally.
+**Analyze inbox** queues a scan as a background job (see Background jobs above); a runner picks it
+up and the page shows its live progress. Job code runs inside whichever runner claims it, so editing
+it needs that runner restarted (the dev server's restarts with the server).
 
 A scan can be scoped to the whole inbox or one label (Promotions, Social, Updates,
 Forums) — `lib/cleanup-heuristics.ts`'s pure rules narrow it down first (age floor,

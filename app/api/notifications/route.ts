@@ -9,12 +9,10 @@ export type RunningJob = { jobId: string; title: string; status: JobStatus };
 
 /**
  * Bulk trashes still running for this org's Gmail accounts — shown with live
- * progress in the assistant's Updates. Only when a queue is configured
- * (REDIS_URL): without one there are no jobs, and an unreachable Redis would
- * otherwise hold this request open. Capped at 1.5s for the same reason.
+ * progress in the assistant's Updates. Capped at 1.5s so a slow database never
+ * holds this request open.
  */
 async function runningJobs(orgId: string): Promise<RunningJob[]> {
-  if (!process.env.REDIS_URL) return [];
   const lookup = (async () => {
     const connectors = await listGmailConnectors(orgId);
     const byId = new Map(connectors.map((c) => [c.id, c]));

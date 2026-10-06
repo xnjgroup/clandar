@@ -20,10 +20,8 @@ building a native app against the same backend.
   (clandar.com); `main` deploys on push.
 - **Postgres** (Supabase in production, via its transaction pooler on port 6543; `pg` driver, one
   small pool per process — `lib/db.ts`) is the only datastore for app records.
-- **Redis + BullMQ** back two background queues (Gmail jobs, scheduled work — see Background
-  workers). Everything except those features works without Redis; code that touches the queue
-  from a request path checks `REDIS_URL` first, because an unreachable Redis otherwise blocks
-  forever (`maxRetriesPerRequest: null`, as BullMQ requires).
+- **Background jobs** are a Postgres queue (`background_jobs`, `lib/jobs.ts`) — no Redis — run by
+  runners (`lib/job-runner.ts`); see Background jobs.
 - **Cloudflare R2** (S3-compatible) or local disk (`UPLOADS_DIR`) for project photos/files and
   chat attachments (`lib/storage.ts`).
 - Any **OpenAI-compatible LLM endpoint** (OpenAI, LiteLLM, LM Studio, Ollama …), configured per
@@ -178,8 +176,8 @@ The chat panel on every dashboard page (`components/assistant-widget.tsx`, serve
   tap. From an email, the assistant can summarize, draft/send replies, set a follow-up, confirm a
   schedule, attach files to a project, or record an emailed invoice (deduplicated).
 - **Bulk trash** — "Trash all spam/promotions" and the assistant's confirmed search trash run as
-  BullMQ jobs (`trash-label`, `trash-search`). Progress, **pause/resume and cancel** live in the
-  assistant's Updates (a Redis flag the worker checks before each message); the person who
+  background jobs (`trash-label`, `trash-search`). Progress, **pause/resume and cancel** live in the
+  assistant's Updates (a flag on the job the runner checks before each message); the person who
   started it gets a notification (and push) when it finishes, stops or fails. Search trashes
   re-list from the top after each batch so trashed mail can't make a page token skip messages.
   One run is capped at 2,000.
@@ -241,20 +239,24 @@ The chat panel on every dashboard page (`components/assistant-widget.tsx`, serve
   (`TimeZoneField`, `lib/time-zone.ts`), and anything with a recurring local time (reminders,
   automations) stores its zone.
 
-## Background workers
+## Background jobs
 
-Started once in-process at server boot (`instrumentation.ts`, Node runtime), so processors share
-the app's `@/lib/...` imports. **Editing worker code needs a server restart** — the processor
-closure is captured at boot.
+A queue in Postgres (`background_jobs`, `lib/jobs.ts`): enqueue with an optional id (asking again
+while one is in flight returns it), runners claim the oldest ready job with
+`FOR UPDATE SKIP LOCKED`, hold a 2-minute lease they renew, report `{ done, total, paused }`
+progress, and finish it — failures retry with backoff, a lapsed lease (dead runner) puts the job
+back in line. Pause / cancel are a `control` column the job checks between messages.
 
-1. **Gmail** (`lib/gmail-cleanup-worker.ts`) — inbox-cleanup scans and bulk trashes
-   (`trash-label`, `trash-search`) with `{ done, total, paused }` progress, a pause/cancel flag in
-   Redis, and a completion notification.
-2. **Scheduled work** (`lib/scheduled-tasks-worker.ts`) — a 5-minute tick that fires due
-   reminders, runs the lead finder and digests, and enqueues due automations.
+Runners (`lib/job-runner.ts`): in-process in `next dev` / `next start` (instrumentation.ts), or
+`npm run runner` on any machine with the env (`scripts/runner.ts`), as many as you like. Each runs
+the minute **tick** — due reminders, lead finder scans and digests, and one `scheduled-run` job per
+due automation (its id carries the run time, so it's never queued twice); `job_ticks` makes the
+tick happen once a minute however many call it. On Vercel, `/api/cron/tick` (Bearer `CRON_SECRET`)
+runs the tick and short jobs so time-based work doesn't need a runner online.
 
-`/api/cron/reminders` (Bearer `CRON_SECRET`) is the same tick for serverless hosting. Job progress
-streams to the browser over SSE (`GET /api/gmail-jobs/[jobId]`, own-org jobs only).
+Kinds: `analyze-inbox`, `trash-label`, `trash-search` (Gmail) and `scheduled-run`. Progress streams
+to the browser over SSE (`GET /api/gmail-jobs/[jobId]`, own-org jobs only). Admin → Background jobs
+lists runners and jobs with cancel / retry.
 
 ## Security notes
 

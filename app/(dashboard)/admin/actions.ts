@@ -2,7 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { encryptionConfigured } from "@/lib/crypto";
+import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/admin";
+import { startImpersonation, stopImpersonation } from "@/lib/auth";
+import { retryJob, setJobControl } from "@/lib/jobs";
 import {
   createPlatformLlmProvider,
   deletePlatformLlmProvider,
@@ -102,4 +105,35 @@ export async function removePlatformProvider(form: FormData) {
   await requireAdmin();
   await deletePlatformLlmProvider(field(form, "id"));
   revalidatePath(PATH);
+}
+
+/** Admin → Organizations → a member → "Sign in as": see Clandar as that person (2 hours, with a way back). */
+export async function impersonatePerson(form: FormData) {
+  const admin = await requireAdmin();
+  const id = form.get("personId");
+  if (typeof id !== "string") return;
+  await startImpersonation(admin, id);
+  redirect("/overview");
+}
+
+/** The banner's "Return to admin". */
+export async function endImpersonation() {
+  const back = await stopImpersonation();
+  redirect(back ? "/admin" : "/");
+}
+
+/** Admin → Background jobs: cancel a queued or running job (a running one stops at its next checkpoint). */
+export async function adminCancelJob(form: FormData) {
+  await requireAdmin();
+  const id = form.get("id");
+  if (typeof id === "string") await setJobControl(id, "cancel");
+  revalidatePath("/admin");
+}
+
+/** Admin → Background jobs: run a failed or cancelled job again. */
+export async function adminRetryJob(form: FormData) {
+  await requireAdmin();
+  const id = form.get("id");
+  if (typeof id === "string") await retryJob(id);
+  revalidatePath("/admin");
 }

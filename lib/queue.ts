@@ -1,111 +1,30 @@
 /**
- * The BullMQ queue behind Gmail background work. Server actions enqueue jobs
- * here; the worker started from `instrumentation.ts` (see
- * `lib/gmail-cleanup-worker.ts`) is what actually runs them, in the same
- * process. A scan's results land in Postgres (`cleanup_scans`/
- * `cleanup_candidates`); a job's live progress (both kinds report the same
- * `{ done, total }` shape via `job.updateProgress`) is read back through
- * `jobStatus`, and pushed to the browser over SSE by
- * `app/api/gmail-jobs/[jobId]/route.ts` — no client-side polling.
+ * Gmail background work — inbox scans and bulk trash — as jobs on the Postgres queue (lib/jobs.ts),
+ * run by a job runner (lib/job-runner.ts). A scan's results land in Postgres (`cleanup_scans` /
+ * `cleanup_candidates`); a job's live `{ done, total }` progress is on the job row, streamed to the
+ * browser by `app/api/gmail-jobs/[jobId]/route.ts`.
  */
 import { createHash } from "node:crypto";
-import { Queue, QueueEvents } from "bullmq";
-import { createRedisConnection, logRedisError, redis, withRedis } from "@/lib/redis";
+import { activeJobs, enqueueJob, getJob, setJobControl as setControl } from "@/lib/jobs";
 
-export const GMAIL_CLEANUP_QUEUE = "gmail-cleanup";
+const GMAIL_KINDS = ["analyze-inbox", "trash-label", "trash-search"];
 
-export type AnalyzeInboxJob = {
-  kind: "analyze-inbox";
-  connectorId: string;
-  /** Cap how many messages one run scans — a full inbox can be six figures. */
-  maxMessages: number;
-  /** One of `SCAN_LABELS`' ids to scope the scan to, or null for the whole inbox. */
-  label: string | null;
-};
-
-export type TrashLabelJob = {
-  kind: "trash-label";
-  connectorId: string;
-  /** One of `BULK_TRASH_LABELS`' ids — everything in it gets trashed, no review. */
-  label: string;
-  /** Who started it — told (notification + push) when it finishes. */
-  requestedBy?: string;
-};
-
-/** Everything matching a Gmail search goes to Trash — started by the assistant after the person confirms. */
-export type TrashSearchJob = {
-  kind: "trash-search";
-  connectorId: string;
-  /** Gmail search syntax, e.g. "category:promotions -category:updates". */
-  query: string;
-  requestedBy?: string;
-};
-
-export type GmailWorkerJob = AnalyzeInboxJob | TrashLabelJob | TrashSearchJob;
-
-const globalForQueue = globalThis as typeof globalThis & {
-  clandarGmailQueue?: Queue<GmailWorkerJob>;
-  clandarGmailQueueEvents?: QueueEvents;
-};
-
-export function gmailCleanupQueue(): Queue<GmailWorkerJob> {
-  if (!globalForQueue.clandarGmailQueue) {
-    globalForQueue.clandarGmailQueue = new Queue<GmailWorkerJob>(GMAIL_CLEANUP_QUEUE, {
-      connection: redis(),
-      defaultJobOptions: {
-        removeOnComplete: { count: 20 },
-        removeOnFail: { count: 20 },
-      },
-    });
-    globalForQueue.clandarGmailQueue.on("error", (error) => logRedisError("gmail-cleanup queue", error));
-  }
-  return globalForQueue.clandarGmailQueue;
-}
-
-/**
- * A dedicated connection, per BullMQ's own recommendation — `QueueEvents`
- * holds it open for a blocking read of Redis's event stream, and sharing that
- * with the `Queue` producer's traffic risks one starving the other.
- */
-export function gmailQueueEvents(): QueueEvents {
-  if (!globalForQueue.clandarGmailQueueEvents) {
-    globalForQueue.clandarGmailQueueEvents = new QueueEvents(GMAIL_CLEANUP_QUEUE, {
-      connection: createRedisConnection(),
-    });
-    globalForQueue.clandarGmailQueueEvents.on("error", (error) => logRedisError("gmail-cleanup events", error));
-  }
-  return globalForQueue.clandarGmailQueueEvents;
+async function orgOf(connectorId: string): Promise<string | null> {
+  const { getConnector } = await import("@/lib/connectors");
+  return (await getConnector(connectorId))?.orgId ?? null;
 }
 
 export async function enqueueInboxAnalysis(connectorId: string, maxMessages = 2_000, label: string | null = null) {
-  return withRedis(() => gmailCleanupQueue().add("analyze-inbox", { kind: "analyze-inbox", connectorId, maxMessages, label }));
+  return enqueueJob({ kind: "analyze-inbox", orgId: await orgOf(connectorId), payload: { connectorId, maxMessages, label }, maxAttempts: 2 });
 }
 
-/** No colons — BullMQ uses `:` as its own Redis key delimiter and rejects a custom job id containing one. */
 export function bulkTrashJobId(connectorId: string, label: string) {
   return `trash-label-${label}-${connectorId}`;
 }
 
-/**
- * Enqueues a bulk trash for one label, keyed so a second click while one is
- * already running just returns the same in-flight job rather than starting a
- * duplicate. Unlike a fresh id every time, reusing one this way means a
- * finished job has to be explicitly cleared first — BullMQ refuses to re-add
- * a job whose id already exists in a terminal (completed/failed) state.
- */
+/** A bulk trash for one label — asking again while it runs returns the same job. */
 export async function enqueueTrashLabel(connectorId: string, label: string, requestedBy?: string) {
-  return withRedis(async () => {
-    const queueRef = gmailCleanupQueue();
-    const jobId = bulkTrashJobId(connectorId, label);
-    const existing = await queueRef.getJob(jobId);
-    if (existing) {
-      const state = await existing.getState();
-      if (state !== "completed" && state !== "failed") return existing;
-      await existing.remove();
-    }
-    await setJobControl(jobId, null);
-    return queueRef.add("trash-label", { kind: "trash-label", connectorId, label, requestedBy }, { jobId });
-  });
+  return enqueueJob({ kind: "trash-label", id: bulkTrashJobId(connectorId, label), orgId: await orgOf(connectorId), payload: { connectorId, label, requestedBy } });
 }
 
 /** One job id per account + search, so asking twice while it runs doesn't start a duplicate. */
@@ -114,91 +33,50 @@ export function trashSearchJobId(connectorId: string, query: string) {
 }
 
 export async function enqueueTrashSearch(connectorId: string, query: string, requestedBy?: string) {
-  return withRedis(async () => {
-    const queueRef = gmailCleanupQueue();
-    const jobId = trashSearchJobId(connectorId, query);
-    const existing = await queueRef.getJob(jobId);
-    if (existing) {
-      const state = await existing.getState();
-      if (state !== "completed" && state !== "failed") return existing;
-      await existing.remove();
-    }
-    await setJobControl(jobId, null);
-    return queueRef.add("trash-search", { kind: "trash-search", connectorId, query, requestedBy }, { jobId });
+  return enqueueJob({ kind: "trash-search", id: trashSearchJobId(connectorId, query), orgId: await orgOf(connectorId), payload: { connectorId, query, requestedBy } });
+}
+
+export type RunningTrash = { jobId: string; connectorId: string } & ({ kind: "trash-label"; label: string } | { kind: "trash-search"; query: string });
+
+/** Bulk trashes still queued or running — for the assistant's Updates. */
+export async function runningTrashJobs(): Promise<RunningTrash[]> {
+  const jobs = await activeJobs(["trash-label", "trash-search"]);
+  return jobs.map((job) => {
+    const p = job.payload as { connectorId: string; label?: string; query?: string };
+    return job.kind === "trash-label"
+      ? { jobId: job.id, connectorId: p.connectorId, kind: "trash-label" as const, label: p.label ?? "" }
+      : { jobId: job.id, connectorId: p.connectorId, kind: "trash-search" as const, query: p.query ?? "" };
   });
 }
 
-export type RunningTrash = { jobId: string; connectorId: string } & (
-  { kind: "trash-label"; label: string } | { kind: "trash-search"; query: string }
-);
-
-/** Bulk trashes (a label or a search) still queued or running — for the assistant's Updates. */
-export async function runningTrashJobs(): Promise<RunningTrash[]> {
-  const jobs = await withRedis(() => gmailCleanupQueue().getJobs(["active", "waiting", "delayed", "prioritized"]));
-  const out: RunningTrash[] = [];
-  for (const job of jobs) {
-    if (!job?.id) continue;
-    const data = job.data;
-    if (data.kind === "trash-label")
-      out.push({ jobId: job.id, connectorId: data.connectorId, kind: data.kind, label: data.label });
-    else if (data.kind === "trash-search") {
-      out.push({ jobId: job.id, connectorId: data.connectorId, kind: data.kind, query: data.query });
-    }
-  }
-  return out;
-}
-
+/** BullMQ's state names, kept so the progress UI didn't have to change. */
 export type JobStatus = {
   state: "waiting" | "active" | "completed" | "failed" | string;
   done: number;
   total: number;
   error: string | null;
-  /** A bulk trash the person paused (it resumes where it stopped). */
   paused?: boolean;
 };
 
-/**
- * Pause / cancel for a running bulk trash. BullMQ can't pause one job, so it's
- * a flag in Redis the worker checks before each message (lib/gmail-cleanup-worker.ts):
- * "pause" holds it where it is, "cancel" stops it, no flag carries on.
- */
 export type JobControl = "pause" | "cancel";
-const controlKey = (jobId: string) => `clandar:job-control:${jobId}`;
 
 export async function setJobControl(jobId: string, control: JobControl | null): Promise<void> {
-  await withRedis(async () => {
-    if (control) await redis().set(controlKey(jobId), control, "EX", 86_400);
-    else await redis().del(controlKey(jobId));
-  });
+  await setControl(jobId, control);
 }
 
-export async function getJobControl(jobId: string): Promise<JobControl | null> {
-  const value = await withRedis(() => redis().get(controlKey(jobId)));
-  return value === "pause" || value === "cancel" ? value : null;
-}
-
-/** A job's current state and progress by its raw BullMQ id — what the SSE route sends on first connect, and what a page reads for its initial server-rendered paint. */
 export async function jobStatus(jobId: string): Promise<JobStatus | null> {
-  const job = await withRedis(() => gmailCleanupQueue().getJob(jobId));
-  if (!job) return null;
-  const state = await withRedis(() => job.getState());
-  const progress = job.progress as { done: number; total: number; paused?: boolean } | undefined;
-  return {
-    state,
-    done: progress?.done ?? 0,
-    total: progress?.total ?? 0,
-    error: state === "failed" ? (job.failedReason ?? "Unknown error") : null,
-    paused: progress?.paused ?? false,
-  };
+  const job = await getJob(jobId);
+  if (!job || !GMAIL_KINDS.includes(job.kind)) return null;
+  const state = job.status === "queued" ? "waiting" : job.status === "running" ? "active" : job.status === "cancelled" ? "completed" : job.status;
+  return { state, done: job.progress.done ?? 0, total: job.progress.total ?? 0, error: job.status === "failed" ? (job.error ?? "Unknown error") : null, paused: job.progress.paused ?? false };
 }
 
 /** Which connector a job belongs to — so the progress stream can check it's the viewer's org's. */
 export async function jobConnectorId(jobId: string): Promise<string | null> {
-  const job = await withRedis(() => gmailCleanupQueue().getJob(jobId));
-  return job?.data.connectorId ?? null;
+  const job = await getJob(jobId);
+  return job && GMAIL_KINDS.includes(job.kind) ? ((job.payload as { connectorId?: string }).connectorId ?? null) : null;
 }
 
-/** `jobStatus`, addressed by connector + label instead of a raw job id — for the trash progress panel. */
 export async function bulkTrashStatus(connectorId: string, label: string): Promise<JobStatus | null> {
   return jobStatus(bulkTrashJobId(connectorId, label));
 }

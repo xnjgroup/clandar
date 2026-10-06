@@ -10,7 +10,6 @@ export const POST = api(async (_request: Request, { params }: Context) => {
   const { org } = await apiSession();
   const id = await idParam(params, "Automation");
   if (!(await getScheduledTask(id, org.id))) throw new ApiError(404, "Automation not found.");
-  if (!process.env.REDIS_URL) throw new ApiError(503, "Background jobs aren't set up on this server.");
   await enqueueRunNow(id, org.id);
   return NextResponse.json({ ok: true }, { status: 202 });
 });

@@ -3,7 +3,6 @@
  * no session → 401 JSON; a thrown ApiError → its status and message.
  */
 import { NextResponse } from "next/server";
-import { QueueUnavailableError } from "@/lib/redis";
 import { currentSession, type SessionInfo } from "@/lib/auth";
 
 export class ApiError extends Error {
@@ -29,7 +28,6 @@ export function api<Args extends unknown[]>(handler: (...args: Args) => Promise<
       return await handler(...args);
     } catch (error) {
       if (error instanceof ApiError) return NextResponse.json({ error: error.message }, { status: error.status });
-      if (error instanceof QueueUnavailableError) return NextResponse.json({ error: error.message }, { status: 503 });
       console.error("[api]", error);
       return NextResponse.json({ error: "Something went wrong." }, { status: 500 });
     }

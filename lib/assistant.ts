@@ -986,9 +986,6 @@ async function runToolUnsafe(
             `matching emails, not the ${expected.toLocaleString("en-US")} the user confirmed. Tell them the new count and ask again. Nothing was trashed.`,
         };
       }
-      if (!process.env.REDIS_URL) {
-        return { summary: "trash_email_search failed: background jobs aren't set up on this server (no REDIS_URL), so bulk trash can't run." };
-      }
       await enqueueTrashSearch(connector.id, query, personId ?? undefined);
       return {
         summary:

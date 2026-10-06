@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "db:setup": "node --env-file-if-exists=.env.local db/setup.mts",
-    "trace": "node --env-file-if-exists=.env.local scripts/show-trace.mts"
+    "trace": "node --env-file-if-exists=.env.local scripts/show-trace.mts",
+    "runner": "tsx --import ./scripts/runner-preload.mjs --env-file-if-exists=.env.local scripts/runner.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1142.0",
@@ -17,11 +18,9 @@
     "@types/sanitize-html": "^2.16.2",
     "apexcharts": "^3.54.1",
     "apns2": "^12.2.0",
-    "bullmq": "^6.3.9",
     "eventsource-parser": "^4.1.1",
     "exceljs": "^4.4.0",
     "html-to-text": "^10.0.1",
-    "ioredis": "^6.0.0",
     "jose": "^6.2.12",
     "jszip": "^3.10.2",
     "leaflet": "^1.9.4",
@@ -39,6 +38,7 @@
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
     "sanitize-html": "^2.18.0",
+    "server-only": "^0.0.1",
     "sharp": "^0.35.5",
     "web-push": "^3.6.7"
   },
@@ -55,6 +55,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.3.6",
     "tailwindcss": "^4",
+    "tsx": "^4.23.15",
     "typescript": "^5"
   }
 }

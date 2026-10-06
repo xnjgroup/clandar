@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Icon, type IconName } from "@/components/icons";
 import { AssistantWidget } from "@/components/assistant-widget";
 import { SampleDataBanner } from "@/components/sample-data";
+import { endImpersonation } from "@/app/(dashboard)/admin/actions";
 import { HEADER_ACTIONS_ID } from "@/components/header-actions";
 import { playSound, unlockSoundOnInteraction } from "@/components/notification-sound";
 import { useNotifications } from "@/components/use-notifications";
@@ -229,6 +230,7 @@ export function AppShell({
   isAdmin,
   onSignOut,
   sampleData,
+  impersonatedBy,
 }: {
   children: ReactNode;
   user: ShellUser;
@@ -240,6 +242,8 @@ export function AppShell({
   onSignOut: () => Promise<void>;
   /** Set while the workspace has sample data — shows the banner to remove it. */
   sampleData: { hasOwnData: boolean } | null;
+  /** An admin signed in as this person (Admin → Sign in as): who, for the banner with the way back. */
+  impersonatedBy: string | null;
 }) {
   const pathname = usePathname();
   const [crumb, title] = useHeading(pathname, user?.name ?? null);
@@ -370,6 +374,18 @@ export function AppShell({
             <div id={HEADER_ACTIONS_ID} className="ml-auto flex shrink-0 items-center gap-[8px]" />
           </header>
 
+          {impersonatedBy ? (
+            <div className="flex flex-wrap items-center gap-x-[12px] gap-y-[6px] rounded-[14px] bg-bad-fg px-[14px] py-[10px] text-[12.5px] text-white">
+              <span className="min-w-0 flex-1">
+                Signed in as <strong>{user?.name ?? "this person"}</strong> ({orgName}) by admin {impersonatedBy}. Changes you make are real.
+              </span>
+              <form action={endImpersonation}>
+                <button type="submit" className="cursor-pointer rounded-full bg-white px-[12px] py-[5px] font-semibold text-bad-fg">
+                  Return to admin
+                </button>
+              </form>
+            </div>
+          ) : null}
           {sampleData ? <SampleDataBanner hasOwnData={sampleData.hasOwnData} /> : null}
           {children}
         </main>

@@ -15,7 +15,6 @@ export const POST = api(async (request: Request) => {
   if (!BULK_TRASH_LABELS.some((l) => l.id === body.label)) throw new ApiError(400, "That label can't be bulk-trashed.");
   const account = await resolveAccount(org.id, body.account ?? null);
   if (!hasGmailModifyScope(account)) throw new ApiError(403, "This account only has read access — reconnect it on the website.");
-  if (!process.env.REDIS_URL) throw new ApiError(503, "Background jobs aren't set up on this server.");
   await enqueueTrashLabel(account.id, body.label!, person.id);
   return NextResponse.json({ ok: true }, { status: 202 });
 });

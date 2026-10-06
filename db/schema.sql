@@ -1341,3 +1341,49 @@ CREATE TABLE IF NOT EXISTS mcp_grants (
   revoked_at        timestamptz
 );
 CREATE INDEX IF NOT EXISTS mcp_grants_person_idx ON mcp_grants (person_id, created_at DESC);
+
+/* ── Background jobs (Postgres queue — replaces BullMQ / Redis) ── */
+
+-- Work done outside a request: Gmail scans and bulk trash, scheduled automation runs. Runners
+-- (lib/job-runner.ts — `npm run runner` on any machine, or in-process in dev) claim a job with
+-- SELECT … FOR UPDATE SKIP LOCKED and hold a lease they renew while working; a runner that dies
+-- lets its lease lapse and the job is picked up again. `control` is pause / cancel from the UI.
+CREATE TABLE IF NOT EXISTS background_jobs (
+  id           text PRIMARY KEY,
+  kind         text NOT NULL,
+  payload      jsonb NOT NULL DEFAULT '{}',
+  org_id       uuid REFERENCES organizations (id) ON DELETE CASCADE,
+  status       text NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'running', 'completed', 'failed', 'cancelled')),
+  control      text CHECK (control IN ('pause', 'cancel')),
+  progress     jsonb NOT NULL DEFAULT '{}',
+  error        text,
+  attempts     integer NOT NULL DEFAULT 0,
+  max_attempts integer NOT NULL DEFAULT 3,
+  run_after    timestamptz NOT NULL DEFAULT now(),
+  locked_by    text,
+  lease_until  timestamptz,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  started_at   timestamptz,
+  finished_at  timestamptz,
+  updated_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS background_jobs_ready_idx ON background_jobs (run_after) WHERE status = 'queued';
+CREATE INDEX IF NOT EXISTS background_jobs_recent_idx ON background_jobs (created_at DESC);
+
+-- Runners that have checked in: shown on Admin (online when seen in the last minute).
+CREATE TABLE IF NOT EXISTS job_runners (
+  id          text PRIMARY KEY,
+  name        text NOT NULL,
+  hostname    text NOT NULL DEFAULT '',
+  kinds       text[] NOT NULL DEFAULT '{}',
+  current_job text,
+  started_at  timestamptz NOT NULL DEFAULT now(),
+  last_seen   timestamptz NOT NULL DEFAULT now()
+);
+
+-- The every-minute tick (due reminders, lead finder, scheduled automations) runs once per minute
+-- across every runner and the cron: whoever moves `last_at` forward does it.
+CREATE TABLE IF NOT EXISTS job_ticks (
+  name    text PRIMARY KEY,
+  last_at timestamptz NOT NULL DEFAULT 'epoch'
+);

@@ -65,7 +65,9 @@ _Last updated: 2026-10-02._
   photos, contract / permit PDFs, discussion, tasks, supplier invoices, budgets) and a travel plan —
   added from an empty Overview and removed in one go without touching the person's own records.
 - A customizable Overview dashboard (movable, resizable widgets).
-- Resilience: losing Redis only pauses background jobs; the site stays up.
+- Background jobs on a Postgres queue with GitHub-runner-style workers (`npm run runner` anywhere,
+  in-process in dev, a cron tick on Vercel) — Redis / BullMQ removed; Admin shows runners and every
+  job with cancel / retry.
 - Landing page = sign-in, Google Analytics, page titles, new logo and favicons.
 
 ### Clandar as an MCP server
@@ -123,10 +125,6 @@ articles, with search the chat can use.
 
 ## Next
 
-- **Background jobs without the Upstash quota problem** — the BullMQ workers poll Redis from every
-  Vercel instance and used up the free tier (Gmail bulk trash, automations and reminders are paused
-  until this is decided): cron + Postgres for scheduled work, one always-on worker host, or a paid
-  Upstash plan.
 - **Google app verification** for the Gmail scope, so connecting Gmail no longer shows "Google
   hasn't verified this app" (restricted scope → security assessment).
 - **Branded transactional emails** — one shared HTML wrapper (`lib/email-template.ts`) for invites,
